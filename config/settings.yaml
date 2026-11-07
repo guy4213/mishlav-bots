@@ -1,0 +1,81 @@
+# Mishlav study-day bot — settings.
+# Defaults per spec 4.7 are FOR TESTS; to be presented to Mishlav for approval once the system works.
+
+business_hours:
+  timezone: Asia/Jerusalem          # DST handled automatically
+  days: [sun, mon, tue, wed, thu]   # no Friday / Saturday
+  open: "09:00"
+  close: "17:00"                    # exclusive
+  # Full non-working days (statutory holidays). Verified against the Hebrew calendar (5787/5788);
+  # apps/backend/test/settings.test.ts fails if a date is wrong or a weekday holiday is missing.
+  # No statutory holidays fall between Nov 2026 and Pesach 2027. Add 2028 by Aug 2027 (the test enforces it).
+  holidays:
+    - "2027-04-22"   # Thu 15 Nisan     Pesach, first day
+    - "2027-04-28"   # Wed 21 Nisan     Pesach, seventh day
+    - "2027-05-12"   # Wed 5 Iyar       Yom HaAtzmaut (no shift this year)
+    - "2027-06-11"   # Fri 6 Sivan      Shavuot (Friday anyway)
+    - "2027-10-02"   # Sat 1 Tishri     Rosh Hashana I (Saturday anyway)
+    - "2027-10-03"   # Sun 2 Tishri     Rosh Hashana II
+    - "2027-10-11"   # Mon 10 Tishri    Yom Kippur
+    - "2027-10-16"   # Sat 15 Tishri    Sukkot (Saturday anyway)
+    - "2027-10-23"   # Sat 22 Tishri    Shemini Atzeret / Simchat Torah (Saturday anyway)
+  # Holiday eves — close early. The 13:00 close time is a test default; TODO(mishlav): confirm,
+  # and whether to call at all on Chol HaMoed (Apr 23–27, Oct 17–21 2027 — open for now).
+  half_days:
+    - { date: "2027-04-21", close: "13:00" }   # Wed  Erev Pesach
+    - { date: "2027-04-27", close: "13:00" }   # Tue  Erev Shvi'i shel Pesach
+    - { date: "2027-06-10", close: "13:00" }   # Thu  Erev Shavuot
+    - { date: "2027-10-01", close: "13:00" }   # Fri  Erev Rosh Hashana (Friday anyway)
+    - { date: "2027-10-10", close: "13:00" }   # Sun  Erev Yom Kippur
+    - { date: "2027-10-15", close: "13:00" }   # Fri  Erev Sukkot (Friday anyway)
+    - { date: "2027-10-22", close: "13:00" }   # Fri  Erev Shemini Atzeret (Friday anyway)
+
+callback:
+  min_lead_minutes: 15     # a callback must be at least this far in the future
+  max_days_ahead: 60       # beyond this the tool refuses (too_far)
+
+# Used by the Dialer (Part 4). Declared now so the file is the single source of truth.
+dialing:
+  max_attempts: 4                 # then closed_max_attempts
+  follow_up_days: 3               # rep follow-up after LINK_SENT
+  max_concurrent_calls: 20        # subject to provider quotas, with backoff
+  kill_switch: false              # stops new dials; active calls finish normally
+  wrong_number_next_phone: true   # WRONG_NUMBER -> phone 2, then phone 3, else close
+  retry:
+    NO_ANSWER: { after_minutes: 180 }   # after end of day -> next business morning
+    BUSY:      { after_minutes: 180 }
+    VOICEMAIL: { after_minutes: 180 }
+    DROPPED:   { after_minutes: 60,  counts_as_attempt: true }
+    FAILED:    { after_minutes: 15,  counts_as_attempt: false }
+
+# Field/outcome mapping: how tool calls translate into outcomes (model proposes, backend decides).
+outcome_mapping:
+  request_human:
+    wants_human: HOT_LEAD
+    pay_via_rep: HOT_LEAD
+    discount_request: HOT_LEAD
+    company_purchase: COMPANY
+    other: HUMAN_FOLLOWUP
+  end_call:
+    completed: null            # not decisive on its own
+    not_interested: NOT_INTERESTED
+    do_not_call: DO_NOT_CALL
+    voicemail: VOICEMAIL
+    already_registered: ALREADY_REGISTERED
+    wrong_number: WRONG_NUMBER
+
+testing:
+  # TEST ONLY: lets request_human carry the dictated name/phone (scenario 3 digit-by-digit check).
+  # MUST be false in production — spec 4.2 forbids a phone parameter.
+  capture_dictated_details: true
+  log_dir: logs
+  scoring:                       # pass criteria, spec 3.5
+    max_avg_latency_ms: 1200
+    max_latency_ms: 2000
+    min_voice_score: 4
+    provider_priority: [A, C, B] # by maintenance simplicity
+    cost_close_pct: 15           # flag when a lower-priority passer is this much cheaper per minute
+
+# Gold Excel import column mapping (Part 4). TODO(mishlav): fill in from a sample file.
+gold_import:
+  columns: {}

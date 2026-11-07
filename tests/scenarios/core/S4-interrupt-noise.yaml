@@ -1,0 +1,28 @@
+id: S4
+name: Interruption and noise
+core: true
+description: >
+  Call from the street with background noise. The actor interrupts the bot mid-sentence while it reads
+  the details and talks fast. The bot must stop, listen and continue correctly - here, ending with a link.
+  Barge-in behaviour is judged by ear (manual check).
+context:
+  first_name: "אבי"
+  interested_day_id: payroll-2027-01-12-zoom
+actor_script:
+  - "(street noise, from a mobile outside the office) כן כן, תגידי."
+  - "(interrupt while the bot reads the details) רגע רגע, זה בזום נכון? כמה זה?"
+  - "(fast) אוקיי מעולה תשלחי לי קישור בבקשה תודה."
+expect:
+  outcome: LINK_SENT
+  required_tools:
+    - tool: send_purchase_link
+      params:
+        day_id: { equals: payroll-2027-01-12-zoom }
+  manual_checks:
+    - "Bot stopped speaking within ~1s of being interrupted"
+    - "Bot answered the interrupting question (format + price) correctly"
+    - "No repeated or garbled sentences after the interruption"
+simulate:
+  - { tool: get_day_info, params: { day_id: payroll-2027-01-12-zoom } }
+  - { tool: send_purchase_link, params: { day_id: payroll-2027-01-12-zoom } }
+  - { tool: end_call, params: { reason: completed } }

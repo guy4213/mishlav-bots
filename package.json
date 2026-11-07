@@ -1,0 +1,37 @@
+{
+  "name": "mishlav-bots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mishlav College study-day voice bot — provider test infrastructure (Part 1)",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @mishlav/backend",
+    "dev:tunnel": "npm run dev:tunnel -w @mishlav/backend",
+    "start": "npm run start -w @mishlav/backend",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "session": "tsx scripts/session.ts",
+    "simulate": "tsx scripts/simulate.ts",
+    "score": "tsx scripts/score-calls.ts",
+    "tools:export": "tsx scripts/export-tools.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "@mishlav/shared": "*",
+    "yaml": "^2.6.1",
+    "zod": "^4.0.0"
+  }
+}

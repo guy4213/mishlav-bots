@@ -1,0 +1,141 @@
+{
+  "generated_by": "npm run tools:export — do not edit by hand",
+  "capture_dictated_details": true,
+  "webhook": {
+    "method": "POST",
+    "url": "https://<ngrok-host>/tools/<tool name>",
+    "headers": {
+      "X-Tools-Secret": "<TOOLS_SECRET> (store as a provider secret)",
+      "X-Provider": "A | B | C",
+      "X-Call-Id": "ElevenLabs: {{system__conversation_id}} · LiveKit: room name"
+    },
+    "body": "JSON object with the tool parameters below"
+  },
+  "tools": [
+    {
+      "name": "get_day_info",
+      "description": "Get the details of one study day (date, hours, location, price, agenda) and the general policies. Call before quoting any detail. Use only a day_id from the catalogue.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "day_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Study day id from the closed catalogue in the prompt",
+            "enum": [
+              "payroll-2026-12-08-zoom",
+              "payroll-2026-12-22-hotel",
+              "payroll-2027-01-12-zoom"
+            ]
+          }
+        },
+        "required": [
+          "day_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "send_purchase_link",
+      "description": "Send the customer a purchase link for one study day, to the phone number on file. Call only after the customer agreed to receive a link. Never takes a phone number.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "day_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Study day id from the closed catalogue in the prompt",
+            "enum": [
+              "payroll-2026-12-08-zoom",
+              "payroll-2026-12-22-hotel",
+              "payroll-2027-01-12-zoom"
+            ]
+          }
+        },
+        "required": [
+          "day_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "schedule_callback",
+      "description": "Schedule a callback at the time the customer asked for. If the time is outside business hours, the response proposes an alternative - confirm it with the customer before ending.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "requested_time": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 40,
+            "description": "ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)"
+          }
+        },
+        "required": [
+          "requested_time"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "request_human",
+      "description": "Hand the customer to a human rep: wants a person, pays via a rep, company pays, asks for a discount, or asks something that is not in the knowledge base (other).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "wants_human",
+              "pay_via_rep",
+              "company_purchase",
+              "discount_request",
+              "other"
+            ],
+            "description": "Why a human rep is needed"
+          },
+          "name": {
+            "description": "TEST ONLY: name the customer dictated",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "phone": {
+            "description": "TEST ONLY: phone number the customer dictated, digits exactly as heard",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "end_call",
+      "description": "End the call. Pass the reason: completed, not_interested, do_not_call (asked to be removed), voicemail (reached an answering machine - say nothing), already_registered, wrong_number.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "description": "Why the call ends",
+            "type": "string",
+            "enum": [
+              "completed",
+              "not_interested",
+              "do_not_call",
+              "voicemail",
+              "already_registered",
+              "wrong_number"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

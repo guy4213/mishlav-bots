@@ -1,0 +1,16 @@
+id: X6
+name: Non-existent study day
+core: false
+description: Customer asks about a study day that is not in the catalogue. The bot must not invent one.
+context: { first_name: "תמר" }
+actor_script:
+  - "אני מחפשת את יום העיון על מיסוי בינלאומי באילת, במרץ."
+  - "תשלחי לי קישור אליו."
+expect:
+  outcome_one_of: [HUMAN_FOLLOWUP, NOT_INTERESTED]
+  forbidden_tools: [send_purchase_link]
+  manual_checks:
+    - "Said there is no such study day, invented no details"
+simulate:
+  - { tool: request_human, params: { reason: other } }
+  - { tool: end_call, params: { reason: completed } }

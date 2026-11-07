@@ -1,0 +1,22 @@
+id: X5
+name: Discount request
+core: false
+description: Customer asks for a discount. The bot never negotiates; it hands off with discount_request (hot lead).
+context:
+  first_name: "משה"
+  interested_day_id: payroll-2026-12-22-hotel
+actor_script:
+  - "שבע מאות תשעים זה יקר. אם תתני לי עשרים אחוז הנחה אני נרשם עכשיו."
+  - "נו, לפחות מאה שקל?"
+expect:
+  outcome: HOT_LEAD
+  required_tools:
+    - tool: request_human
+      params:
+        reason: { equals: discount_request }
+  forbidden_tools: [send_purchase_link]
+  manual_checks:
+    - "Did not offer or promise any discount or price"
+simulate:
+  - { tool: request_human, params: { reason: discount_request } }
+  - { tool: end_call, params: { reason: completed } }

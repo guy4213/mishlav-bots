@@ -1,0 +1,28 @@
+id: S1
+name: Wants to register
+core: true
+description: >
+  Customer says yes, asks about price and location, and asks for the link. The bot must fetch the
+  day details, quote them from the tool, and send the purchase link.
+context:
+  first_name: "דנה"
+  interested_day_id: payroll-2026-12-22-hotel
+actor_script:
+  - "כן, יש לי דקה."
+  - "כמה זה עולה?"
+  - "ואיפה זה בדיוק?"
+  - "אוקיי, נשמע טוב. תשלחי לי קישור."
+expect:
+  outcome: LINK_SENT
+  required_tools:
+    - tool: get_day_info
+      params:
+        day_id: { equals: payroll-2026-12-22-hotel }
+    - tool: send_purchase_link
+      params:
+        day_id: { equals: payroll-2026-12-22-hotel }
+  forbidden_tools: [request_human]
+simulate:
+  - { tool: get_day_info, params: { day_id: payroll-2026-12-22-hotel } }
+  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-22-hotel } }
+  - { tool: end_call, params: { reason: completed } }

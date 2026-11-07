@@ -1,0 +1,19 @@
+id: S5
+name: Removal with English words
+core: true
+description: >
+  Customer mixes English and asks to be removed from the list. The bot must end with
+  end_call(do_not_call), make no persuasion attempt, and stay in Hebrew (language judged by ear).
+context:
+  first_name: "רונית"
+actor_script:
+  - "יש לי zoom עכשיו, ותורידי אותי מהרשימה."
+expect:
+  outcome: DO_NOT_CALL
+  required_tools:
+    - tool: end_call
+      params:
+        reason: { equals: do_not_call }
+  forbidden_tools: [send_purchase_link, schedule_callback]
+simulate:
+  - { tool: end_call, params: { reason: do_not_call } }

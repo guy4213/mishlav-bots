@@ -1,0 +1,22 @@
+id: S2
+name: Busy - callback
+core: true
+description: >
+  Customer is busy and asks to be called back next Tuesday at ten. The bot must schedule a callback
+  for a Tuesday at 10:00 (the nearest upcoming Tuesday or the one after are both accepted).
+context:
+  first_name: "יוסי"
+  interested_day_id: payroll-2026-12-08-zoom
+actor_script:
+  - "אני באמצע משהו עכשיו."
+  - "תחזרי אליי ביום שלישי הבא בעשר."
+expect:
+  outcome: CALLBACK
+  required_tools:
+    - tool: schedule_callback
+      params:
+        requested_time: { local_datetime: { weekday: tue, time: "10:00", max_days_ahead: 14 } }
+  forbidden_tools: [send_purchase_link]
+simulate:
+  - { tool: schedule_callback, params: { requested_time: "{{next_weekday:tue}}T10:00:00" } }
+  - { tool: end_call, params: { reason: completed } }

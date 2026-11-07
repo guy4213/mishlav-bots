@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+logs/
+results/
+tests/results/manual-inputs.yaml
+*.log
+.DS_Store

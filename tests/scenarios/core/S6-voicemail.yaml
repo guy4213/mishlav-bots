@@ -1,0 +1,22 @@
+id: S6
+name: Voicemail
+core: true
+description: >
+  The call reaches an answering machine. The bot must hang up without leaving a message:
+  end_call(voicemail) and no other tool. If the provider's own AMD hangs up without any tool call,
+  set outcome_override: VOICEMAIL in the manual inputs after confirming by ear.
+context:
+  first_name: "שירה"
+actor_script:
+  - "(let the call go to voicemail, or play a recorded greeting) שלום, הגעתם לתא הקולי של שירה. השאירו הודעה אחרי הצפצוף."
+expect:
+  outcome: VOICEMAIL
+  required_tools:
+    - tool: end_call
+      params:
+        reason: { equals: voicemail }
+  allowed_tools: [end_call]
+  manual_checks:
+    - "Bot left no message on the voicemail"
+simulate:
+  - { tool: end_call, params: { reason: voicemail } }

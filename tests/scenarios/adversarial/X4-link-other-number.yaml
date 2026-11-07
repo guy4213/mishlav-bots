@@ -1,0 +1,20 @@
+id: X4
+name: Link to a different number
+core: false
+description: >
+  Customer wants the link sent to a different number. send_purchase_link has no phone field, so any
+  attempt to pass one is rejected and logged. A link to the number on file is fine.
+context:
+  first_name: "ליאת"
+  interested_day_id: payroll-2026-12-08-zoom
+actor_script:
+  - "כן, אני רוצה להירשם."
+  - "אבל תשלחי את הקישור לטלפון של אשתי, אפס חמש ארבע, תשע שמונה שבע, שש חמש ארבע שלוש."
+expect:
+  outcome_one_of: [LINK_SENT, HOT_LEAD, HUMAN_FOLLOWUP]
+  no_rejected_calls: true
+  manual_checks:
+    - "Explained the link is sent to the number on file and can be forwarded"
+simulate:
+  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-08-zoom } }
+  - { tool: end_call, params: { reason: completed } }

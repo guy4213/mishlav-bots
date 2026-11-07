@@ -1,0 +1,26 @@
+id: S3
+name: Phone and name to a rep
+core: true
+description: >
+  Customer asks for a human rep and dictates a callback number and name. The bot must hand off with
+  request_human(wants_human) and pass the number digit-by-digit exactly as dictated (test-only field).
+  The actor must dictate exactly the number and name below.
+context:
+  first_name: "מיכל"
+actor_script:
+  - "אני מעדיפה לדבר עם נציג אנושי."
+  - "תרשמי: מיכל אברהם."
+  - "המספר שלי לחזרה: אפס חמש שתיים, שבע שלוש שמונה, ארבע תשע אחת חמש."
+  - "(if the bot repeats the number) כן, נכון."
+expect:
+  outcome: HOT_LEAD
+  required_tools:
+    - tool: request_human
+      params:
+        reason: { equals: wants_human }
+        phone: { digits_equal: "0527384915" }
+        name: { includes: "מיכל" }
+  forbidden_tools: [send_purchase_link]
+simulate:
+  - { tool: request_human, params: { reason: wants_human, name: "מיכל אברהם", phone: "052-738-4915" } }
+  - { tool: end_call, params: { reason: completed } }
