@@ -15,7 +15,7 @@
 | Config | YAML (`yaml` package) | `config/settings.yaml` |
 | Tests | vitest | `npm test` |
 | Tunnel | ngrok (CLI, or `@ngrok/ngrok` via `npm run dev:tunnel`) | |
-| Voice worker (B/C) | Python, LiveKit Agents | Part 3.2 — not built yet |
+| Voice worker (C, then B) | Python, LiveKit Agents, Gemini `RealtimeModel` (`gemini-3.8-live`) | Part 3, first step — not built yet |
 | Production DB | Supabase (Postgres + RLS) | Part 4 |
 | Hosting | Render, Frankfurt | Part 4 |
 
@@ -38,7 +38,7 @@ mishlav-bots/
         routes/tools.ts   POST /tools/*
         routes/test.ts    /test/session, /test/metrics, /test/calls
       test/               vitest
-    voice-worker/         Python LiveKit agent (branches B, C) — Part 3.2
+    voice-worker/         Python LiveKit agent (C first, then B) — Part 3
   packages/
     shared/               types, outcome enum, tool schemas, settings schema, time + business hours
   config/
@@ -298,7 +298,7 @@ avg_provider_ms, duration_sec, cost_usd, notes`.
 Each criterion is `PASS | FAIL | PENDING`. Provider status: all PASS → `PASS`; only #4 FAIL →
 `TUNE_LATENCY`; any FAIL → `FAIL`; else `PENDING`.
 
-**Decision:** passers ordered by `provider_priority` (`[A, C, B]`) → winner. Cost per minute is shown
+**Decision:** passers ordered by `provider_priority` (`[C, A, B]`, team decision; PDF: `[A, C, B]`) → winner. A provider ranked above all undecided ones wins immediately, so a C pass needs no A/B calls. Cost per minute is shown
 for every passer; if a lower-priority passer is cheaper by ≥ `cost_close_pct`, the summary flags it for
 a human call. No passer: any `TUNE_LATENCY` → "tune and re-test"; any `PENDING` → "incomplete"; else
 **"STOP — update Mishlav"**. Output: console + `results/summary.md`.
@@ -311,6 +311,8 @@ a human call. No passer: any `TUNE_LATENCY` → "tune and re-test"; any `PENDING
 2. **`request_human.name/phone` (test only).** Scenario 3 checks the dictated phone digit-by-digit.
    Controlled by `testing.capture_dictated_details`; must be `false` in production, where 4.2 forbids a
    phone parameter.
+3. **Provider order C → A → B.** Team decision: Gemini Live is tested first and has top priority
+   (`testing.scoring.provider_priority: [C, A, B]`). The PDF had A → C → B.
 
 ## 10. Security in Part 1
 
@@ -322,10 +324,11 @@ a human call. No passer: any `TUNE_LATENCY` → "tune and re-test"; any `PENDING
 
 ## 11. Later phases (outline)
 
-**Part 3.** A: configure webhooks to `https://<ngrok>/tools/<name>` with secret header + `X-Call-Id:
-{{system__conversation_id}}` + `X-Provider: A`. B/C: `apps/voice-worker` (Python, LiveKit Agents) with
-`VOICE_PROVIDER=soniox_eleven|gemini`, function tools that POST to the same server, metrics posted to
-`/test/metrics` from LiveKit's per-turn metrics.
+**Part 3 — order C → A → B.** C first: `apps/voice-worker` (Python, LiveKit Agents) with Gemini
+`RealtimeModel` (`gemini-3.8-live`), `X-Provider: C`, `X-Call-Id: <room name>`; B later reuses it via
+`VOICE_PROVIDER=soniox_eleven`. The worker's function tools POST to the same server; per-turn metrics
+from LiveKit are posted to `/test/metrics`. A: configure webhooks to `https://<ngrok>/tools/<name>`
+with secret header + `X-Call-Id: {{system__conversation_id}}` + `X-Provider: A`.
 
 **Part 4 (shared).** Supabase schema: `contacts, phones, dial_queue, call_attempts, call_results,
 block_list, imports, exports, audit_log`; RLS on all; three projects. Dialer: `SELECT … FOR UPDATE SKIP

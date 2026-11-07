@@ -181,21 +181,27 @@ describe("provider evaluation and decision", () => {
     { ...providerRun(p), status, costPerMin: cost },
   ];
 
-  it("decides by priority A > C > B", () => {
-    expect(decide(new Map([pr("A", "PASS"), pr("B", "PASS"), pr("C", "PASS")]), settings)).toMatchObject({ kind: "WINNER", winner: "A" });
-    expect(decide(new Map([pr("A", "FAIL"), pr("B", "PASS"), pr("C", "PASS")]), settings)).toMatchObject({ kind: "WINNER", winner: "C" });
+  it("decides by priority C > A > B", () => {
+    expect(settings.testing.scoring.provider_priority).toEqual(["C", "A", "B"]);
+    expect(decide(new Map([pr("A", "PASS"), pr("B", "PASS"), pr("C", "PASS")]), settings)).toMatchObject({ kind: "WINNER", winner: "C" });
+    expect(decide(new Map([pr("A", "PASS"), pr("B", "PASS"), pr("C", "FAIL")]), settings)).toMatchObject({ kind: "WINNER", winner: "A" });
     expect(decide(new Map([pr("A", "FAIL"), pr("B", "PASS"), pr("C", "FAIL")]), settings)).toMatchObject({ kind: "WINNER", winner: "B" });
   });
 
+  it("C passing alone is enough — no need to wait for A or B", () => {
+    expect(decide(new Map([pr("C", "PASS")]), settings)).toMatchObject({ kind: "WINNER", winner: "C" });
+    expect(decide(new Map([pr("C", "PASS"), pr("A", "PENDING"), pr("B", "PENDING")]), settings)).toMatchObject({ kind: "WINNER", winner: "C" });
+  });
+
   it("a higher-priority provider that is pending or needs tuning blocks the decision", () => {
-    expect(decide(new Map([pr("A", "PENDING"), pr("C", "PASS")]), settings).kind).toBe("INCOMPLETE");
-    expect(decide(new Map([pr("A", "TUNE_LATENCY"), pr("C", "PASS")]), settings).kind).toBe("TUNE");
+    expect(decide(new Map([pr("C", "PENDING"), pr("A", "PASS")]), settings).kind).toBe("INCOMPLETE");
+    expect(decide(new Map([pr("C", "TUNE_LATENCY"), pr("A", "PASS")]), settings).kind).toBe("TUNE");
   });
 
   it("no passer -> STOP; cheaper lower-priority passer is flagged", () => {
     expect(decide(new Map([pr("A", "FAIL"), pr("B", "FAIL"), pr("C", "FAIL")]), settings).kind).toBe("STOP");
-    const d = decide(new Map([pr("A", "PASS", 0.2), pr("B", "PASS", 0.1), pr("C", "FAIL")]), settings);
-    expect(d.winner).toBe("A");
+    const d = decide(new Map([pr("C", "PASS", 0.2), pr("B", "PASS", 0.1), pr("A", "FAIL")]), settings);
+    expect(d.winner).toBe("C");
     expect(d.notes.join()).toContain("B also passes and is 50% cheaper");
   });
 });

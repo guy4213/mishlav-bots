@@ -34,13 +34,13 @@ send `X-Provider: A|B|C` and `X-Call-Id`.
 ## Testing a provider (Part 3)
 
 ```bash
-npm run session -- start --provider A --scenario S1 --actor female   # prints the actor script
+npm run session -- start --provider C --scenario S1 --actor female   # prints the actor script (C = Gemini Live, tested first)
 #   ... make the call ...
 npm run session -- calls     # what the bot called, right now
 npm run session -- end
 ```
 
-Repeat for S1–S6 per provider. Then fill `tests/results/manual-inputs.yaml` (copy the `.example`):
+Repeat for S1–S6 per provider, in order C → A → B (A and B only if C does not pass). Then fill `tests/results/manual-inputs.yaml` (copy the `.example`):
 language switches, manual checks, latencies the provider doesn't post, cost/min, blind voice scores.
 
 ```bash
@@ -63,7 +63,7 @@ npm run simulate -- --core --base-url https://<ngrok-host>   # verify the tunnel
 | Path | What |
 |------|------|
 | `apps/backend` | Tools server (Fastify). Mock answers now, real Tools API in Part 4 |
-| `apps/voice-worker` | Python LiveKit agent for providers B/C (Part 3.2, not built yet) |
+| `apps/voice-worker` | Python LiveKit agent: provider C (Gemini Live, tested first), later B — not built yet |
 | `packages/shared` | Outcome enum, tool schemas, settings schema, time zone + business hours |
 | `config/settings.yaml` | Business hours, holidays, retry rules, outcome mapping, pass thresholds |
 | `config/prompt.md` | The agent prompt (Hebrew), same for every provider |

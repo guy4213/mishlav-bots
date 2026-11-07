@@ -364,7 +364,7 @@ export interface Decision {
   notes: string[];
 }
 
-/** Spec 3.5: first passer in priority order (A, C, B); a higher-priority undecided provider blocks. */
+/** Spec 3.5: first passer in `provider_priority` order (C, A, B); a higher-priority undecided provider blocks. */
 export function decide(results: Map<Provider, ProviderResult>, settings: Settings): Decision {
   const { provider_priority: priority, cost_close_pct } = settings.testing.scoring;
   const notes: string[] = [];

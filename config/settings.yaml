@@ -73,7 +73,7 @@ testing:
     max_avg_latency_ms: 1200
     max_latency_ms: 2000
     min_voice_score: 4
-    provider_priority: [A, C, B] # by maintenance simplicity
+    provider_priority: [C, A, B] # C (Gemini Live) first by team decision; PDF had A, C, B
     cost_close_pct: 15           # flag when a lower-priority passer is this much cheaper per minute
 
 # Gold Excel import column mapping (Part 4). TODO(mishlav): fill in from a sample file.

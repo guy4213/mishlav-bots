@@ -22,7 +22,7 @@ So we test that first, on a small, cheap infrastructure — not after building t
 |---|------|-----------|-----------|
 | 1 | **Test infrastructure** (shared by all providers) | — | ~5 |
 | 2 | The three candidate providers (description only) | — | — |
-| 3 | **Provider testing**: setup + 18 calls → **provider decision** | Part 1 | ~10 |
+| 3 | **Provider testing**: **C (Gemini Live) first**, then A, then B — setup + 6 calls each → **provider decision** | Part 1 | ~10 |
 | 4a | **Shared production build** (4.1–4.9) — starts in parallel with Part 3, provider-independent | Part 1 (tools server) | ~43 |
 | 4b | **Winning branch**: A / B / C | Part 3 decision | ~15 / 21 / 19 |
 | | **Total by winning branch** | | **A ~73 · B ~79 · C ~77** |
@@ -65,6 +65,7 @@ time, call cost). A `score-calls` script fills most columns automatically from t
 | Shape | Full platform: STT (Scribe), LLM, TTS (v4 Turbo), telephony | Soniox STT → LLM → ElevenLabs TTS, orchestrated by LiveKit | One speech-to-speech model, orchestrated by LiveKit |
 | Strong | Fastest to stand up; best-proven Hebrew voice | Strongest proof of Hebrew STT (Israeli companies in production); every part swappable | Low latency, natural flow, built-in interruption and tools |
 | Weak | No production proof of Hebrew phone STT in Israel; single-vendor lock-in | More moving parts; latency adds up across 3 stages | Reports of v3.8 not recognising "כן" and switching language; language lock only via prompt; no voice cloning |
+| Model | Scribe + LLM + v4 Turbo | Soniox + LLM + ElevenLabs | `gemini-3.8-live` (GA, Google's recommended Live model; confirm exact id at setup) |
 | Accounts | ElevenLabs, Twilio | LiveKit Cloud, Soniox, ElevenLabs (own key), LLM key | LiveKit Cloud (Google key optional via LiveKit Inference) |
 | Our own voice code | None | Python `voice-worker` | Python `voice-worker` |
 
@@ -74,17 +75,24 @@ our tools. ElevenLabs Agents has all of this built in, so branch A has no LiveKi
 
 ## 5. Part 3 — How each provider is tested
 
+**Test order (team decision, changed from the PDF): C → A → B.** Gemini Live is tested first. If it
+passes all five criteria it is the winner and A and B are not needed; otherwise (or to compare cost) we
+continue with A, then B.
+
 **Setup**
+- **C first (~3h):** one Python LiveKit agent (Voice AI Quickstart) with Gemini `RealtimeModel`
+  (`gemini-3.8-live`); same prompt, same 5 tools → same tools server; LiveKit's free US number; **team
+  calls the bot** (inbound only for now). The worker is built with a switch
+  `VOICE_PROVIDER=gemini | soniox_eleven` so B reuses it later. *Note:* calling a US number may cost
+  money; the Build plan includes 50 free inbound minutes.
 - **A (~2h):** agent in the ElevenLabs dashboard with `prompt.md` + knowledge; 5 tools as webhooks to
   the ngrok URL; Twilio number connected; team mobiles verified; **bot calls the team** (outbound).
   *Check first:* Twilio trial ≈ 75 min and verified numbers only; ElevenLabs' Twilio integration likely
   needs a paid Twilio account (tens of dollars).
-- **B + C (~4h):** one Python LiveKit agent (Voice AI Quickstart) with a switch
-  `VOICE_PROVIDER=soniox_eleven | gemini`; same prompt, same 5 tools → same tools server; LiveKit's free
-  US number; **team calls the bot** (inbound only for now). *Note:* calling a US number may cost money;
-  the Build plan includes 50 free inbound minutes.
+- **B (~1h on top of C):** same worker, `VOICE_PROVIDER=soniox_eleven` (Soniox STT → LLM → ElevenLabs
+  TTS), same number and tools.
 
-**Scenarios (6 per provider, 18 total).** Two team members (male + female) play the customer, some
+**Scenarios (6 per provider, up to 18 total).** Two team members (male + female) play the customer, some
 calls from a mobile outside the office.
 
 | # | Scenario | Expected |
@@ -116,8 +124,9 @@ credit card (and verifying it's not stored), impersonation.
 4. Average response time ≤ 1.2 s and no single response > 2 s.
 5. Average voice score ≥ 4.
 
-**Decision rule.** Whoever passes all criteria. If several pass: **A, then C, then B** (by maintenance
-simplicity); cost per minute decides when results are close. Failed only on latency → tune first, then
+**Decision rule.** Whoever passes all criteria. If several pass: **C, then A, then B** (team decision;
+the PDF had A, C, B by maintenance simplicity); cost per minute is flagged when results are close. Since
+C is first, a C pass decides on its own — the decision doesn't wait for A or B. Failed only on latency → tune first, then
 disqualify. **No provider passed → stop and update Mishlav before continuing.**
 
 ## 6. Part 4 — Production build
@@ -227,3 +236,4 @@ provider is down).
 |------|-----|-----------|-----|
 | `end_call` | No parameters | Optional `reason` from a closed list | Scenarios 5–6 (`DO_NOT_CALL`, `VOICEMAIL`) must be scored from the log, not the transcript |
 | `request_human` | `reason` only | + test-only `name`, `phone`, enabled by `testing.capture_dictated_details` | Scenario 3 checks the dictated phone digit-by-digit; disabled in production per 4.2 |
+| Provider order | Priority A → C → B | Test **and** priority order **C → A → B** (`provider_priority: [C, A, B]`) | Team decision: start with Gemini Live (`gemini-3.8-live`) |
