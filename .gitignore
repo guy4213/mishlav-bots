@@ -7,3 +7,13 @@ results/
 tests/results/manual-inputs.yaml
 *.log
 .DS_Store
+
+# Python (apps/voice-worker)
+.venv/
+__pycache__/
+.pytest_cache/
+recordings/
+
+# Call recordings + transcripts (contain customer phone numbers / PII)
+recordings/
+transcripts/

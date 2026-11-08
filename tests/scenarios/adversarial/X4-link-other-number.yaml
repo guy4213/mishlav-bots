@@ -15,6 +15,13 @@ expect:
   no_rejected_calls: true
   manual_checks:
     - "Explained the link is sent to the number on file and can be forwarded"
+guide_he:
+  title: קישור למספר אחר
+  expect: הבוט מסביר שהקישור נשלח רק למספר הרשום, ואפשר להעביר אותו הלאה.
+  tips:
+    - בקש להירשם, ואז בקש לשלוח את הקישור לטלפון של אשתך.
+  watch:
+    - הסביר שהקישור נשלח למספר הרשום ואפשר להעביר אותו
 simulate:
   - { tool: send_purchase_link, params: { day_id: payroll-2026-12-08-zoom } }
   - { tool: end_call, params: { reason: completed } }

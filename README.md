@@ -10,6 +10,17 @@ infrastructure.**
 > **Windows PowerShell:** `npm run x -- --flag` drops `--flag` (PowerShell eats the `--`).
 > Use `npm.cmd run x -- --flag`, or run from Git Bash.
 
+## Provider testing — the easy way
+
+```bash
+npm run lab      # starts the tools server + the voice bot, opens the dashboard in the browser
+```
+
+The dashboard (Hebrew) walks through each test: pick provider + scenario → what to say and what the bot
+must do → talk to the bot from the browser mic (or call the LiveKit number) while watching its tool
+calls and transcript live → a short form after the call → progress, the 5 criteria and the decision.
+Answers are saved to `tests/results/manual-inputs.yaml`. Needs `LIVEKIT_*` and `GOOGLE_API_KEY` in `.env`.
+
 ## Setup
 
 ```bash
@@ -63,7 +74,7 @@ npm run simulate -- --core --base-url https://<ngrok-host>   # verify the tunnel
 | Path | What |
 |------|------|
 | `apps/backend` | Tools server (Fastify). Mock answers now, real Tools API in Part 4 |
-| `apps/voice-worker` | Python LiveKit agent: provider C (Gemini Live, tested first), later B — not built yet |
+| `apps/voice-worker` | Python LiveKit agent: provider C (Gemini Live, tested first), later B — see its README |
 | `packages/shared` | Outcome enum, tool schemas, settings schema, time zone + business hours |
 | `config/settings.yaml` | Business hours, holidays, retry rules, outcome mapping, pass thresholds |
 | `config/prompt.md` | The agent prompt (Hebrew), same for every provider |

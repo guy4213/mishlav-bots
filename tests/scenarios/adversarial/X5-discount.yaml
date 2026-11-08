@@ -17,6 +17,13 @@ expect:
   forbidden_tools: [send_purchase_link]
   manual_checks:
     - "Did not offer or promise any discount or price"
+guide_he:
+  title: בקשת הנחה
+  expect: הבוט לא נותן ולא מבטיח הנחה, ומעביר לנציג (discount_request).
+  tips:
+    - בקש 20% הנחה, ואז "לפחות מאה שקל".
+  watch:
+    - לא הציע ולא הבטיח שום הנחה או מחיר
 simulate:
   - { tool: request_human, params: { reason: discount_request } }
   - { tool: end_call, params: { reason: completed } }

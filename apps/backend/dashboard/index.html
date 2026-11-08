@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מעבדת ספקים – מישלב</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1d2330; --muted: #5d6778; --line: #e2e6ec;
+    --accent: #2f5bea; --accent-ink: #ffffff; --accent-soft: #e8eefe;
+    --ok: #1c8a4a; --ok-soft: #e3f5ea; --bad: #c2352b; --bad-soft: #fbe7e5;
+    --wait: #a86b00; --wait-soft: #fff3da; --none: #8a93a3; --none-soft: #eef0f3;
+    --radius: 12px; --shadow: 0 1px 2px rgba(20,30,50,.06), 0 2px 10px rgba(20,30,50,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --card: #1b2029; --ink: #e8ebf1; --muted: #9aa4b5; --line: #2c3340;
+      --accent: #6d8dff; --accent-ink: #0d1120; --accent-soft: #232c45;
+      --ok: #4fc681; --ok-soft: #173325; --bad: #ff7b70; --bad-soft: #3a1f1d;
+      --wait: #f0b54a; --wait-soft: #3a2e15; --none: #7d8696; --none-soft: #262b35;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, "Segoe UI", Arial, sans-serif; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 16px; position: sticky; top: 0; z-index: 5; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+  .top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  h3 { font-size: 14px; margin: 14px 0 6px; color: var(--muted); font-weight: 600; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 12.5px; padding: 3px 10px; border-radius: 99px; background: var(--none-soft); color: var(--muted); white-space: nowrap; }
+  .chip.ok { background: var(--ok-soft); color: var(--ok); }
+  .chip.bad { background: var(--bad-soft); color: var(--bad); }
+  .chip.wait { background: var(--wait-soft); color: var(--wait); }
+  nav { display: flex; gap: 4px; margin-top: 10px; }
+  nav button { background: none; border: 0; padding: 8px 14px; border-radius: 8px; font: inherit; color: var(--muted); cursor: pointer; }
+  nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  main { padding: 16px 0 60px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-bottom: 14px; }
+  .step { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .num { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; font-size: 14px; flex: none; }
+  .num.done { background: var(--ok); }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .two { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  .opt { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card); cursor: pointer; text-align: start; font: inherit; color: inherit; }
+  .opt:hover:not(:disabled) { border-color: var(--accent); }
+  .opt.on { border-color: var(--accent); background: var(--accent-soft); }
+  .opt:disabled { opacity: .55; cursor: not-allowed; }
+  .opt b { display: block; }
+  .btn { font: inherit; border: 0; border-radius: 9px; padding: 9px 16px; cursor: pointer; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.sec { background: var(--accent-soft); color: var(--accent); }
+  .btn.red { background: var(--bad); color: #fff; }
+  .btn.green { background: var(--ok); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--none-soft); color: var(--none); font-weight: 600; }
+  .badge.PASS { background: var(--ok-soft); color: var(--ok); }
+  .badge.FAIL { background: var(--bad-soft); color: var(--bad); }
+  .badge.PENDING, .badge.TUNE_LATENCY { background: var(--wait-soft); color: var(--wait); }
+  .script li { margin: 6px 0; font-size: 17px; }
+  .script li .stage { color: var(--muted); font-size: 13px; }
+  .list { list-style: none; padding: 0; margin: 0; }
+  .list li { padding: 7px 0; border-bottom: 1px dashed var(--line); }
+  .list li:last-child { border-bottom: 0; }
+  .feed { max-height: 320px; overflow: auto; }
+  .say { padding: 6px 10px; border-radius: 10px; margin: 5px 0; max-width: 92%; }
+  .say.user { background: var(--none-soft); margin-inline-start: auto; }
+  .say.assistant { background: var(--accent-soft); }
+  .say small { display: block; color: var(--muted); font-size: 11.5px; }
+  .tick { font-weight: 700; display: inline-block; width: 1.4em; }
+  .tick.ok { color: var(--ok); } .tick.bad { color: var(--bad); } .tick.wait { color: var(--none); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: start; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .scroll { overflow-x: auto; }
+  .banner { padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; }
+  .banner.wait { background: var(--wait-soft); color: var(--wait); }
+  .banner.bad { background: var(--bad-soft); color: var(--bad); }
+  .banner.ok { background: var(--ok-soft); color: var(--ok); }
+  .banner.info { background: var(--accent-soft); color: var(--accent); }
+  label.check { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; cursor: pointer; }
+  input[type=number], input[type=password], input[type=text], textarea, select { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+  textarea { width: 100%; min-height: 60px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg button { font: inherit; border: 0; background: var(--card); color: var(--ink); padding: 7px 14px; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); }
+  .live { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--none); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+  .dot.talk { background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }
+  .hidden { display: none !important; }
+  code { background: var(--none-soft); padding: 1px 6px; border-radius: 5px; font-size: 13px; direction: ltr; unicode-bidi: embed; }
+  .ltr { direction: ltr; unicode-bidi: embed; }
+  details summary { cursor: pointer; color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>מעבדת בדיקת ספקים – בוט ימי העיון של מישלב</h1>
+      <div class="chips" id="chips"></div>
+    </div>
+    <nav>
+      <button data-tab="test" class="on">🧪 בדיקה</button>
+      <button data-tab="results">📊 התקדמות ותוצאות</button>
+      <button data-tab="help">❓ עזרה</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="secretBox" class="card hidden">
+    <h2>נדרשת סיסמת השרת</h2>
+    <p class="muted">הדרך הקלה: להריץ <code>npm run lab</code> – הדף נפתח עם הסיסמה. אחרת – הדבק כאן את הערך של <code>TOOLS_SECRET</code> מקובץ <code>.env</code>.</p>
+    <div class="row"><input type="password" id="secretInput" size="40" placeholder="TOOLS_SECRET"> <button class="btn" id="secretSave">שמור</button></div>
+  </div>
+
+  <div id="globalMsg"></div>
+
+  <!-- ===================== TEST TAB ===================== -->
+  <section id="tab-test">
+    <div class="card" id="step1">
+      <div class="step"><span class="num">1</span><h2>בוחרים ספק ותרחיש</h2></div>
+      <h3>ספק</h3>
+      <div class="grid" id="providers"></div>
+      <h3>תרחיש</h3>
+      <div class="grid" id="scenariosCore"></div>
+      <details style="margin-top:10px"><summary>תרחישי התקפה X1–X8 (רשות – רק על הספק המוביל)</summary>
+        <div class="grid" id="scenariosAdv" style="margin-top:10px"></div>
+      </details>
+      <h3>מי משחק את הלקוח</h3>
+      <div class="seg" id="actorSeg"><button data-v="male" class="on">גבר</button><button data-v="female">אישה</button></div>
+      <h3>איך מדברים עם הבוט</h3>
+      <div class="seg" id="channelSeg"><button data-v="browser" class="on">🎙️ מהדפדפן</button><button data-v="phone">📞 מהטלפון</button></div>
+      <p class="small muted" id="channelNote"></p>
+    </div>
+
+    <div class="card hidden" id="step2">
+      <div class="step"><span class="num">2</span><h2 id="s2title">לפני השיחה</h2></div>
+      <div class="two">
+        <div>
+          <h3>🎯 מה הבוט צריך לעשות</h3>
+          <p id="s2expect"></p>
+          <h3>🧑 הבוט יקרא לך</h3>
+          <p id="s2name"></p>
+          <h3>💡 איך לשחק</h3>
+          <ul id="s2tips"></ul>
+        </div>
+        <div>
+          <h3>🗣️ מה אתה אומר (בערך, לפי הסדר)</h3>
+          <ol class="script" id="s2script"></ol>
+        </div>
+      </div>
+      <div id="s2watchWrap" class="hidden">
+        <h3>👀 שים לב במיוחד (תסמן אחרי השיחה)</h3>
+        <ul id="s2watch"></ul>
+      </div>
+      <h3>✅ תמיד בודקים</h3>
+      <ul class="small">
+        <li>הבוט מדבר <b>רק עברית</b> – גם כשאתה משתמש במילים באנגלית.</li>
+        <li>הוא <b>לא ממציא</b> מחירים, תאריכים או מקומות.</li>
+        <li>הוא עונה <b>מהר</b> – בלי שתיקות ארוכות (היעד: בממוצע עד 1.2 שניות).</li>
+      </ul>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="startBtn">▶ התחל בדיקה</button>
+        <span class="small muted" id="startNote"></span>
+      </div>
+    </div>
+
+    <div class="card hidden" id="step3">
+      <div class="step"><span class="num">3</span><h2>השיחה – <span id="s3title"></span></h2></div>
+      <div id="s3browser" class="hidden">
+        <div class="row">
+          <button class="btn green" id="connectBtn">🎙️ התחבר ודבר עם הבוט</button>
+          <button class="btn sec hidden" id="audioBtn">🔊 הפעל שמע</button>
+          <span class="live"><span class="dot" id="botDot"></span><span id="callState" class="muted">לא מחובר</span></span>
+        </div>
+        <p class="small muted">אחרי החיבור: תגיד "הלו" (חוץ מתרחיש תא קולי) – הבוט פותח את השיחה. עדיף עם אוזניות.</p>
+      </div>
+      <div id="s3phone" class="hidden">
+        <div class="banner info">📞 התקשר מהנייד למספר ה-LiveKit שלך (המספר האמריקאי), ותגיד "הלו". אחרי השיחה – לחץ "סיימתי". <br><span class="small">דורש מספר + כלל ניתוב <code>mishlav-c</code> ב-LiveKit (ראה לשונית עזרה). שיחה לארה״ב עולה כמו שיחה לחו״ל.</span></div>
+      </div>
+      <div class="two" style="margin-top:8px">
+        <div>
+          <h3>✔️ מה צריך לקרות</h3>
+          <ul class="list" id="s3checks"></ul>
+          <h3>🔧 מה הבוט עשה (בזמן אמת)</h3>
+          <ul class="list feed" id="s3tools"><li class="muted">עוד לא ביצע פעולות</li></ul>
+        </div>
+        <div>
+          <h3>📝 מה נאמר</h3>
+          <div class="feed" id="s3transcript"><p class="muted small">התמלול יופיע כאן כשהשיחה מתחילה</p></div>
+          <h3>🗣️ התסריט שלך</h3>
+          <ol class="script small" id="s3script"></ol>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn red" id="endBtn">⏹ סיימתי את השיחה</button>
+        <span class="small muted">לוחצים אחרי שהבוט ניתק (או שאתה ניתקת).</span>
+      </div>
+    </div>
+
+    <div class="card hidden" id="step4">
+      <div class="step"><span class="num">4</span><h2>אחרי השיחה – <span id="s4title"></span></h2></div>
+      <div id="s4auto"></div>
+      <h3>❓ האם הבוט עבר לשפה אחרת (אנגלית) בשלב כלשהו?</h3>
+      <div class="seg" id="langSeg"><button data-v="false">לא – רק עברית</button><button data-v="true">כן, עבר לשפה אחרת</button></div>
+      <div id="s4watchWrap" class="hidden">
+        <h3>👀 סמן כל מה שקרה כמו שצריך</h3>
+        <div id="s4watch"></div>
+      </div>
+      <h3>הערות (רשות)</h3>
+      <textarea id="s4notes" placeholder="למשל: התקשרתי מהרחוב, הייתה השהיה ארוכה אחרי השאלה על המחיר..."></textarea>
+      <label class="check"><input type="checkbox" id="s4discard"> <span>הריצה הזו לא תקינה (תקלה טכנית / טעיתי בתסריט) – <b>לא לספור אותה</b>, אעשה שוב</span></label>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="saveManualBtn">💾 שמור</button>
+        <button class="btn sec" id="nextBtn">לתרחיש הבא ←</button>
+        <span id="s4saved" class="small"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== RESULTS TAB ===================== -->
+  <section id="tab-results" class="hidden">
+    <div class="card">
+      <h2>החלטה</h2>
+      <div id="decision"></div>
+    </div>
+    <div class="card">
+      <h2>התקדמות – 6 התרחישים לכל ספק</h2>
+      <div class="scroll"><table id="matrix"></table></div>
+      <p class="small muted">נספרת הריצה האחרונה שלא סומנה "לא לספור". "ממתין" = חסר מילוי בטופס שאחרי השיחה.</p>
+    </div>
+    <div class="card">
+      <h2>5 תנאי המעבר לכל ספק</h2>
+      <div class="scroll"><table id="criteria"></table></div>
+      <p class="small muted" id="criteriaNote"></p>
+    </div>
+    <div class="two">
+      <div class="card">
+        <h2>💲 עלות לדקה</h2>
+        <p class="small muted">מהחשבונות של הספק (כולל טלפוניה + מודל). דולר לדקה.</p>
+        <div id="costs"></div>
+      </div>
+      <div class="card">
+        <h2>🎧 מבחן קול עיוור</h2>
+        <p class="small muted">מקליטים 10 שניות מכל ספק, קוראים להן X / Y / Z, ו-3 אנשים נותנים ציון 1–5 בלי לדעת מי זה מי. ממלאים את המפה (איזה ספק הוא איזו אות) רק בסוף.</p>
+        <div id="voice"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">כל השיחות</h2>
+        <button class="btn sec" id="writeFilesBtn">שמור קבצי תוצאות (Excel + סיכום)</button>
+      </div>
+      <p id="writeFilesMsg" class="small"></p>
+      <div class="scroll"><table id="history"></table></div>
+      <div id="warnings"></div>
+    </div>
+  </section>
+
+  <!-- ===================== HELP TAB ===================== -->
+  <section id="tab-help" class="hidden">
+    <div class="card">
+      <h2>איך זה עובד</h2>
+      <ol>
+        <li><b>מפעילים הכל בפקודה אחת:</b> <code>npm run lab</code> (מהתיקייה הראשית). היא מפעילה את שרת הכלים, את הבוט, ופותחת את הדף הזה.</li>
+        <li><b>בוחרים ספק ותרחיש</b>, קוראים מה להגיד, ולוחצים "התחל בדיקה".</li>
+        <li><b>מדברים עם הבוט</b> – מהדפדפן (מיקרופון) או מהטלפון. בזמן השיחה רואים מה הבוט עושה ומה נאמר.</li>
+        <li><b>לוחצים "סיימתי"</b>, עונים על 1–2 שאלות ושומרים.</li>
+        <li>חוזרים על זה ל-<b>6 התרחישים</b> (S1–S6). בלשונית התוצאות רואים מה עבר ומה ההחלטה.</li>
+      </ol>
+      <h3>דפדפן או טלפון?</h3>
+      <p>דפדפן – הכי מהיר, בלי מספר ובלי עלות שיחה. מצוין לנסות ולכוונן. <b>טלפון</b> – קרוב יותר למציאות (איכות קו טלפון, רעש רחוב). מומלץ לעשות את ששת התרחישים ה"רשמיים" בטלפון, ובמיוחד את S4 מהרחוב.</p>
+      <h3>הגדרת טלפון ב-LiveKit (פעם אחת)</h3>
+      <ol class="small">
+        <li><b>Telephony → Phone Numbers → Rent a number</b>, קידומת למשל 415 → Rent → Confirm.</li>
+        <li><b>Telephony → Dispatch rules → Create new dispatch rule → JSON editor</b>, להדביק ו-Create:
+          <pre class="ltr" style="background:var(--none-soft);padding:10px;border-radius:8px;overflow:auto">{
+  "rule": { "dispatch_rule_individual": { "room_prefix": "call-" } },
+  "name": "mishlav-c",
+  "room_config": { "agents": [{ "agent_name": "mishlav-c" }] }
+}</pre></li>
+        <li>ב-<b>Phone Numbers</b>: ⋮ ליד המספר → <b>Assign dispatch rule</b> → <code>mishlav-c</code> → Save.</li>
+      </ol>
+      <h3>תקלות נפוצות</h3>
+      <table>
+        <tr><th>מה קורה</th><th>מה לבדוק</th></tr>
+        <tr><td>"הבוט לא הצטרף" בדפדפן</td><td>שהבוט רץ – בחלון של <code>npm run lab</code> צריכות להופיע שורות <code>[bot]</code>. שמפתחות LiveKit ו-Gemini מלאים ב-<code>.env</code>.</td></tr>
+        <tr><td>הטלפון מצלצל ואין מענה</td><td>שכלל הניתוב <code>mishlav-c</code> משויך למספר, ושהבוט רץ.</td></tr>
+        <tr><td>הבוט מדבר אבל לא מופיעות פעולות</td><td>ששרת הכלים רץ (שורות <code>[server]</code>), ושהתחלת בדיקה <b>לפני</b> השיחה.</td></tr>
+        <tr><td>לא שומעים את הבוט</td><td>ללחוץ "🔊 הפעל שמע", לבדוק עוצמה / אוזניות.</td></tr>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="/dashboard/livekit-client.js"></script>
+<script>
+"use strict";
+// ------------------------------------------------------------------ labels
+const TOOL_HE = { get_day_info: "בדק פרטי יום עיון", send_purchase_link: "שלח קישור לרכישה", schedule_callback: "קבע שיחה חוזרת", request_human: "העביר לנציג", end_call: "סיים את השיחה" };
+const REASON_HE = { completed: "הסתיים", not_interested: "לא מעוניין", do_not_call: "הסרה מהרשימה", voicemail: "תא קולי", already_registered: "כבר רשום", wrong_number: "מספר שגוי", wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה", other: "אחר" };
+const OUTCOME_HE = { LINK_SENT: "נשלח קישור", CALLBACK: "שיחה חוזרת", HOT_LEAD: "ליד חם לנציג", DO_NOT_CALL: "הסרה מהרשימה", VOICEMAIL: "תא קולי", HUMAN_FOLLOWUP: "מעקב נציג", NOT_INTERESTED: "לא מעוניין", COMPANY: "רכישת חברה", ALREADY_REGISTERED: "כבר רשום", WRONG_NUMBER: "מספר שגוי", UNKNOWN: "לא זוהתה תוצאה" };
+const TRI_HE = { PASS: "עבר", FAIL: "נכשל", PENDING: "ממתין", TUNE_LATENCY: "לכוונן מהירות", "N/A": "—", NONE: "לא נבדק" };
+const DECISION_HE = { WINNER: "🏆 יש זוכה", TUNE: "🔧 צריך כוונון מהירות ובדיקה חוזרת", INCOMPLETE: "⏳ עוד לא הושלם", STOP: "🛑 אף ספק לא עבר – לעצור ולעדכן את מישלב" };
+const CRIT_HE = { understanding: "הבנה (6 תרחישים)", language: "רק עברית", phone: "טלפון ספרה-ספרה", latency: "מהירות תגובה", voice: "איכות קול" };
+
+// ------------------------------------------------------------------ state
+const S = { secret: null, overview: null, report: null, provider: "C", scenario: null, actor: "male", channel: "browser",
+  session: null, room: null, poll: null, lastSessionId: null, lang: null, agentTimer: null };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const show = (el, on = true) => (typeof el === "string" ? $(el) : el).classList.toggle("hidden", !on);
+const badge = (k) => `<span class="badge ${esc(k)}">${esc(TRI_HE[k] ?? k)}</span>`;
+const outcomeHe = (o) => (Array.isArray(o) ? o.map((x) => OUTCOME_HE[x] ?? x).join(" / ") : OUTCOME_HE[o] ?? o ?? "—");
+
+function msg(html, kind = "info", ms = 0) {
+  $("globalMsg").innerHTML = html ? `<div class="banner ${kind}">${html}</div>` : "";
+  if (ms) setTimeout(() => ($("globalMsg").innerHTML = ""), ms);
+}
+
+// ------------------------------------------------------------------ secret + api
+function loadSecret() {
+  const m = /[#&]k=([^&]+)/.exec(location.hash);
+  if (m) {
+    try { localStorage.setItem("mishlav_secret", decodeURIComponent(m[1])); } catch {}
+    history.replaceState(null, "", location.pathname);
+    S.secret = decodeURIComponent(m[1]);
+  } else {
+    try { S.secret = localStorage.getItem("mishlav_secret"); } catch {}
+  }
+}
+async function api(method, path, body) {
+  const res = await fetch(path, { method, headers: { "x-tools-secret": S.secret ?? "", ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401) { show("secretBox"); throw new Error("סיסמת השרת שגויה או חסרה"); }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.ok === false) throw new Error(json.message_he || json.details || json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// ------------------------------------------------------------------ load
+async function refresh() {
+  const [ov, rep] = await Promise.all([api("GET", "/test/overview"), api("GET", "/test/report")]);
+  S.overview = ov; S.report = rep; S.session = ov.session;
+  renderChips(); renderStep1(); renderResults();
+  if (S.session && !S.poll) resumeSession();
+}
+
+function renderChips() {
+  const c = S.overview.config;
+  const chips = [
+    `<span class="chip ok">שרת הכלים ✓</span>`,
+    `<span class="chip ${c.livekit ? "ok" : "bad"}">LiveKit ${c.livekit ? "✓" : "✗ חסרים מפתחות"}</span>`,
+    `<span class="chip ${c.gemini ? "ok" : "bad"}">Gemini ${c.gemini ? "✓" : "✗ חסר מפתח"}</span>`,
+    S.session ? `<span class="chip wait">בדיקה פתוחה: ${esc(S.session.provider)} · ${esc(S.session.scenario)}</span>` : `<span class="chip">אין בדיקה פתוחה</span>`,
+  ];
+  $("chips").innerHTML = chips.join("");
+}
+
+// latest non-discarded run per provider+scenario -> PASS / FAIL / PENDING / NONE
+function cellStatus(provider, scenarioId) {
+  const sc = S.overview.scenarios.find((s) => s.id === scenarioId);
+  const runs = S.report.sessions.filter((r) => r.provider === provider && r.scenario === scenarioId && !r.discarded);
+  const r = runs[runs.length - 1];
+  if (!r) return { k: "NONE", r: null };
+  if (r.understanding === "FAIL" || r.language_switch === true || r.behavior_ok === false) return { k: "FAIL", r };
+  const needsBehavior = (sc?.manual_checks?.length ?? 0) > 0;
+  if (r.understanding === "PASS" && r.language_switch === false && (!needsBehavior || r.behavior_ok === true)) return { k: "PASS", r };
+  return { k: "PENDING", r };
+}
+
+function renderStep1() {
+  $("providers").innerHTML = S.overview.providers.map((p) => `
+    <button class="opt ${S.provider === p.code ? "on" : ""}" data-p="${p.code}" ${p.ready || p.code === S.provider ? "" : "disabled"}>
+      <b>${p.code === "C" ? "ג" : p.code === "A" ? "א" : "ב"} · ${esc(p.name)}</b><span class="small muted">${esc(p.note)}</span></button>`).join("");
+  $("providers").querySelectorAll("[data-p]").forEach((b) => (b.onclick = () => { S.provider = b.dataset.p; renderStep1(); }));
+  const card = (s) => {
+    const st = cellStatus(S.provider, s.id);
+    return `<button class="opt ${S.scenario === s.id ? "on" : ""}" data-s="${s.id}"><b>${esc(s.id)} · ${esc(s.guide?.title ?? s.name)}</b>${badge(st.k)}</button>`;
+  };
+  $("scenariosCore").innerHTML = S.overview.scenarios.filter((s) => s.core).map(card).join("");
+  $("scenariosAdv").innerHTML = S.overview.scenarios.filter((s) => !s.core).map(card).join("");
+  document.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { S.scenario = b.dataset.s; renderStep1(); renderStep2(); }));
+  const prov = S.overview.providers.find((p) => p.code === S.provider);
+  const browserOk = prov?.channels.includes("browser");
+  if (!browserOk && S.channel === "browser") S.channel = "phone";
+  segSet("channelSeg", S.channel);
+  $("channelSeg").querySelector('[data-v="browser"]').disabled = !browserOk;
+  $("channelNote").textContent = S.channel === "browser"
+    ? "מדברים דרך המיקרופון של המחשב – בלי טלפון ובלי עלות שיחה. הכי מהיר לנסות."
+    : "מתקשרים מהנייד למספר ה-LiveKit. קרוב יותר למציאות (קו טלפון, רעש).";
+}
+
+function segSet(id, v) { $(id).querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === String(v))); }
+function segBind(id, fn) { $(id).querySelectorAll("button").forEach((b) => (b.onclick = () => { segSet(id, b.dataset.v); fn(b.dataset.v); })); }
+
+function scenario() { return S.overview.scenarios.find((s) => s.id === (S.session?.scenario ?? S.scenario)); }
+
+function scriptHtml(lines) {
+  return lines.map((l) => {
+    const m = /^\(([^)]*)\)\s*(.*)$/.exec(l);
+    return m ? `<li><span class="stage">(${esc(m[1])})</span> ${esc(m[2])}</li>` : `<li>${esc(l)}</li>`;
+  }).join("");
+}
+
+function renderStep2() {
+  const s = scenario(); if (!s) return;
+  show("step2");
+  $("s2title").textContent = `לפני השיחה – ${s.id}: ${s.guide?.title ?? s.name}`;
+  $("s2expect").textContent = s.guide?.expect ?? s.description ?? "";
+  $("s2name").innerHTML = `<b>${esc(s.context.first_name)}</b>${s.context.interested_day_id ? ` · התעניין/ה ביום: <code>${esc(s.context.interested_day_id)}</code>` : ""}`;
+  $("s2tips").innerHTML = (s.guide?.tips ?? []).map((t) => `<li>${esc(t)}</li>`).join("");
+  $("s2script").innerHTML = scriptHtml(s.actor_script);
+  const watch = s.guide?.watch ?? [];
+  show("s2watchWrap", watch.length > 0);
+  $("s2watch").innerHTML = watch.map((w) => `<li>${esc(w)}</li>`).join("");
+  const prov = S.overview.providers.find((p) => p.code === S.provider);
+  const busy = Boolean(S.session);
+  $("startBtn").disabled = busy || !prov?.ready;
+  $("startNote").textContent = busy ? "יש בדיקה פתוחה – סיים אותה קודם (שלב 3)." : prov?.ready ? "" : prov?.note ?? "";
+  $("step2").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ------------------------------------------------------------------ run a test
+async function startTest() {
+  const s = scenario(); if (!s) return;
+  try {
+    const r = await api("POST", "/test/session", { provider: S.provider, scenario: s.id, actor: S.actor, notes: S.channel });
+    S.session = r.session; S.lastSessionId = r.session.session_id;
+    renderChips(); enterStep3();
+    if (S.channel === "browser") await connectBrowser();
+  } catch (e) { msg(`לא הצלחתי להתחיל: ${esc(e.message)}`, "bad"); }
+}
+
+function resumeSession() {
+  S.provider = S.session.provider; S.scenario = S.session.scenario; S.lastSessionId = S.session.session_id;
+  S.channel = S.session.notes === "phone" ? "phone" : "browser";
+  renderStep1(); renderStep2(); enterStep3();
+  msg("יש בדיקה פתוחה מהפעם הקודמת. אם השיחה כבר נגמרה – לחץ \"סיימתי את השיחה\".", "wait");
+}
+
+function enterStep3() {
+  const s = scenario();
+  show("step3"); show("step4", false);
+  $("s3title").textContent = `${s.id}: ${s.guide?.title ?? s.name}`;
+  show("s3browser", S.channel === "browser"); show("s3phone", S.channel === "phone");
+  $("s3script").innerHTML = scriptHtml(s.actor_script);
+  $("s3tools").innerHTML = `<li class="muted">עוד לא ביצע פעולות</li>`;
+  $("s3transcript").innerHTML = `<p class="muted small">התמלול יופיע כאן כשהשיחה מתחילה</p>`;
+  renderChecks([]);
+  $("step3").scrollIntoView({ behavior: "smooth", block: "start" });
+  clearInterval(S.poll);
+  S.poll = setInterval(pollCall, 1500);
+}
+
+function toolLine(c) {
+  const p = c.params && typeof c.params === "object" ? c.params : {};
+  const bits = Object.entries(p).map(([k, v]) => `${esc(k)}: <b>${esc(REASON_HE[v] ?? v)}</b>`).join(" · ");
+  const res = c.response?.scheduled_time_he ? ` → ${esc(c.response.scheduled_time_he)}` : c.ok ? "" : ` → <span style="color:var(--bad)">שגיאה: ${esc(c.error ?? c.response?.error ?? "")}</span>`;
+  return `<li><span class="tick ${c.ok ? "ok" : "bad"}">${c.ok ? "✓" : "✗"}</span><b>${esc(TOOL_HE[c.tool] ?? c.tool)}</b> <span class="small muted">${bits}${res}</span></li>`;
+}
+
+function renderChecks(calls) {
+  const s = scenario();
+  const okTools = new Set(calls.filter((c) => c.ok).map((c) => c.tool));
+  const items = [];
+  for (const t of s.required_tools) items.push(okTools.has(t) ? [`ok`, "✓", `${TOOL_HE[t]}`] : ["wait", "○", `${TOOL_HE[t]}`]);
+  for (const t of s.forbidden_tools) if (okTools.has(t)) items.push(["bad", "✗", `${TOOL_HE[t]} – אסור בתרחיש הזה!`]);
+  if (s.allowed_tools) for (const t of okTools) if (!s.allowed_tools.includes(t)) items.push(["bad", "✗", `${TOOL_HE[t]} – לא צריך היה לקרות`]);
+  if (!s.required_tools.length) items.push(["wait", "○", "שום פעולה אסורה (ראה למעלה מה צריך לקרות)"]);
+  items.push(["wait", "○", `תוצאה צפויה: ${outcomeHe(s.expected_outcome)}`]);
+  $("s3checks").innerHTML = items.map(([k, i, t]) => `<li><span class="tick ${k}">${i}</span>${esc(t)}</li>`).join("");
+}
+
+async function pollCall() {
+  if (!S.lastSessionId) return;
+  try {
+    const [calls, tr] = await Promise.all([
+      api("GET", `/test/calls?session_id=${encodeURIComponent(S.lastSessionId)}`),
+      api("GET", S.room ? `/test/transcript?call_id=${encodeURIComponent(S.room.name)}` : `/test/transcript?since=${encodeURIComponent(S.session?.started_at ?? "")}`),
+    ]);
+    $("s3tools").innerHTML = calls.calls.length ? calls.calls.map(toolLine).join("") : `<li class="muted">עוד לא ביצע פעולות</li>`;
+    renderChecks(calls.calls);
+    if (tr.lines.length) {
+      const box = $("s3transcript"); const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+      box.innerHTML = tr.lines.map((l) => `<div class="say ${l.role === "user" ? "user" : "assistant"}"><small>${l.role === "user" ? "אתה" : "הבוט"}</small>${esc(l.text)}</div>`).join("");
+      if (atEnd) box.scrollTop = box.scrollHeight;
+    }
+  } catch { /* transient */ }
+}
+
+// ------------------------------------------------------------------ browser call (LiveKit)
+function setCallState(text, dot = "") { $("callState").textContent = text; $("botDot").className = `dot ${dot}`; }
+
+async function connectBrowser() {
+  if (!window.LivekitClient) { msg("ספריית LiveKit לא נטענה – רענן את הדף.", "bad"); return; }
+  const { Room, RoomEvent, Track } = window.LivekitClient;
+  try {
+    $("connectBtn").disabled = true; setCallState("מתחבר...");
+    const t = await api("POST", "/test/livekit/token", { provider: S.provider, scenario: S.session.scenario });
+    const room = new Room({ audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    S.room = room;
+    room.on(RoomEvent.TrackSubscribed, (track) => { if (track.kind === Track.Kind.Audio) { const el = track.attach(); el.dataset.lk = "1"; document.body.appendChild(el); } });
+    room.on(RoomEvent.ParticipantConnected, (p) => { if (p.isAgent) { clearTimeout(S.agentTimer); setCallState("הבוט מחובר – תגיד \"הלו\"", "on"); } });
+    room.on(RoomEvent.ParticipantDisconnected, (p) => { if (p.isAgent) setCallState("הבוט ניתק – לחץ \"סיימתי את השיחה\"", ""); });
+    room.on(RoomEvent.ActiveSpeakersChanged, (sp) => { const botTalks = sp.some((p) => p.isAgent); if (S.room?.state === "connected") $("botDot").className = `dot ${botTalks ? "talk" : "on"}`; });
+    room.on(RoomEvent.AudioPlaybackStatusChanged, () => show("audioBtn", !room.canPlaybackAudio));
+    room.on(RoomEvent.Disconnected, () => { setCallState("מנותק"); $("connectBtn").disabled = false; });
+    await room.connect(t.url, t.token);
+    await room.localParticipant.setMicrophoneEnabled(true);
+    await room.startAudio().catch(() => show("audioBtn"));
+    setCallState("מחובר – מחכה שהבוט יצטרף...", "");
+    if ([...room.remoteParticipants.values()].some((p) => p.isAgent)) setCallState("הבוט מחובר – תגיד \"הלו\"", "on");
+    S.agentTimer = setTimeout(() => {
+      if (![...room.remoteParticipants.values()].some((p) => p.isAgent)) msg("הבוט לא הצטרף אחרי 20 שניות. בדוק שהבוט רץ (שורות <code>[bot]</code> בחלון של <code>npm run lab</code>) ושמפתח Gemini מלא.", "bad");
+    }, 20000);
+  } catch (e) {
+    $("connectBtn").disabled = false; setCallState("לא מחובר");
+    msg(`החיבור נכשל: ${esc(e.message)}${/Permission|NotAllowed/i.test(e.message) ? " – צריך לאשר גישה למיקרופון." : ""}`, "bad");
+  }
+}
+
+async function disconnectBrowser() {
+  clearTimeout(S.agentTimer);
+  if (S.room) { try { await S.room.disconnect(); } catch {} }
+  document.querySelectorAll("audio[data-lk]").forEach((a) => a.remove());
+  S.room = null;
+}
+
+async function endTest() {
+  $("endBtn").disabled = true;
+  try {
+    await disconnectBrowser();
+    msg("מסיים... (מחכה שהפעולות והמדידות האחרונות יגיעו)", "info");
+    await new Promise((r) => setTimeout(r, 2500));
+    await pollCall();
+    clearInterval(S.poll); S.poll = null;
+    await api("POST", "/test/session/end");
+    S.session = null;
+    msg("");
+    await refresh();
+    enterStep4();
+  } catch (e) { msg(`שגיאה בסיום: ${esc(e.message)}`, "bad"); }
+  finally { $("endBtn").disabled = false; }
+}
+
+// ------------------------------------------------------------------ after the call
+function enterStep4() {
+  const s = scenario(); const run = S.report.sessions.find((r) => r.session_id === S.lastSessionId);
+  show("step3", false); show("step4");
+  $("s4title").textContent = `${s.id}: ${s.guide?.title ?? s.name}`;
+  S.lang = run?.language_switch ?? null; segSet("langSeg", S.lang === null ? "" : S.lang);
+  const watch = s.guide?.watch ?? [];
+  show("s4watchWrap", watch.length > 0);
+  $("s4watch").innerHTML = watch.map((w, i) => `<label class="check"><input type="checkbox" data-w="${i}" ${run?.behavior_ok ? "checked" : ""}> <span>${esc(w)}</span></label>`).join("");
+  $("s4notes").value = run?.notes ?? ""; $("s4discard").checked = Boolean(run?.discarded); $("s4saved").textContent = "";
+  renderAuto(run);
+  $("step4").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderAuto(run) {
+  if (!run) { $("s4auto").innerHTML = `<div class="banner wait">לא נמצאה הריצה בלוג.</div>`; return; }
+  const sc = S.overview.scoring;
+  const latOk = run.avg_latency_ms === null ? null : run.avg_latency_ms <= sc.max_avg_latency_ms && run.max_latency_ms <= sc.max_latency_ms;
+  const kind = run.understanding === "PASS" ? "ok" : run.understanding === "FAIL" ? "bad" : "wait";
+  $("s4auto").innerHTML = `
+    <div class="banner ${kind}"><b>בדיקה אוטומטית מהלוג: ${TRI_HE[run.understanding]}</b> · צפוי: ${esc(outcomeHe(run.expected?.split("|")))} · התקבל: ${esc(OUTCOME_HE[run.inferred] ?? run.inferred)}
+    ${run.reasons.length ? `<div class="small ltr" style="text-align:left;margin-top:4px">${run.reasons.map(esc).join("<br>")}</div>` : ""}</div>
+    <table><tr><th>פעולות</th><td>${run.tools.length ? run.tools.map((t) => `${t.ok ? "" : "✗ "}${esc(TOOL_HE[t.tool] ?? t.tool)}`).join(" ← ") : "אין"}</td></tr>
+    <tr><th>מהירות תגובה</th><td>${run.avg_latency_ms === null ? `<span class="muted">לא נמדדה (${S.provider === "A" ? "להזין מהדשבורד של הספק" : "אולי השיחה לא הגיעה לבוט?"})</span>` : `ממוצע ${run.avg_latency_ms} ms · מקסימום ${run.max_latency_ms} ms · ${run.turns} תורות ${latOk ? badge("PASS") : badge("FAIL")}`}
+      <div class="small muted">יעד: ממוצע עד ${sc.max_avg_latency_ms} ms ואף תשובה לא מעל ${sc.max_latency_ms} ms</div></td></tr>
+    ${run.phone !== "N/A" ? `<tr><th>טלפון ספרה-ספרה</th><td>${badge(run.phone)}</td></tr>` : ""}</table>`;
+}
+
+async function saveManual() {
+  const s = scenario();
+  if (S.lang === null && !$("s4discard").checked) { $("s4saved").innerHTML = `<span style="color:var(--bad)">ענה קודם: האם הבוט עבר לשפה אחרת?</span>`; return; }
+  const body = { session_id: S.lastSessionId, notes: $("s4notes").value.trim() || undefined, discard: $("s4discard").checked || undefined };
+  if (S.lang !== null) body.language_switch = S.lang;
+  const boxes = [...$("s4watch").querySelectorAll("input[data-w]")];
+  if ((s.manual_checks?.length ?? 0) > 0) body.behavior_ok = boxes.length > 0 && boxes.every((b) => b.checked);
+  try {
+    await api("POST", "/test/manual/session", body);
+    await refresh();
+    renderAuto(S.report.sessions.find((r) => r.session_id === S.lastSessionId));
+    const st = cellStatus(S.provider, s.id);
+    $("s4saved").innerHTML = `נשמר ✓ · סטטוס התרחיש: ${badge(st.k)}`;
+  } catch (e) { $("s4saved").innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+}
+
+function nextScenario() {
+  const core = S.overview.scenarios.filter((s) => s.core);
+  const next = core.find((s) => cellStatus(S.provider, s.id).k !== "PASS" && s.id !== S.scenario) ?? null;
+  show("step4", false);
+  if (next) { S.scenario = next.id; renderStep1(); renderStep2(); }
+  else { msg("🎉 כל 6 התרחישים עברו לספק הזה! עבור ללשונית התוצאות.", "ok"); $("step1").scrollIntoView({ behavior: "smooth" }); }
+}
+
+// ------------------------------------------------------------------ results tab
+function renderResults() {
+  const rep = S.report, ov = S.overview;
+  const d = rep.decision;
+  $("decision").innerHTML = `<div class="banner ${d.kind === "WINNER" ? "ok" : d.kind === "STOP" ? "bad" : "wait"}"><b>${DECISION_HE[d.kind]}${d.winner ? ` – ספק ${esc(d.winner)}` : ""}</b><div class="small ltr" style="text-align:left">${esc(d.message)}</div></div>
+    ${d.notes.length ? `<ul class="small ltr" style="text-align:left">${d.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+    <p class="small muted">כלל ההחלטה: מי שעובר את כל 5 התנאים. סדר עדיפות: ${ov.scoring.provider_priority.join(" ← ")}. ספק ג' שעובר – זוכה מיד.</p>`;
+
+  const core = ov.scenarios.filter((s) => s.core);
+  const provs = ov.scoring.provider_priority;
+  $("matrix").innerHTML = `<tr><th>ספק</th>${core.map((s) => `<th>${esc(s.id)}<div class="small muted">${esc(s.guide?.title ?? "")}</div></th>`).join("")}</tr>` +
+    provs.map((p) => `<tr><td><b>${esc(p)}</b></td>${core.map((s) => `<td>${badge(cellStatus(p, s.id).k)}</td>`).join("")}</tr>`).join("");
+
+  $("criteria").innerHTML = `<tr><th>ספק</th>${Object.values(CRIT_HE).map((h) => `<th>${h}</th>`).join("")}<th>עלות/דקה</th><th>סטטוס</th></tr>` +
+    rep.providers.map((p) => `<tr><td><b>${esc(p.provider)}</b> <span class="small muted">${esc(p.name)}</span></td>
+      <td>${badge(p.criteria.understanding)}</td><td>${badge(p.criteria.language)}</td><td>${badge(p.criteria.phone)}</td>
+      <td>${badge(p.criteria.latency)}${p.avg_latency_ms !== null ? `<div class="small muted">${p.avg_latency_ms}/${p.max_latency_ms} ms</div>` : ""}</td>
+      <td>${badge(p.criteria.voice)}${p.voice_avg !== null ? `<div class="small muted">${p.voice_avg.toFixed(2)}</div>` : ""}</td>
+      <td>${p.cost_per_min === null ? "?" : "$" + p.cost_per_min}</td><td>${badge(p.status)}</td></tr>`).join("");
+  $("criteriaNote").textContent = `יעדים: מהירות – ממוצע עד ${ov.scoring.max_avg_latency_ms} ms ומקסימום ${ov.scoring.max_latency_ms} ms · קול – ממוצע ${ov.scoring.min_voice_score} ומעלה.`;
+
+  const m = rep.manual;
+  $("costs").innerHTML = provs.map((p) => `<div class="row" style="margin:6px 0"><b style="width:24px">${p}</b>
+    <input type="number" step="0.001" min="0" data-cost="${p}" value="${m.providers?.[p]?.cost_per_min_usd ?? ""}" placeholder="0.05" style="width:110px"> $ לדקה
+    <button class="btn sec" data-savecost="${p}">שמור</button></div>`).join("");
+  document.querySelectorAll("[data-savecost]").forEach((b) => (b.onclick = async () => {
+    const p = b.dataset.savecost; const v = document.querySelector(`[data-cost="${p}"]`).value;
+    try { await api("POST", "/test/manual/provider", { provider: p, cost_per_min_usd: v === "" ? null : Number(v) }); await refresh(); msg("העלות נשמרה ✓", "ok", 2500); } catch (e) { msg(esc(e.message), "bad"); }
+  }));
+
+  const bv = m.blind_voice ?? { map: {}, scores: {} };
+  const letters = ["X", "Y", "Z"];
+  $("voice").innerHTML = `<table><tr><th>קטע</th><th>ציונים (1–5)</th><th>איזה ספק (בסוף)</th></tr>` + letters.map((L) => `<tr><td><b>${L}</b></td>
+    <td>${[0, 1, 2].map((i) => `<input type="number" min="1" max="5" step="0.5" data-score="${L}" data-i="${i}" value="${bv.scores?.[L]?.[i] ?? ""}" style="width:58px">`).join(" ")}</td>
+    <td><select data-map="${L}"><option value="">—</option>${["A", "B", "C"].map((p) => `<option ${bv.map?.[L] === p ? "selected" : ""}>${p}</option>`).join("")}</select></td></tr>`).join("") +
+    `</table><button class="btn sec" id="saveVoice" style="margin-top:8px">שמור מבחן קול</button>`;
+  $("saveVoice").onclick = async () => {
+    const map = {}, scores = {};
+    for (const L of letters) {
+      const p = document.querySelector(`[data-map="${L}"]`).value; if (p) map[L] = p;
+      const xs = [...document.querySelectorAll(`[data-score="${L}"]`)].map((i) => i.value).filter((v) => v !== "").map(Number);
+      if (xs.length) scores[L] = xs;
+    }
+    try { await api("POST", "/test/manual/voice", { map, scores }); await refresh(); msg("מבחן הקול נשמר ✓", "ok", 2500); } catch (e) { msg(esc(e.message), "bad"); }
+  };
+
+  const rows = [...rep.sessions].reverse();
+  $("history").innerHTML = `<tr><th>מתי</th><th>ספק</th><th>תרחיש</th><th>ערוץ</th><th>תוצאה</th><th>הבנה</th><th>עברית</th><th>מהירות (ממוצע/מקס׳)</th><th></th></tr>` +
+    (rows.length ? rows.map((r) => `<tr style="${r.discarded ? "opacity:.5" : ""}">
+      <td class="small">${esc(new Date(r.started_at).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }))}</td>
+      <td>${esc(r.provider)}</td><td>${esc(r.scenario)}</td><td class="small">${r.channel === "phone" ? "📞" : r.channel === "browser" ? "🎙️" : ""}</td>
+      <td class="small">${esc(OUTCOME_HE[r.inferred] ?? r.inferred)}</td><td>${badge(r.understanding)}</td>
+      <td>${r.language_switch === null ? badge("PENDING") : r.language_switch ? badge("FAIL") : badge("PASS")}</td>
+      <td class="small">${r.avg_latency_ms === null ? "—" : `${r.avg_latency_ms}/${r.max_latency_ms}`}</td>
+      <td>${r.discarded ? `<span class="small muted">לא נספר</span>` : `<button class="btn sec" style="padding:4px 10px" data-edit="${esc(r.session_id)}">ערוך</button>`}</td></tr>`).join("")
+      : `<tr><td colspan="9" class="muted">עוד אין שיחות</td></tr>`);
+  document.querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => {
+    const r = rep.sessions.find((x) => x.session_id === b.dataset.edit);
+    S.provider = r.provider; S.scenario = r.scenario; S.lastSessionId = r.session_id;
+    tab("test"); renderStep1(); show("step2", false); enterStep4();
+  }));
+  $("warnings").innerHTML = rep.warnings.filter((w) => !/no manual inputs file/.test(w)).map((w) => `<div class="banner wait small ltr" style="text-align:left">${esc(w)}</div>`).join("");
+}
+
+function tab(name) {
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+  for (const t of ["test", "results", "help"]) show(`tab-${t}`, t === name);
+}
+
+// ------------------------------------------------------------------ wire up
+document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => tab(b.dataset.tab)));
+segBind("actorSeg", (v) => (S.actor = v));
+segBind("channelSeg", (v) => { S.channel = v; renderStep1(); });
+segBind("langSeg", (v) => (S.lang = v === "true"));
+$("startBtn").onclick = startTest;
+$("connectBtn").onclick = connectBrowser;
+$("audioBtn").onclick = async () => { try { await S.room?.startAudio(); show("audioBtn", false); } catch {} };
+$("endBtn").onclick = endTest;
+$("saveManualBtn").onclick = saveManual;
+$("nextBtn").onclick = nextScenario;
+$("writeFilesBtn").onclick = async () => {
+  try { const r = await api("POST", "/test/report/write"); $("writeFilesMsg").innerHTML = `נשמר ✓ <span class="ltr">${r.files.map(esc).join(" · ")}</span>`; } catch (e) { $("writeFilesMsg").textContent = e.message; }
+};
+$("secretSave").onclick = () => { S.secret = $("secretInput").value.trim(); try { localStorage.setItem("mishlav_secret", S.secret); } catch {} show("secretBox", false); boot(); };
+window.addEventListener("beforeunload", () => { if (S.room) S.room.disconnect(); });
+
+async function boot() {
+  loadSecret();
+  if (!S.secret) { show("secretBox"); return; }
+  try { await refresh(); } catch (e) { msg(`לא מצליח לטעון: ${esc(e.message)} – השרת רץ?`, "bad"); }
+}
+boot();
+setInterval(() => { if (!S.poll && S.secret) api("GET", "/test/report").then((r) => { S.report = r; renderResults(); }).catch(() => {}); }, 15000);
+</script>
+</body>
+</html>

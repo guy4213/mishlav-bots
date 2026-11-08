@@ -22,6 +22,17 @@ expect:
     - "Bot stopped speaking within ~1s of being interrupted"
     - "Bot answered the interrupting question (format + price) correctly"
     - "No repeated or garbled sentences after the interruption"
+guide_he:
+  title: קטיעות ורעש
+  expect: למרות הרעש והקטיעה, הבוט עונה נכון (זום, 370 ₪) ושולח קישור ליום העיון בזום של ינואר.
+  tips:
+    - עדיף מהרחוב או עם רעש רקע (מוזיקה / טלוויזיה).
+    - 'קטע את הבוט באמצע שהוא מקריא פרטים: "רגע רגע, זה בזום נכון? כמה זה?"'
+    - 'בסוף דבר מהר: "אוקיי מעולה תשלחי לי קישור בבקשה תודה".'
+  watch:
+    - הבוט הפסיק לדבר תוך כשנייה כשקטעת אותו
+    - הבוט ענה נכון על השאלה שקטעה (זום + מחיר)
+    - אין משפטים חוזרים או משובשים אחרי הקטיעה
 simulate:
   - { tool: get_day_info, params: { day_id: payroll-2027-01-12-zoom } }
   - { tool: send_purchase_link, params: { day_id: payroll-2027-01-12-zoom } }

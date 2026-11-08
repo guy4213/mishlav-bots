@@ -5,6 +5,7 @@ import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
 import { JsonlFile } from "./jsonl";
 import { loadKnowledge } from "./knowledge";
+import { registerDashboardRoutes } from "./routes/dashboard";
 import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
 import { SessionStore } from "./sessions";
@@ -12,6 +13,16 @@ import { SessionStore } from "./sessions";
 export interface BuildOptions {
   now?: () => Date;
   logger?: FastifyServerOptions["logger"];
+  /** Env used by the dashboard (LiveKit / Gemini keys). Default: process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** Where the dashboard keeps manual inputs. Default: tests/results/manual-inputs.yaml. */
+  manualInputsPath?: string;
+}
+
+/** Public paths: health check and the dashboard's static files (no data; the page sends the secret). */
+function isPublic(url: string): boolean {
+  const path = url.split("?")[0]!;
+  return path === "/healthz" || path === "/dashboard" || path === "/dashboard/" || path === "/dashboard/livekit-client.js";
 }
 
 export async function buildServer(config: AppConfig, opts: BuildOptions = {}): Promise<FastifyInstance> {
@@ -49,9 +60,9 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     session: sessions.current()?.session_id ?? null,
   }));
 
-  // Shared-secret auth on everything except /healthz.
+  // Shared-secret auth on everything except the public paths.
   app.addHook("onRequest", async (req, reply) => {
-    if (req.url === "/healthz" || req.url.startsWith("/healthz?")) return;
+    if (isPublic(req.url)) return;
     if (!secretMatches(presentedSecret(req), config.toolsSecret)) {
       toolLog.append({ type: "auth_failure", ts: now().toISOString(), path: req.url.split("?")[0], ip: req.ip });
       return reply.code(401).send({ ok: false, error: "unauthorized" });
@@ -60,6 +71,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
 
   await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions });
   await registerTestRoutes(app, { sessions, toolLog, metricsLog, now });
+  await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
 
   return app;
 }

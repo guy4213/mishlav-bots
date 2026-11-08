@@ -49,7 +49,7 @@ async function openTunnel(port: number): Promise<string | null> {
 
 async function main() {
   const config = loadAppConfig();
-  const app = await buildServer(config);
+  const app = await buildServer(config, { logger: { level: process.env.LOG_LEVEL ?? "info" } });
   await app.listen({ port: config.port, host: config.host });
 
   const local = `http://127.0.0.1:${config.port}`;

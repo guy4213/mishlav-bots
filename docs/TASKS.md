@@ -52,12 +52,14 @@ M1 ──► M2 ──► M3 ──┐
 > 3.2 / 3.3 are skipped (optional: run them anyway to compare cost).
 
 ### 3.1 Provider C — LiveKit + Gemini Live, FIRST (~3h)
-- [ ] Accounts: LiveKit Cloud (URL, API key + secret), Gemini API key (AI Studio) or Vertex project; Python ≥ 3.11 on the dev machine
-- [ ] `apps/voice-worker`: Python agent from LiveKit Voice AI Quickstart with Gemini `RealtimeModel` — model `gemini-3.8-live` (confirm exact id against the Gemini API model list at setup); switch `VOICE_PROVIDER=gemini | soniox_eleven` so B reuses it
-- [ ] Load `config/prompt.md` + knowledge, substitute variables; Hebrew lock via prompt
-- [ ] 5 function tools → POST to tools server with secret, `X-Provider: C`, `X-Call-Id: <room>`
-- [ ] Post per-turn metrics (end-of-user-speech → first audio, provider time) to `/test/metrics`
-- [ ] Rent LiveKit free US number, attach to agent (inbound only; Build plan = 50 free inbound min)
+- [ ] Accounts: LiveKit Cloud (URL, API key + secret), Gemini API key (AI Studio) → `apps/voice-worker/.env` (Python via `uv` — done)
+- [x] Dashboard: `npm run lab` → step-by-step tests, browser-mic calls via LiveKit, live tool calls + transcript, manual form, progress + decision (verified: worker registers with LiveKit, dashboard token dispatches it)
+- [ ] Fill `GOOGLE_API_KEY` in `.env`, then a first browser call from the dashboard
+- [x] `apps/voice-worker`: Python agent (LiveKit Agents 1.8.11) with Gemini `RealtimeModel` — model `gemini-3.8-live` (confirm exact id against the Gemini API model list at setup); switch `VOICE_PROVIDER=gemini | soniox_eleven` so B reuses it
+- [x] Load `config/prompt.md` + knowledge, substitute variables (first_name / day from the active scenario); Hebrew lock via prompt; transcript to `logs/transcripts/`
+- [x] 5 function tools (from `config/tools.json`) → POST to tools server with secret, `X-Provider: C`, `X-Call-Id: <room>`; `end_call` hangs up — verified live against the tools server
+- [x] Post per-turn metrics (end-of-user-speech → first audio, Gemini TTFA as provider time) to `/test/metrics`
+- [ ] Rent LiveKit US number + dispatch rule → agent `mishlav-c` (inbound only; Build plan = 50 free inbound min). No ngrok needed for C
 - [ ] One inbound test call → check `GET /test/calls`
 - [ ] Run S1–S6 (see 3.4) → score → decide on C before moving on
 

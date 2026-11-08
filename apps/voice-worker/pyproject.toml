@@ -1,0 +1,21 @@
+[project]
+name = "mishlav-voice-worker"
+version = "0.1.0"
+description = "Mishlav study-day bot — LiveKit voice worker (provider C: Gemini Live, later B)"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "livekit-agents[google]~=1.8",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "tzdata>=2026.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

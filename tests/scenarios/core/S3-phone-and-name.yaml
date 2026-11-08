@@ -21,6 +21,15 @@ expect:
         phone: { digits_equal: "0527384915" }
         name: { includes: "מיכל" }
   forbidden_tools: [send_purchase_link]
+guide_he:
+  title: נציג + הכתבת שם וטלפון
+  expect: הבוט מעביר לנציג, רושם את השם "מיכל אברהם" ואת המספר 052-7384915 בדיוק, ספרה-ספרה.
+  tips:
+    - בקש לדבר עם נציג אנושי.
+    - "הכתב את השם: מיכל אברהם."
+    - "הכתב את המספר בקבוצות: אפס חמש שתיים, שבע שלוש שמונה, ארבע תשע אחת חמש."
+    - אם הבוט חוזר על המספר – אשר שהוא נכון.
+  watch: []
 simulate:
   - { tool: request_human, params: { reason: wants_human, name: "מיכל אברהם", phone: "052-738-4915" } }
   - { tool: end_call, params: { reason: completed } }

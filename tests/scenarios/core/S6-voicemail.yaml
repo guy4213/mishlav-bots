@@ -18,5 +18,13 @@ expect:
   allowed_tools: [end_call]
   manual_checks:
     - "Bot left no message on the voicemail"
+guide_he:
+  title: תא קולי
+  expect: הבוט מזהה שזה תא קולי ומנתק מיד בלי לומר כלום (end_call עם voicemail).
+  tips:
+    - אל תגיד "הלו". השמע ברכת תא קולי מוקלטת, או הקרא אותה בטון של הקלטה.
+    - אחרי הברכה – שתוק וחכה לראות אם הבוט מדבר.
+  watch:
+    - הבוט לא השאיר הודעה בתא הקולי
 simulate:
   - { tool: end_call, params: { reason: voicemail } }

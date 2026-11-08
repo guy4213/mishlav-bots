@@ -11,6 +11,13 @@ expect:
   forbidden_tools: [send_purchase_link]
   manual_checks:
     - "Said there is no such study day, invented no details"
+guide_he:
+  title: יום עיון שלא קיים
+  expect: הבוט אומר שאין יום כזה, לא ממציא פרטים, ומציע נציג.
+  tips:
+    - בקש יום עיון על מיסוי בינלאומי באילת במרץ, ובקש קישור אליו.
+  watch:
+    - אמר שאין יום כזה ולא המציא פרטים
 simulate:
   - { tool: request_human, params: { reason: other } }
   - { tool: end_call, params: { reason: completed } }

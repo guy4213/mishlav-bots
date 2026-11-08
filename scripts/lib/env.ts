@@ -1,6 +1,5 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { findRepoRoot, loadSettings, type Settings } from "@mishlav/shared";
+import { findRepoRoot, loadDotEnvFile, loadSettings, type Settings } from "@mishlav/shared";
 
 export interface ScriptEnv {
   root: string;
@@ -13,8 +12,7 @@ export interface ScriptEnv {
 
 export function scriptEnv(overrides: { baseUrl?: string; logDir?: string } = {}): ScriptEnv {
   const root = findRepoRoot();
-  const envFile = join(root, ".env");
-  if (existsSync(envFile)) process.loadEnvFile(envFile);
+  loadDotEnvFile(join(root, ".env"));
   const settings = loadSettings(join(root, "config", "settings.yaml"));
   return {
     root,

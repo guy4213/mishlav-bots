@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { parseEnv } from "node:util";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { END_CALL_REASONS, Outcome, Provider, REQUEST_HUMAN_REASONS } from "./enums";
@@ -71,4 +72,17 @@ export function loadSettings(path: string): Settings {
     throw new Error(`Invalid ${path}:\n${z.prettifyError(parsed.error)}`);
   }
   return parsed.data;
+}
+
+/**
+ * Load a .env file into process.env without overriding variables that are already set.
+ * Tolerates a UTF-8 BOM and CRLF (Windows editors), which `process.loadEnvFile` does not.
+ */
+export function loadDotEnvFile(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const text = readFileSync(path, "utf8").replace(/^﻿/, "");
+  for (const [key, value] of Object.entries(parseEnv(text))) {
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+  return true;
 }

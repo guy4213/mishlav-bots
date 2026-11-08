@@ -48,6 +48,15 @@ export const Scenario = z.strictObject({
     no_rejected_calls: z.boolean().default(false),
     manual_checks: z.array(z.string()).default([]),
   }),
+  /** Plain-Hebrew instructions for the tester (dashboard). `watch` = Hebrew of `expect.manual_checks`, same order. */
+  guide_he: z
+    .strictObject({
+      title: z.string().min(1),
+      expect: z.string().min(1),
+      tips: z.array(z.string()).default([]),
+      watch: z.array(z.string()).default([]),
+    })
+    .optional(),
   simulate: z
     .array(z.strictObject({ tool: ToolName, params: z.record(z.string(), z.unknown()).default({}) }))
     .default([]),

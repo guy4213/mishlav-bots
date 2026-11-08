@@ -22,6 +22,14 @@ expect:
       params:
         day_id: { equals: payroll-2026-12-22-hotel }
   forbidden_tools: [request_human]
+guide_he:
+  title: רוצה להירשם
+  expect: הבוט מוסר מחיר (790 ₪ כולל מע"מ) ומיקום (מלון) מתוך הכלי, שולח קישור ליום העיון במלון, נפרד ומנתק.
+  tips:
+    - תגיד "הלו" וחכה למשפט הפתיחה.
+    - שאל קודם על המחיר ואחר כך על המיקום.
+    - בקש שישלחו לך קישור.
+  watch: []
 simulate:
   - { tool: get_day_info, params: { day_id: payroll-2026-12-22-hotel } }
   - { tool: send_purchase_link, params: { day_id: payroll-2026-12-22-hotel } }

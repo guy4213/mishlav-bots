@@ -15,5 +15,11 @@ expect:
       params:
         reason: { equals: do_not_call }
   forbidden_tools: [send_purchase_link, schedule_callback]
+guide_he:
+  title: הסרה מהרשימה, עם מילה באנגלית
+  expect: הבוט מאשר בקצרה שהסיר אותך, מנתק עם do_not_call, נשאר בעברית ולא מנסה לשכנע.
+  tips:
+    - אמור את המשפט בדיוק כמו שהוא, כולל המילה zoom באנגלית.
+  watch: []
 simulate:
   - { tool: end_call, params: { reason: do_not_call } }

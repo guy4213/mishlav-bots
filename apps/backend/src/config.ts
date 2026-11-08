@@ -1,6 +1,5 @@
-import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
-import { findRepoRoot, loadSettings, type Settings } from "@mishlav/shared";
+import { findRepoRoot, loadDotEnvFile, loadSettings, type Settings } from "@mishlav/shared";
 
 export interface AppConfig {
   repoRoot: string;
@@ -14,8 +13,7 @@ export interface AppConfig {
 
 /** Load `.env` from the repo root (if present) without overriding real env vars. */
 export function loadDotEnv(repoRoot: string): void {
-  const file = join(repoRoot, ".env");
-  if (existsSync(file)) process.loadEnvFile(file);
+  loadDotEnvFile(join(repoRoot, ".env"));
 }
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {

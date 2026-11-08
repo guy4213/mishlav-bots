@@ -12,6 +12,7 @@
     "apps/backend"
   ],
   "scripts": {
+    "lab": "tsx scripts/lab.ts",
     "dev": "npm run dev -w @mishlav/backend",
     "dev:tunnel": "npm run dev:tunnel -w @mishlav/backend",
     "start": "npm run start -w @mishlav/backend",
@@ -21,7 +22,10 @@
     "session": "tsx scripts/session.ts",
     "simulate": "tsx scripts/simulate.ts",
     "score": "tsx scripts/score-calls.ts",
-    "tools:export": "tsx scripts/export-tools.ts"
+    "tools:export": "tsx scripts/export-tools.ts",
+    "worker:console": "cd apps/voice-worker && uv run agent.py console",
+    "worker:dev": "cd apps/voice-worker && uv run agent.py dev",
+    "worker:test": "cd apps/voice-worker && uv run pytest -q"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -15,7 +15,7 @@
 | Config | YAML (`yaml` package) | `config/settings.yaml` |
 | Tests | vitest | `npm test` |
 | Tunnel | ngrok (CLI, or `@ngrok/ngrok` via `npm run dev:tunnel`) | |
-| Voice worker (C, then B) | Python, LiveKit Agents, Gemini `RealtimeModel` (`gemini-3.8-live`) | Part 3, first step — not built yet |
+| Voice worker (C, then B) | Python 3.12 via uv, LiveKit Agents 1.8, Gemini `RealtimeModel` (`gemini-3.8-live`) | `apps/voice-worker` — see its README |
 | Production DB | Supabase (Postgres + RLS) | Part 4 |
 | Hosting | Render, Frankfurt | Part 4 |
 
