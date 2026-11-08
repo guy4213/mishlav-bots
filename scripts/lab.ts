@@ -1,26 +1,34 @@
 /**
  * One command for provider testing:  npm run lab
  *
- * Starts the tools server (unless one is already running), the voice worker (provider C, Gemini Live)
- * when LiveKit keys are present, and opens the dashboard in the browser. Ctrl+C stops everything.
+ * Starts the tools server (unless one is already running) and, depending on the keys in .env:
+ *   - provider C: the LiveKit voice worker with Gemini Live (agent mishlav-c)
+ *   - provider B: the same worker with Soniox + LLM + ElevenLabs TTS (agent mishlav-b)
+ *   - provider A: an ngrok tunnel to the tools server + re-sync of the ElevenLabs agent's tool URLs
+ * then opens the dashboard in the browser. Ctrl+C stops everything.
  *
- *   npm run lab -- --no-worker     tools server + dashboard only
+ *   npm run lab -- --no-worker     no LiveKit workers (B/C)
+ *   npm run lab -- --no-tunnel     no ngrok / ElevenLabs sync (A)
  *   npm run lab -- --no-open       don't open the browser
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { elevenKey, syncAgent } from "./lib/elevenlabs";
 import { scriptEnv } from "./lib/env";
+import { openTunnel, type Tunnel } from "./lib/tunnel";
 
 const { values } = parseArgs({
   options: {
     "no-worker": { type: "boolean", default: false },
+    "no-tunnel": { type: "boolean", default: false },
     "no-open": { type: "boolean", default: false },
   },
 });
 
 const env = scriptEnv();
 const children: ChildProcess[] = [];
+let tunnel: Tunnel | null = null;
 const isWin = process.platform === "win32";
 
 function run(label: string, command: string, cwd: string, extraEnv: Record<string, string> = {}): ChildProcess {
@@ -62,6 +70,7 @@ function openBrowser(url: string) {
 }
 
 function stopAll() {
+  tunnel?.close().catch(() => {});
   for (const c of children) {
     if (c.exitCode !== null || !c.pid) continue;
     if (isWin) spawnSync("taskkill", ["/pid", String(c.pid), "/T", "/F"], { stdio: "ignore" });
@@ -80,14 +89,42 @@ async function main() {
     if (!(await waitHealthy(60_000))) throw new Error("tools server did not start within 60s (see [server] lines above)");
   }
 
-  const livekit = process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET;
+  const e = process.env;
+  const livekit = e.LIVEKIT_URL && e.LIVEKIT_API_KEY && e.LIVEKIT_API_SECRET;
+  const workerDir = join(env.root, "apps", "voice-worker");
   if (values["no-worker"]) {
-    console.log("[lab] --no-worker: voice worker not started");
+    console.log("[lab] --no-worker: voice workers not started");
   } else if (!livekit) {
-    console.log("[lab] LiveKit keys missing in .env -> voice worker not started (the dashboard shows what is missing)");
+    console.log("[lab] LiveKit keys missing in .env -> voice workers (B, C) not started (the dashboard shows what is missing)");
   } else {
-    if (!process.env.GOOGLE_API_KEY) console.log("[lab] warning: GOOGLE_API_KEY is empty — the bot will fail to talk to Gemini");
-    run("bot", "uv run agent.py dev --log-level info", join(env.root, "apps", "voice-worker"));
+    if (!e.GOOGLE_API_KEY) console.log("[lab] warning: GOOGLE_API_KEY is empty — provider C will fail to talk to Gemini");
+    run("bot-C", "uv run agent.py dev --log-level info", workerDir, { VOICE_PROVIDER: "gemini", AGENT_NAME: e.AGENT_NAME ?? "mishlav-c" });
+    const bKeys = e.SONIOX_API_KEY && elevenKey() && e.GOOGLE_API_KEY;
+    if (bKeys) {
+      // its own health port: two `dev` workers on one machine
+      run("bot-B", "uv run agent.py dev --log-level info", workerDir, {
+        VOICE_PROVIDER: "soniox_eleven",
+        AGENT_NAME: e.AGENT_NAME_B ?? "mishlav-b",
+        WORKER_PORT: e.WORKER_PORT_B ?? "8082",
+      });
+    } else {
+      console.log("[lab] provider B not started (needs SONIOX_API_KEY + ElevenLabs key + GOOGLE_API_KEY)");
+    }
+  }
+
+  // provider A: ElevenLabs calls our tools from the internet -> tunnel + point the agent's tools at it
+  const key = elevenKey();
+  if (values["no-tunnel"]) {
+    console.log("[lab] --no-tunnel: provider A (ElevenLabs) not connected");
+  } else if (key) {
+    try {
+      tunnel = await openTunnel(Number(new URL(env.baseUrl).port || 8787));
+      console.log(`[lab] tunnel: ${tunnel.url} -> ${env.baseUrl}`);
+      const state = await syncAgent({ root: env.root, key, toolsUrl: tunnel.url, secret: env.secret, log: (m) => console.log(`[eleven] ${m}`) });
+      console.log(`[lab] ElevenLabs agent ${state.agent_id} ready (provider A)`);
+    } catch (err) {
+      console.log(`[lab] provider A not ready: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   const url = `${env.baseUrl}/dashboard#k=${encodeURIComponent(env.secret)}`;
@@ -95,8 +132,11 @@ async function main() {
   if (!values["no-open"]) openBrowser(url);
 
   await new Promise<void>((resolve) => {
-    process.on("SIGINT", () => resolve());
-    process.on("SIGTERM", () => resolve());
+    // keep the process (and the tunnel) alive even when there are no child processes to wait on
+    const keepAlive = setInterval(() => {}, 60_000);
+    const stop = () => { clearInterval(keepAlive); resolve(); };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
   });
 }
 

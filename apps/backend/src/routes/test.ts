@@ -1,7 +1,10 @@
 import { MetricsInput, SessionStartInput, ToolCallLogEntry, type MetricsLogEntry } from "@mishlav/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { loadScenarios } from "../../../../scripts/lib/scenarios";
+import { buildCallVariables } from "../context";
 import type { JsonlFile } from "../jsonl";
+import type { KnowledgeBase } from "../knowledge";
 import type { SessionStore } from "../sessions";
 
 export interface TestRouteDeps {
@@ -9,6 +12,11 @@ export interface TestRouteDeps {
   toolLog: JsonlFile;
   metricsLog: JsonlFile;
   now: () => Date;
+  knowledge: KnowledgeBase;
+  /** tests/scenarios — read per request so edits to a scenario apply without a restart. */
+  scenariosDir: string;
+  /** BOT_NAME (default נועה). */
+  botName?: string;
 }
 
 const badRequest = (error: z.ZodError) => ({ ok: false, error: "invalid_params", details: z.prettifyError(error) });
@@ -58,5 +66,32 @@ export async function registerTestRoutes(app: FastifyInstance, deps: TestRouteDe
         provider,
       }));
     return { ok: true, session_id: sessionId, count: calls.length, calls };
+  });
+
+  /**
+   * Prompt variables for one call — the same for every provider (C worker, A dynamic variables, B).
+   * ?scenario=S1 uses that scenario's `context:` block; without it, the active session's scenario.
+   * ?first_name= / ?day_id= override.
+   */
+  app.get("/test/context", async (req, reply) => {
+    const q = (req.query ?? {}) as Record<string, string | undefined>;
+    const scenarioId = q.scenario ?? deps.sessions.current()?.scenario;
+    let ctx: Record<string, unknown> = {};
+    if (scenarioId) {
+      const sc = loadScenarios(deps.scenariosDir).find((s) => s.id === scenarioId);
+      if (!sc) return reply.code(404).send({ ok: false, error: "unknown_scenario", scenario: scenarioId });
+      ctx = (sc.context ?? {}) as Record<string, unknown>;
+    }
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const variables = buildCallVariables(
+      deps.knowledge,
+      {
+        first_name: str(q.first_name) ?? str(ctx.first_name),
+        interested_day_id: str(q.day_id) ?? str(ctx.interested_day_id),
+        bot_name: deps.botName,
+      },
+      deps.now(),
+    );
+    return { ok: true, scenario: scenarioId ?? null, variables };
   });
 }

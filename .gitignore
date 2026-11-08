@@ -17,3 +17,6 @@ recordings/
 # Call recordings + transcripts (contain customer phone numbers / PII)
 recordings/
 transcripts/
+
+# Provider A agent/tool ids (npm run eleven:sync)
+.elevenlabs.json

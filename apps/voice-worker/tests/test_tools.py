@@ -46,14 +46,32 @@ def test_tool_posts_to_server_and_returns_json():
     assert '"status": "sent"' in out
 
 
-def test_end_call_returns_no_reply_and_hangs_up_after_the_turn():
+def test_end_call_hangs_up_right_after_the_goodbye_and_mutes_what_follows(monkeypatch):
+    import mishlav_worker.tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "HANGUP_GRACE_S", 0)
+    events = []
+
+    async def wait_for_playout():
+        events.append("goodbye played")
+
+    session = SimpleNamespace(
+        output=SimpleNamespace(set_audio_enabled=lambda on: events.append(f"audio {on}")),
+        shutdown=lambda: events.append("shutdown"),
+    )
+    ctx = SimpleNamespace(wait_for_playout=wait_for_playout, session=session)
     client = FakeClient({"ok": True, "status": "ending"})
     tool = {t.info.name: t for t in build_tools(load_tool_definitions(ROOT), client)}["end_call"]
-    callbacks = []
-    ctx = SimpleNamespace(speech_handle=SimpleNamespace(add_done_callback=callbacks.append))
-    assert _run(tool, {"reason": "voicemail"}, ctx) is None
+
+    async def scenario():
+        out = await tool(raw_arguments={"reason": "voicemail"}, context=ctx)
+        for _ in range(5):
+            await asyncio.sleep(0)
+        return out
+
+    assert asyncio.run(scenario()) is None  # no reply asked of the model
     assert client.calls == [("end_call", {"reason": "voicemail"})]
-    assert len(callbacks) == 1  # hang-up scheduled once the bot's current turn ends
+    assert events == ["goodbye played", "audio False", "shutdown"]
 
 
 def test_agent_module_imports():
@@ -61,3 +79,19 @@ def test_agent_module_imports():
     mod = importlib.import_module("agent")
     assert mod.AGENT_NAME
     assert mod.build_llm() is not None
+
+
+def test_extended_thinking_model_gets_non_blocking_tools_and_a_thinking_level(monkeypatch):
+    os.environ.setdefault("GOOGLE_API_KEY", "test-key")
+    mod = importlib.import_module("agent")
+    monkeypatch.setattr(mod, "GEMINI_MODEL", "gemini-3.8-live-extended-thinking")
+    monkeypatch.setenv("GEMINI_TOOL_BEHAVIOR", "blocking")  # ignored: this model rejects blocking tools
+    opts = mod.build_llm()._opts
+    assert opts.tool_behavior == types.Behavior.NON_BLOCKING
+    assert opts.thinking_config.thinking_level == types.ThinkingLevel.LOW
+
+    monkeypatch.setattr(mod, "GEMINI_MODEL", "gemini-3.8-live")
+    monkeypatch.delenv("GEMINI_TOOL_BEHAVIOR")
+    opts = mod.build_llm()._opts
+    assert opts.tool_behavior == types.Behavior.BLOCKING
+    assert not opts.thinking_config  # NOT_GIVEN: the standard model takes no thinking level

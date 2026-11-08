@@ -59,19 +59,34 @@ npm.cmd run session -- calls   # what the bot did
 npm.cmd run session -- end
 ```
 
+## Provider B (same worker)
+
+`VOICE_PROVIDER=soniox_eleven` swaps the realtime model for a pipeline (`mishlav_worker/pipeline_b.py`):
+Soniox STT (`stt-rt-v5`, Hebrew hint + domain context; its endpoint detection decides when a turn ended)
+→ Gemini text LLM (`gemini-3.8-flash`) → ElevenLabs TTS (`eleven_v4_turbo`, the low-latency model with
+Hebrew). Silero VAD handles barge-in. Same prompt, knowledge, tools, metrics and transcript as C. Agent
+name `mishlav-b`, health port `WORKER_PORT=8082`, so `npm run lab` runs B and C side by side. Needs
+`SONIOX_API_KEY`, an ElevenLabs key (`ELEVENLABS_API_KEY` or `elevenLabsAgentsKey`) and `GOOGLE_API_KEY`.
+
 ## Settings (`.env`)
 
 | Var | Default | |
 |-----|---------|--|
-| `GEMINI_MODEL` | `gemini-3.8-live` | Also `gemini-3.1-flash-live-preview`, `gemini-3.8-live-extended-thinking` |
+| `GEMINI_MODEL` | `gemini-3.8-live` | `gemini-3.8-live-extended-thinking` = background reasoning (A/B for understanding vs latency): tools forced non-blocking, takes `GEMINI_THINKING_LEVEL`. Model is recorded in the metrics `source` |
 | `GEMINI_VOICE` | `Kore` | Gemini prebuilt voice; choose by listening |
 | `GEMINI_TOOL_BEHAVIOR` | `blocking` | Model waits for the tool result before speaking (3.8 defaults to non-blocking) |
+| `GEMINI_THINKING_LEVEL` | `low` | Extended-thinking model only: `low`, `medium` or `high` |
+| `GEMINI_API_VERSION` | `v1alpha` | Live models return HTTP 404 on the default `v1beta` with an AI Studio key |
 | `GEMINI_TEMPERATURE` | `0.6` | |
 | `GEMINI_LANGUAGE` | — | Optional BCP-47 code (e.g. `he-IL`) if the Live API accepts it — a Hebrew-lock tuning knob |
 | `BOT_NAME` | `נועה` | `{{bot_name}}` in the prompt |
 | `AGENT_NAME` | `mishlav-c` | Must match the dispatch rule |
 | `OPEN_AFTER_SILENCE_S` | `4` | Open the call if the callee is silent this long (`0` = immediately) |
 | `TOOLS_BASE_URL` | `http://127.0.0.1:8787` | |
+
+Latency (end of caller speech -> first bot audio) is measured with a side-channel Silero VAD on the
+caller's track (`mishlav_worker/speech_monitor.py`): Gemini reports caller speech only on barge-in. The
+VAD is not given to the AgentSession, so it does not change turn-taking or interruptions.
 
 Tuning knobs if latency or noise fail: model, `GEMINI_TOOL_BEHAVIOR`, LiveKit noise cancellation
 (`livekit-plugins-noise-cancellation`, BVCTelephony), turn detection.

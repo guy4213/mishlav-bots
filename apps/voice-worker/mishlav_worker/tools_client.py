@@ -51,6 +51,17 @@ class ToolsClient:
             log.warning("could not read the active test session: %s", e)
             return None
 
+    async def call_context(self, scenario_id: str | None) -> dict[str, str] | None:
+        """Prompt variables for this call (GET /test/context), or None if the server can't give them."""
+        try:
+            r = await self._http.get("/test/context", params={"scenario": scenario_id} if scenario_id else None)
+            r.raise_for_status()
+            variables = r.json().get("variables")
+            return variables if isinstance(variables, dict) else None
+        except (httpx.HTTPError, ValueError) as e:
+            log.warning("could not read the call context: %s", e)
+            return None
+
     async def post_metrics(self, payload: dict[str, Any]) -> None:
         try:
             r = await self._http.post("/test/metrics", json=payload)

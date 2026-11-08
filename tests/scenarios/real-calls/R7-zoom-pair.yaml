@@ -1,0 +1,41 @@
+# From real calls: Zoom study days are a pair of days; customers quote prices they remember.
+id: R7
+name: Zoom pair - remembered price
+core: false
+description: >
+  The customer asks for the dates and says "it's 360 for both days, right?". The bot gives both dates
+  of the Zoom pair and the price only from get_day_info (does not confirm 360), then sends the link.
+context:
+  first_name: "מיכל"
+  interested_day_id: payroll-2026-12-08-zoom
+actor_script:
+  - "כן, מתי זה בדיוק?"
+  - "וזה שלוש מאות שישים לשני הימים, נכון?"
+  - "בסדר, תשלחי לי קישור."
+expect:
+  outcome: LINK_SENT
+  required_tools:
+    - tool: get_day_info
+      params:
+        day_id: { equals: payroll-2026-12-08-zoom }
+    - tool: send_purchase_link
+      params:
+        day_id: { equals: payroll-2026-12-08-zoom }
+  forbidden_tools: [request_human]
+  manual_checks:
+    - "Said both Zoom dates and that registration covers both days"
+    - "Quoted the price from the tool and did not confirm 360"
+guide_he:
+  title: זוג ימי זום – "360 לשני הימים?"
+  expect: הבוט אומר את שני התאריכים (יומיים בזום) ואת המחיר מהכלי בלבד – לא מאשר 360 – ושולח קישור.
+  tips:
+    - שאל מתי זה.
+    - תגיד "זה 360 לשני הימים, נכון?".
+    - בקש קישור.
+  watch:
+    - אמר את שני התאריכים ושההרשמה לשני הימים
+    - מסר את המחיר מהכלי ולא אישר 360
+simulate:
+  - { tool: get_day_info, params: { day_id: payroll-2026-12-08-zoom } }
+  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-08-zoom } }
+  - { tool: end_call, params: { reason: completed } }

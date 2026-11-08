@@ -1,0 +1,34 @@
+# From real calls (docs/CALL_INSIGHTS.md): customers already in process got angry at repeated calls.
+id: R1
+name: Already in process - company approval
+core: false
+description: >
+  The customer already sent a registration form and is waiting for the company's purchase committee,
+  and is annoyed at being called again. The bot apologises, does not re-ask or pitch, sends no link,
+  and hands off with company_purchase.
+context:
+  first_name: "רונית"
+  interested_day_id: payroll-2026-12-22-hotel
+actor_script:
+  - "שוב? כבר דיברתי איתכם, שלחתי טופס לשתי עובדות."
+  - "אנחנו מחכים לאישור של ועדת הרכש. כמה פעמים אפשר לשאול אותי את אותן שאלות?"
+expect:
+  outcome: COMPANY
+  required_tools:
+    - tool: request_human
+      params:
+        reason: { equals: company_purchase }
+  forbidden_tools: [send_purchase_link]
+  manual_checks:
+    - "Apologised briefly and did not re-ask questions or try to persuade"
+guide_he:
+  title: כבר בתהליך – מחכים לאישור החברה
+  expect: הבוט מתנצל בקצרה, לא שואל שוב ולא משכנע, לא שולח קישור, ומעביר לנציג (company_purchase).
+  tips:
+    - תהיה קצת עצבני – "כבר דיברתי איתכם".
+    - תגיד ששלחת טופס ואתם מחכים לאישור ועדת רכש.
+  watch:
+    - התנצל בקצרה, לא שאל שוב ולא ניסה לשכנע
+simulate:
+  - { tool: request_human, params: { reason: company_purchase } }
+  - { tool: end_call, params: { reason: completed } }

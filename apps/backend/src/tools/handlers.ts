@@ -8,7 +8,7 @@ import {
   type ToolName,
 } from "@mishlav/shared";
 import type { z } from "zod";
-import type { KnowledgeBase, StudyDay } from "../knowledge";
+import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay } from "../knowledge";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
@@ -32,9 +32,12 @@ const publicDay = (d: StudyDay) => ({
   title: d.title,
   topic: d.topic,
   date: d.date,
+  end_date: d.end_date, // zoom = 2 days
+  dates_he: datesHe(d),
   start: d.start,
   end: d.end,
   format: d.format,
+  format_he: FORMAT_HE[d.format],
   location: d.location,
   price_ils: d.price_ils,
   vat_included: d.vat_included,
@@ -42,15 +45,39 @@ const publicDay = (d: StudyDay) => ({
   description: d.description,
 });
 
+const brief = (d: StudyDay) => ({
+  day_id: d.id,
+  date: d.date,
+  end_date: d.end_date,
+  dates_he: datesHe(d),
+  start: d.start,
+  end: d.end,
+  format_he: FORMAT_HE[d.format],
+});
+
+/** Facts for "is there another date?": same series (same content) AND same format, open, upcoming. */
+export function otherDates(day: StudyDay, kb: KnowledgeBase, now: Date) {
+  const today = now.toISOString().slice(0, 10);
+  const upcoming = [...kb.days.values()]
+    .filter((d) => d.id !== day.id && d.series === day.series && d.open_for_registration && d.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const sameFormat = upcoming.filter((d) => d.format === day.format);
+  const otherFormat = upcoming.filter((d) => d.format !== day.format);
+  return {
+    other_dates_same_format: sameFormat.map(brief),
+    same_content_other_format: otherFormat.map(brief),
+  };
+}
+
 /**
  * Test-mode tool implementations (spec 1.4): fixed answers, no side effects.
  * In Part 4 these become the real Tools API (identity via call_id, real SMS, tasks, notifier).
  */
 export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext) => ToolResponse } = {
-  get_day_info(input, { knowledge }) {
+  get_day_info(input, { knowledge, now }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
-    return { ok: true, day: publicDay(day), general: knowledge.general };
+    return { ok: true, day: publicDay(day), ...otherDates(day, knowledge, now()), general: knowledge.general };
   },
 
   send_purchase_link(input, { knowledge }) {

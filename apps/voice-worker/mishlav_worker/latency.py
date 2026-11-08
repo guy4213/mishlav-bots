@@ -1,6 +1,7 @@
 """Per-turn response time: end of customer speech -> first bot audio (spec 3.5 criterion 4).
 
-Driven by the session's user/agent state events, so it works the same for a realtime model (C) and a
+User speech comes from the side-channel VAD (speech_monitor.py: Gemini doesn't report it), the bot's
+first audio from the session's agent state, so it works the same for a realtime model (C) and a
 pipeline (B). `provider_ms` is the model's own time-to-first-token when the plugin reports it.
 """
 
@@ -18,11 +19,12 @@ class LatencyTracker:
     _user_stopped_at: float | None = None
     _pending_provider_ms: float | None = None
 
-    def user_state(self, new_state: str) -> None:
+    def user_state(self, new_state: str, ended_ago_s: float = 0.0) -> None:
+        """`ended_ago_s`: the VAD reports end of speech only after its silence window — back-date it."""
         if new_state == "speaking":
             self._user_stopped_at = None
         elif new_state == "listening" and self._user_stopped_at is None:
-            self._user_stopped_at = self.clock()
+            self._user_stopped_at = self.clock() - max(0.0, ended_ago_s)
 
     def provider_time(self, ms: float) -> None:
         if ms >= 0:

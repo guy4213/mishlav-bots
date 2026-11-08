@@ -36,6 +36,20 @@ class CallVars:
     bot_name: str
     interested_day_id: str = ""
     current_datetime: str = ""
+    # Facts about this customer and the catalogue, built by the tools server (GET /test/context).
+    customer_context: str = ""
+
+    @classmethod
+    def from_server(cls, variables: dict[str, str]) -> "CallVars":
+        """The `variables` of GET /test/context — the same values every provider gets."""
+        day = variables.get("interested_day_id", "")
+        return cls(
+            first_name=variables["first_name"],
+            bot_name=variables["bot_name"],
+            interested_day_id="" if day == "לא ידוע" else day,
+            current_datetime=variables["current_datetime"],
+            customer_context=variables.get("customer_context", ""),
+        )
 
 
 def format_now_he(now: datetime) -> str:
@@ -66,6 +80,10 @@ def _split_front_matter(text: str) -> tuple[dict[str, Any], str]:
     return yaml.safe_load(m.group(1)) or {}, m.group(2)
 
 
+# Same labels as the tools server (apps/backend/src/knowledge.ts FORMAT_HE).
+FORMAT_HE = {"hotel": "פרונטלי – במלון", "zoom": "מקוון – בזום"}
+
+
 def knowledge_appendix(root: Path) -> str:
     """general.md + every day file, as one Hebrew block appended to the prompt (spec: B/C append knowledge)."""
     kdir = root / "config" / "knowledge"
@@ -77,9 +95,12 @@ def knowledge_appendix(root: Path) -> str:
         meta, body = _split_front_matter(f.read_text(encoding="utf-8"))
         facts = ", ".join(
             f"{k}: {meta[k]}"
-            for k in ("id", "date", "start", "end", "format", "location", "price_ils", "open_for_registration")
+            for k in ("id", "date", "end_date", "start", "end", "format", "location", "price_ils", "open_for_registration")
             if k in meta
         )
+        if meta.get("format") in FORMAT_HE:
+            facts += f", פורמט: {FORMAT_HE[meta['format']]}"
+        facts += f", series: {meta.get('series', meta.get('id', f.stem))}"
         parts.append(f"## day_id `{meta.get('id', f.stem)}`\n{facts}\n\n{body.strip()}")
     return "\n\n".join(parts)
 
@@ -91,6 +112,7 @@ def build_instructions(root: Path, call: CallVars) -> str:
         "bot_name": call.bot_name,
         "interested_day_id": call.interested_day_id or "לא ידוע",
         "current_datetime": call.current_datetime,
+        "customer_context": call.customer_context,
     }
     return render(prompt, values) + "\n\n" + knowledge_appendix(root)
 

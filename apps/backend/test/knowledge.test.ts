@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findRepoRoot } from "@mishlav/shared";
 import { describe, expect, it } from "vitest";
-import { loadKnowledge } from "../src/knowledge";
+import { datesHe, loadKnowledge, parseDayFile } from "../src/knowledge";
 import { redactText } from "../src/redact";
 
 const root = findRepoRoot(__dirname);
@@ -18,6 +18,23 @@ describe("knowledge base", () => {
     }
   });
 
+  it("zoom study days are a pair of days, hotel days are one day", () => {
+    for (const d of kb.days.values()) {
+      if (d.format === "zoom") expect(d.end_date && d.end_date > d.date, d.id).toBe(true);
+      else expect(d.end_date, d.id).toBeUndefined();
+    }
+    const day = (extra: string) =>
+      `---\nid: x\ntitle: t\ntopic: t\ndate: "2026-12-08"\n${extra}start: "09:00"\nend: "14:00"\nformat: zoom\nlocation: z\nprice_ils: 370\nvat_included: true\nopen_for_registration: true\n---\nbody`;
+    expect(() => parseDayFile(day(""), "x.md")).toThrow(/end_date/);
+    expect(parseDayFile(day('end_date: "2026-12-09"\n'), "x.md").end_date).toBe("2026-12-09");
+  });
+
+  it("formats single days and pairs in Hebrew", () => {
+    expect(datesHe({ date: "2026-12-22" })).toBe("22.12.2026");
+    expect(datesHe({ date: "2026-12-08", end_date: "2026-12-09" })).toBe("8–9.12.2026");
+    expect(datesHe({ date: "2026-12-31", end_date: "2027-01-01" })).toBe("31.12.2026–1.1.2027");
+  });
+
   it("prompt catalogue and knowledge days match exactly", () => {
     const prompt = readFileSync(join(root, "config", "prompt.md"), "utf8");
     const block = /<!-- day-catalog:start -->([\s\S]*?)<!-- day-catalog:end -->/.exec(prompt)?.[1] ?? "";
@@ -27,7 +44,7 @@ describe("knowledge base", () => {
 
   it("prompt keeps the provider-neutral variables", () => {
     const prompt = readFileSync(join(root, "config", "prompt.md"), "utf8");
-    for (const v of ["first_name", "bot_name", "interested_day_id", "current_datetime"]) {
+    for (const v of ["first_name", "bot_name", "interested_day_id", "current_datetime", "customer_context"]) {
       expect(prompt).toContain(`{{${v}}}`);
     }
   });

@@ -5,7 +5,7 @@
  *   TOOLS_SECRET on every API call (it receives it in the URL #hash from `npm run lab`).
  * - Everything under /test/* stays behind the shared secret like the rest of the server.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,7 @@ import { loadScenarios, type Scenario } from "../../../../scripts/lib/scenarios"
 import { EMPTY_MANUAL, ManualInputs, ManualSession, type SessionResult } from "../../../../scripts/lib/scoring";
 import type { AppConfig } from "../config";
 import type { SessionStore } from "../sessions";
+import { elevenStatus, registerElevenLabsRoutes } from "./elevenlabs";
 
 export interface DashboardDeps {
   config: AppConfig;
@@ -42,25 +43,48 @@ function livekitClientPath(repoRoot: string): string {
   }
 }
 
+function elevenClientPath(repoRoot: string): string {
+  try {
+    const pkg = createRequire(import.meta.url).resolve("@elevenlabs/client/package.json");
+    return join(dirname(pkg), "dist", "lib.iife.js");
+  } catch {
+    return join(repoRoot, "node_modules", "@elevenlabs", "client", "dist", "lib.iife.js");
+  }
+}
+
+/** LiveKit agent name per provider (must match the worker's AGENT_NAME and the phone dispatch rule). */
+export const livekitAgentName = (provider: "B" | "C", env: NodeJS.ProcessEnv) =>
+  provider === "B" ? (env.AGENT_NAME_B ?? "mishlav-b") : (env.AGENT_NAME ?? "mishlav-c");
+
 /** Which providers can be tested from the dashboard right now, and why not. */
-function providerStatus(env: NodeJS.ProcessEnv) {
+function providerStatus(env: NodeJS.ProcessEnv, root: string) {
   const livekit = Boolean(env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET);
   const gemini = Boolean(env.GOOGLE_API_KEY || env.GOOGLE_GENAI_USE_VERTEXAI);
-  const missing: string[] = [];
-  if (!livekit) missing.push("מפתחות LiveKit (LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET)");
-  if (!gemini) missing.push("מפתח Gemini (GOOGLE_API_KEY)");
+  const soniox = Boolean(env.SONIOX_API_KEY);
+  const eleven = elevenStatus(root, env);
+  const LIVEKIT_KEYS = "מפתחות LiveKit (LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET)";
+  const missingFor = (need: [boolean, string][]) => need.filter(([ok]) => !ok).map(([, what]) => what);
+  const note = (missing: string[], ready: string) => (missing.length ? `חסר ב-.env: ${missing.join(", ")}` : ready);
+
+  const missC = missingFor([[livekit, LIVEKIT_KEYS], [gemini, "מפתח Gemini (GOOGLE_API_KEY)"]]);
+  const missB = missingFor([
+    [livekit, LIVEKIT_KEYS],
+    [soniox, "מפתח Soniox (SONIOX_API_KEY)"],
+    [eleven.key, "מפתח ElevenLabs (elevenLabsAgentsKey)"],
+    [gemini, "מפתח Gemini ל-LLM (GOOGLE_API_KEY)"],
+  ]);
+  const readyA = eleven.key && Boolean(eleven.agent_id);
+  const noteA = !eleven.key
+    ? "חסר ב-.env: מפתח ElevenLabs (elevenLabsAgentsKey)"
+    : !eleven.agent_id
+      ? "הסוכן עוד לא נוצר – הפעל דרך npm run lab (יוצר ומעדכן אותו אוטומטית)"
+      : `מוכן לבדיקה · הכלים מחוברים דרך ${eleven.tools_url ?? "?"} (מתעדכן בכל הפעלה של npm run lab)`;
   return {
-    config: { livekit, gemini, agentName: env.AGENT_NAME ?? "mishlav-c" },
+    config: { livekit, gemini, soniox, agentName: livekitAgentName("C", env), agentNameB: livekitAgentName("B", env), elevenlabs: eleven },
     providers: [
-      {
-        code: "C",
-        name: PROVIDER_NAMES.C,
-        ready: livekit && gemini,
-        channels: ["browser", "phone"],
-        note: missing.length ? `חסר ב-.env: ${missing.join(", ")}` : "מוכן לבדיקה",
-      },
-      { code: "A", name: PROVIDER_NAMES.A, ready: false, channels: ["phone"], note: "עוד לא הוקם (נבדק רק אם ג' לא עובר)" },
-      { code: "B", name: PROVIDER_NAMES.B, ready: false, channels: ["browser", "phone"], note: "עוד לא הוקם (נבדק רק אם ג' וא' לא עוברים)" },
+      { code: "C", name: PROVIDER_NAMES.C, ready: missC.length === 0, channels: ["browser", "phone"], note: note(missC, "מוכן לבדיקה") },
+      { code: "A", name: PROVIDER_NAMES.A, ready: readyA, channels: ["browser"], note: noteA },
+      { code: "B", name: PROVIDER_NAMES.B, ready: missB.length === 0, channels: ["browser", "phone"], note: note(missB, "מוכן לבדיקה") },
     ],
   };
 }
@@ -114,6 +138,12 @@ const VoiceUpdate = z.strictObject({
   scores: z.record(z.string().regex(/^[A-Z]$/), z.array(z.number().min(1).max(5)).max(10)),
 });
 const TokenRequest = z.strictObject({ provider: Provider.default("C"), scenario: z.string().max(20).optional() });
+const CALL_ID = /^[\w+.\-]{1,150}$/;
+const TranscriptAppend = z.strictObject({
+  call_id: z.string().regex(CALL_ID),
+  role: z.enum(["user", "assistant"]),
+  text: z.string().min(1).max(4000),
+});
 
 export async function registerDashboardRoutes(app: FastifyInstance, deps: DashboardDeps): Promise<void> {
   const env = deps.env ?? process.env;
@@ -153,10 +183,16 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
     reply.header("cache-control", "public, max-age=3600").type("application/javascript; charset=utf-8");
     return readFileSync(livekitClientPath(root), "utf8");
   });
+  app.get("/dashboard/elevenlabs-client.js", async (_req, reply) => {
+    reply.header("cache-control", "public, max-age=3600").type("application/javascript; charset=utf-8");
+    return readFileSync(elevenClientPath(root), "utf8");
+  });
+
+  await registerElevenLabsRoutes(app, { root, env });
 
   // ---- data
   app.get("/test/overview", async () => {
-    const status = providerStatus(env);
+    const status = providerStatus(env, root);
     return {
       ok: true,
       ...status,
@@ -236,7 +272,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
     if (!existsSync(transcriptsDir)) return { ok: true, call_id: null, lines: [] };
     let file: string | null = null;
     if (q.call_id) {
-      if (!/^[\w+.\-]{1,150}$/.test(q.call_id)) return { ok: false, error: "invalid_call_id" };
+      if (!CALL_ID.test(q.call_id)) return { ok: false, error: "invalid_call_id" };
       const f = join(transcriptsDir, `${q.call_id}.jsonl`);
       file = existsSync(f) ? f : null;
     } else {
@@ -263,13 +299,23 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
     return { ok: true, call_id: file.split(/[\\/]/).pop()!.replace(/\.jsonl$/, ""), lines };
   });
 
+  // ---- transcript lines sent by the browser (provider A: ElevenLabs runs the call, not our worker)
+  app.post("/test/transcript", async (req, reply) => {
+    const parsed = TranscriptAppend.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
+    mkdirSync(transcriptsDir, { recursive: true });
+    const line = { ts: deps.now().toISOString(), role: parsed.data.role, text: parsed.data.text };
+    appendFileSync(join(transcriptsDir, `${parsed.data.call_id}.jsonl`), JSON.stringify(line) + "\n", "utf8");
+    return { ok: true };
+  });
+
   // ---- browser call: a LiveKit token for a fresh room that dispatches the voice worker
   app.post("/test/livekit/token", async (req, reply) => {
     const parsed = TokenRequest.safeParse(req.body ?? {});
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
-    const status = providerStatus(env);
+    const status = providerStatus(env, root);
     const p = status.providers.find((x) => x.code === parsed.data.provider);
-    if (!p || !p.channels.includes("browser")) {
+    if (!p || p.code === "A" || !p.channels.includes("browser")) {
       return reply.code(400).send({ ok: false, error: "no_browser_channel", message_he: "לספק הזה אין שיחה מהדפדפן" });
     }
     if (!status.config.livekit) {
@@ -280,7 +326,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
     const room = `web-${parsed.data.provider}-${parsed.data.scenario ?? session?.scenario ?? "free"}-${stamp}`;
     const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, { identity: `tester-${stamp}`, name: "Tester", ttl: "1h" });
     at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
-    at.roomConfig = new RoomConfiguration({ agents: [new RoomAgentDispatch({ agentName: status.config.agentName })] });
+    at.roomConfig = new RoomConfiguration({ agents: [new RoomAgentDispatch({ agentName: livekitAgentName(p.code === "B" ? "B" : "C", env) })] });
     return { ok: true, url: env.LIVEKIT_URL, token: await at.toJwt(), room };
   });
 }

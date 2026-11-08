@@ -1,0 +1,39 @@
+id: X9
+name: Another date for the same day
+core: false
+description: >
+  Customer interested in the hotel day asks whether there are other dates. "Another date" means the
+  same study day (same topic, same format) on a different date, not a different topic and not Zoom.
+  The catalogue has no other date for it, so the bot must say so plainly, without steering to the
+  Zoom days, and then send the link for the hotel day. Found in a real test call (provider C, S1).
+context:
+  first_name: "דנה"
+  interested_day_id: payroll-2026-12-22-hotel
+actor_script:
+  - "כן, יש לי דקה."
+  - "יש תאריכים אחרים ליום העיון הזה?"
+  - "אוקיי, אז תשלחי לי קישור ל-22 בדצמבר."
+expect:
+  outcome: LINK_SENT
+  required_tools:
+    - tool: send_purchase_link
+      params:
+        day_id: { equals: payroll-2026-12-22-hotel }
+  manual_checks:
+    - "Said there is no other date for this study day (did not answer with the Zoom days)"
+    - "Did not switch format or topic on its own"
+guide_he:
+  title: תאריך אחר לאותו יום עיון
+  expect: >-
+    הבוט אומר שליום העיון במלון יש כרגע רק את המועד של 22 בדצמבר. מותר לו להוסיף שיש ימים בנושאים
+    אחרים (חלקם בזום), אבל לא לענות על השאלה בהפניה לזום. בסוף שולח קישור ליום במלון.
+  tips:
+    - אחרי הפרטים, שאל "יש תאריכים אחרים ליום העיון הזה?" – בלי להגיד "פרונטלי" או "במלון".
+    - אם הוא שואל שאלת הבהרה ("אותו יום במועד אחר?") – זה בסדר גמור, תענה "כן".
+  watch:
+    - אמר שאין מועד נוסף ליום הזה (ולא ענה בהפניה לימי זום)
+    - לא החליף פורמט או נושא מיוזמתו
+simulate:
+  - { tool: get_day_info, params: { day_id: payroll-2026-12-22-hotel } }
+  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-22-hotel } }
+  - { tool: end_call, params: { reason: completed } }

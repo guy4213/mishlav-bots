@@ -99,6 +99,49 @@ describe("dashboard", () => {
     expect(bad.statusCode).toBe(400);
   });
 
+  it("reports A and B readiness from their keys, and dispatches B to its own LiveKit agent", async () => {
+    const off = (await (await server({})).app.inject({ method: "GET", url: "/test/overview", headers: AUTH })).json();
+    const a = off.providers.find((p: { code: string }) => p.code === "A");
+    const b = off.providers.find((p: { code: string }) => p.code === "B");
+    expect(a).toMatchObject({ ready: false, channels: ["browser"] });
+    expect(a.note).toContain("elevenLabsAgentsKey");
+    expect(b.ready).toBe(false);
+    expect(b.note).toContain("SONIOX_API_KEY");
+
+    const env = { ...LIVEKIT_ENV, SONIOX_API_KEY: "s", elevenLabsAgentsKey: "e", ELEVENLABS_AGENT_ID: "agent_test" };
+    const { app } = await server(env);
+    const on = (await app.inject({ method: "GET", url: "/test/overview", headers: AUTH })).json();
+    expect(on.providers.find((p: { code: string }) => p.code === "A").ready).toBe(true);
+    expect(on.providers.find((p: { code: string }) => p.code === "B").ready).toBe(true);
+    const r = await app.inject({ method: "POST", url: "/test/livekit/token", headers: AUTH, payload: { provider: "B", scenario: "S1" } });
+    const claims = JSON.parse(Buffer.from(r.json().token.split(".")[1], "base64url").toString("utf8"));
+    expect(JSON.stringify(claims.roomConfig)).toContain("mishlav-b");
+    // A runs on ElevenLabs, not LiveKit
+    expect((await app.inject({ method: "POST", url: "/test/livekit/token", headers: AUTH, payload: { provider: "A" } })).statusCode).toBe(400);
+  });
+
+  it("serves the ElevenLabs browser client and refuses an A token without a key", async () => {
+    const { app } = await server({});
+    const js = await app.inject({ method: "GET", url: "/dashboard/elevenlabs-client.js" });
+    expect(js.statusCode).toBe(200);
+    expect(js.body).toContain("ElevenLabsClient");
+    const t = await app.inject({ method: "POST", url: "/test/elevenlabs/token", headers: AUTH, payload: {} });
+    expect(t.statusCode).toBe(400);
+    expect(t.json().error).toBe("elevenlabs_not_configured");
+  });
+
+  it("appends browser transcript lines (provider A) and reads them back", async () => {
+    const { app } = await server();
+    for (const [role, text] of [["user", "הלו"], ["assistant", "שלום דנה"]]) {
+      const r = await app.inject({ method: "POST", url: "/test/transcript", headers: AUTH, payload: { call_id: "conv_abc123", role, text } });
+      expect(r.statusCode).toBe(200);
+    }
+    const back = (await app.inject({ method: "GET", url: "/test/transcript?call_id=conv_abc123", headers: AUTH })).json();
+    expect(back.lines.map((l: { role: string; text: string }) => [l.role, l.text])).toEqual([["user", "הלו"], ["assistant", "שלום דנה"]]);
+    const evil = await app.inject({ method: "POST", url: "/test/transcript", headers: AUTH, payload: { call_id: "../x", role: "user", text: "a" } });
+    expect(evil.statusCode).toBe(400);
+  });
+
   it("returns the voice worker transcript for a call", async () => {
     const { app, config } = await server();
     const dir = join(config.logDir, "transcripts");

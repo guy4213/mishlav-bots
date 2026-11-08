@@ -1,0 +1,31 @@
+# From real calls: "can I call you back in ten minutes?" is common.
+id: R5
+name: Call me back in ten minutes
+core: false
+description: >
+  The customer asks to talk in ten minutes. The bot schedules a callback for today, about ten minutes
+  from now (or the nearest slot the tool offers) - not tomorrow - and sends no link.
+context:
+  first_name: "שביט"
+  interested_day_id: payroll-2026-12-08-zoom
+actor_script:
+  - "יש מצב שנדבר עוד עשר דקות? אני באמצע משהו."
+  - "כן, תחזרי אליי עוד עשר דקות."
+expect:
+  outcome: CALLBACK
+  required_tools:
+    - tool: schedule_callback
+  forbidden_tools: [send_purchase_link]
+  manual_checks:
+    - "Callback is today, ~10-15 minutes from now (or the tool's nearest alternative), not tomorrow"
+guide_he:
+  title: תחזרי עוד עשר דקות
+  expect: הבוט קובע שיחה חוזרת להיום, בעוד כעשר דקות (או המועד הקרוב שהכלי מציע), לא שולח קישור ונפרד.
+  tips:
+    - בדוק בשעות הפעילות (א׳–ה׳, 09:00–17:00), אחרת הכלי יציע מחר.
+    - בקש "עוד עשר דקות". אם הבוט מציע מועד קרוב אחר – תסכים.
+  watch:
+    - השיחה החוזרת היום, בעוד כ-10–15 דקות, לא מחר
+simulate:
+  - { tool: schedule_callback, params: { requested_time: "{{next_weekday:sun}}T10:00:00" } }
+  - { tool: end_call, params: { reason: completed } }

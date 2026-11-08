@@ -52,27 +52,29 @@ M1 ──► M2 ──► M3 ──┐
 > 3.2 / 3.3 are skipped (optional: run them anyway to compare cost).
 
 ### 3.1 Provider C — LiveKit + Gemini Live, FIRST (~3h)
-- [ ] Accounts: LiveKit Cloud (URL, API key + secret), Gemini API key (AI Studio) → `apps/voice-worker/.env` (Python via `uv` — done)
+- [x] Accounts: LiveKit Cloud (URL, API key + secret), Gemini API key (AI Studio) → `apps/voice-worker/.env` (Python via `uv` — done)
 - [x] Dashboard: `npm run lab` → step-by-step tests, browser-mic calls via LiveKit, live tool calls + transcript, manual form, progress + decision (verified: worker registers with LiveKit, dashboard token dispatches it)
-- [ ] Fill `GOOGLE_API_KEY` in `.env`, then a first browser call from the dashboard
+- [x] Fill `GOOGLE_API_KEY` in `.env`, then a first browser call from the dashboard (Live API needs `api_version=v1alpha`)
 - [x] `apps/voice-worker`: Python agent (LiveKit Agents 1.8.11) with Gemini `RealtimeModel` — model `gemini-3.8-live` (confirm exact id against the Gemini API model list at setup); switch `VOICE_PROVIDER=gemini | soniox_eleven` so B reuses it
 - [x] Load `config/prompt.md` + knowledge, substitute variables (first_name / day from the active scenario); Hebrew lock via prompt; transcript to `logs/transcripts/`
 - [x] 5 function tools (from `config/tools.json`) → POST to tools server with secret, `X-Provider: C`, `X-Call-Id: <room>`; `end_call` hangs up — verified live against the tools server
 - [x] Post per-turn metrics (end-of-user-speech → first audio, Gemini TTFA as provider time) to `/test/metrics`
 - [ ] Rent LiveKit US number + dispatch rule → agent `mishlav-c` (inbound only; Build plan = 50 free inbound min). No ngrok needed for C
 - [ ] One inbound test call → check `GET /test/calls`
-- [ ] Run S1–S6 (see 3.4) → score → decide on C before moving on
+- [~] Run S1–S6 (see 3.4) → score → decide on C before moving on — first browser round done: all tool calls right; S2/S3/S6 to redo by the script; fixes after round 1: latency measurement (side-channel VAD), double opening, English line after hang-up, "other date" prompt rule + X9
 
-### 3.2 Provider A — ElevenLabs Agents (~2h) — only if C does not pass
-- [ ] Check Twilio plan first: trial ≈ 75 min + verified numbers only; ElevenLabs integration likely needs paid Twilio → upgrade if needed
-- [ ] Create agent, paste `config/prompt.md`, upload `config/knowledge/`
-- [ ] Define the 5 tools as webhooks → `https://<ngrok>/tools/<name>` with headers `X-Tools-Secret` (secret), `X-Provider: A`, `X-Call-Id: {{system__conversation_id}}`; params from `config/tools.json`
-- [ ] Dynamic variables: `first_name`, `bot_name`, `interested_day_id`, `current_datetime`
-- [ ] Connect Twilio number; verify team mobiles
-- [ ] One outbound test call → check `GET /test/calls`
+### 3.2 Provider A — ElevenLabs Agents (~2h) — set up in parallel to C (team request)
+- [x] Agent as code: `npm run eleven:sync` creates/updates the agent from the repo (prompt + knowledge rendered by the worker's own code, Hebrew `he`, LLM `gemini-3.8-flash`, TTS `eleven_v4_turbo` — the Agents model with Hebrew), ids in `.elevenlabs.json` (git-ignored)
+- [x] 5 webhook tools from `config/tools.json` → `<tunnel>/tools/<name>` with `X-Tools-Secret`, `X-Provider: A`, `X-Call-Id: {{system__conversation_id}}`; `npm run lab` opens the ngrok tunnel and re-points the tools on every start
+- [x] Dynamic variables from `GET /test/context` (`first_name`, `bot_name`, `interested_day_id`, `current_datetime`, `customer_context`)
+- [x] Dashboard: browser call via `@elevenlabs/client` (WebRTC token from the server), transcript, latency measured in the browser (end of mic speech → agent speaking), duration + cost from the ElevenLabs API, hang-up after `end_call`
+- [x] Verified: text conversation (`npm run eleven:text`) through the tunnel — Hebrew, tools logged with `X-Provider: A` + conversation id
+- [ ] First browser voice call from the dashboard; then S1–S6
+- [ ] Phone (optional for the decision): Twilio number or SIP → ElevenLabs; trial ≈ 75 min + verified numbers only
 
-### 3.3 Provider B — LiveKit + Soniox + ElevenLabs (~1h on top of 3.1) — only if C and A do not pass
-- [ ] Soniox + ElevenLabs + LLM keys; `VOICE_PROVIDER=soniox_eleven` in the same worker, `X-Provider: B`
+### 3.3 Provider B — LiveKit + Soniox + ElevenLabs (~1h on top of 3.1) — built, waiting for a Soniox key
+- [x] Same worker, `VOICE_PROVIDER=soniox_eleven` (`mishlav_worker/pipeline_b.py`): Soniox `stt-rt-v5` (Hebrew hint + domain context, endpoint detection as turn detection) → `gemini-3.8-flash` → ElevenLabs `eleven_v4_turbo`; Silero VAD for barge-in; agent `mishlav-b`, `X-Provider: B`; `npm run lab` starts it next to C (port 8082)
+- [ ] `SONIOX_API_KEY` in `.env` (https://console.soniox.com), then a first browser call
 - [ ] One inbound test call on the same LiveKit number
 
 ### 3.4 Run the calls (~2h; 6 per provider, in order C → A → B)

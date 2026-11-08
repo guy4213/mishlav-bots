@@ -56,20 +56,27 @@ def _make_tool(
 
         if name == "end_call" and response.get("ok"):
             # The prompt has the bot say goodbye before end_call (or nothing, on voicemail).
-            # Return None = no reply; hang up once the current turn has finished playing.
-            context.speech_handle.add_done_callback(lambda _: _schedule_hangup(context))
+            # Hang up as soon as that goodbye has played. Not after the whole turn: Gemini replies to
+            # the tool result anyway (once in English: "The call ended successfully...").
+            asyncio.ensure_future(_hangup(context))
             return None
         return json.dumps(response, ensure_ascii=False)
 
     return function_tool(handler, raw_schema=raw_schema(definition))
 
 
-def _schedule_hangup(context: RunContext) -> None:
-    async def hangup() -> None:
-        await asyncio.sleep(HANGUP_GRACE_S)
-        log.info("end_call: closing the session (room is deleted on close -> phone line drops)")
-        context.session.shutdown()
-
-    asyncio.ensure_future(hangup())
+async def _hangup(context: RunContext) -> None:
+    try:
+        await context.wait_for_playout()  # the words spoken before end_call
+    except Exception:
+        log.exception("end_call: wait_for_playout failed; hanging up anyway")
+    # Mute whatever the model says after the tool result, then drop the line.
+    try:
+        context.session.output.set_audio_enabled(False)
+    except Exception:
+        pass
+    await asyncio.sleep(HANGUP_GRACE_S)
+    log.info("end_call: closing the session (room is deleted on close -> phone line drops)")
+    context.session.shutdown()
 
 

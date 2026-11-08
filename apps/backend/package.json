@@ -9,6 +9,7 @@
     "start": "tsx src/main.ts"
   },
   "dependencies": {
+    "@elevenlabs/client": "^1.32.1",
     "@mishlav/shared": "*",
     "fastify": "^5.2.0",
     "livekit-client": "^2.23.0",

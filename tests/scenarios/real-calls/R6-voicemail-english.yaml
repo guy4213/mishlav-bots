@@ -1,0 +1,28 @@
+# From real calls: the one voicemail in the sample greeted in English.
+id: R6
+name: Voicemail in English
+core: false
+description: >
+  The call reaches a voicemail with an English greeting. Like S6: end_call(voicemail) at once, say nothing.
+context:
+  first_name: "יעל"
+actor_script:
+  - "(recorded greeting) Your call has been forwarded to voice mail. The person you are trying to reach is not available. At the tone, please record your message."
+expect:
+  outcome: VOICEMAIL
+  required_tools:
+    - tool: end_call
+      params:
+        reason: { equals: voicemail }
+  allowed_tools: [end_call]
+  manual_checks:
+    - "Bot said nothing (no Hebrew or English message)"
+guide_he:
+  title: תא קולי באנגלית
+  expect: הבוט מזהה תא קולי גם באנגלית ומנתק מיד בלי לומר כלום (end_call עם voicemail).
+  tips:
+    - אל תגיד "הלו". הקרא בטון של הקלטה את הברכה באנגלית מהתסריט.
+  watch:
+    - הבוט לא אמר כלום
+simulate:
+  - { tool: end_call, params: { reason: voicemail } }

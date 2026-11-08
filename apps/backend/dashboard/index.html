@@ -83,6 +83,7 @@
   .banner.bad { background: var(--bad-soft); color: var(--bad); }
   .banner.ok { background: var(--ok-soft); color: var(--ok); }
   .banner.info { background: var(--accent-soft); color: var(--accent); }
+  .watchrow { display: flex; gap: 10px; align-items: center; padding: 5px 0; }
   label.check { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; cursor: pointer; }
   input[type=number], input[type=password], input[type=text], textarea, select { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
   textarea { width: 100%; min-height: 60px; }
@@ -212,7 +213,7 @@
       <h3>❓ האם הבוט עבר לשפה אחרת (אנגלית) בשלב כלשהו?</h3>
       <div class="seg" id="langSeg"><button data-v="false">לא – רק עברית</button><button data-v="true">כן, עבר לשפה אחרת</button></div>
       <div id="s4watchWrap" class="hidden">
-        <h3>👀 סמן כל מה שקרה כמו שצריך</h3>
+        <h3>👀 ענה על כל שורה: זה קרה כמו שצריך?</h3>
         <div id="s4watch"></div>
       </div>
       <h3>הערות (רשות)</h3>
@@ -302,6 +303,7 @@
 </main>
 
 <script src="/dashboard/livekit-client.js"></script>
+<script src="/dashboard/elevenlabs-client.js"></script>
 <script>
 "use strict";
 // ------------------------------------------------------------------ labels
@@ -314,7 +316,8 @@ const CRIT_HE = { understanding: "הבנה (6 תרחישים)", language: "רק 
 
 // ------------------------------------------------------------------ state
 const S = { secret: null, overview: null, report: null, provider: "C", scenario: null, actor: "male", channel: "browser",
-  session: null, room: null, poll: null, lastSessionId: null, lang: null, agentTimer: null };
+  session: null, room: null, poll: null, lastSessionId: null, lang: null, agentTimer: null,
+  el: null, callId: null, meter: null, hangupPending: false, elMode: "listening" };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const show = (el, on = true) => (typeof el === "string" ? $(el) : el).classList.toggle("hidden", !on);
@@ -359,6 +362,7 @@ function renderChips() {
     `<span class="chip ok">שרת הכלים ✓</span>`,
     `<span class="chip ${c.livekit ? "ok" : "bad"}">LiveKit ${c.livekit ? "✓" : "✗ חסרים מפתחות"}</span>`,
     `<span class="chip ${c.gemini ? "ok" : "bad"}">Gemini ${c.gemini ? "✓" : "✗ חסר מפתח"}</span>`,
+    `<span class="chip ${c.elevenlabs?.agent_id ? "ok" : c.elevenlabs?.key ? "wait" : ""}">ElevenLabs ${c.elevenlabs?.agent_id ? "✓" : c.elevenlabs?.key ? "· סוכן לא נוצר" : "· אין מפתח"}</span>`,
     S.session ? `<span class="chip wait">בדיקה פתוחה: ${esc(S.session.provider)} · ${esc(S.session.scenario)}</span>` : `<span class="chip">אין בדיקה פתוחה</span>`,
   ];
   $("chips").innerHTML = chips.join("");
@@ -390,9 +394,12 @@ function renderStep1() {
   document.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { S.scenario = b.dataset.s; renderStep1(); renderStep2(); }));
   const prov = S.overview.providers.find((p) => p.code === S.provider);
   const browserOk = prov?.channels.includes("browser");
+  const phoneOk = prov?.channels.includes("phone");
   if (!browserOk && S.channel === "browser") S.channel = "phone";
+  if (!phoneOk && S.channel === "phone") S.channel = "browser";
   segSet("channelSeg", S.channel);
   $("channelSeg").querySelector('[data-v="browser"]').disabled = !browserOk;
+  $("channelSeg").querySelector('[data-v="phone"]').disabled = !phoneOk;
   $("channelNote").textContent = S.channel === "browser"
     ? "מדברים דרך המיקרופון של המחשב – בלי טלפון ובלי עלות שיחה. הכי מהיר לנסות."
     : "מתקשרים מהנייד למספר ה-LiveKit. קרוב יותר למציאות (קו טלפון, רעש).";
@@ -484,7 +491,7 @@ async function pollCall() {
   try {
     const [calls, tr] = await Promise.all([
       api("GET", `/test/calls?session_id=${encodeURIComponent(S.lastSessionId)}`),
-      api("GET", S.room ? `/test/transcript?call_id=${encodeURIComponent(S.room.name)}` : `/test/transcript?since=${encodeURIComponent(S.session?.started_at ?? "")}`),
+      api("GET", S.callId ? `/test/transcript?call_id=${encodeURIComponent(S.callId)}` : `/test/transcript?since=${encodeURIComponent(S.session?.started_at ?? "")}`),
     ]);
     $("s3tools").innerHTML = calls.calls.length ? calls.calls.map(toolLine).join("") : `<li class="muted">עוד לא ביצע פעולות</li>`;
     renderChecks(calls.calls);
@@ -500,13 +507,14 @@ async function pollCall() {
 function setCallState(text, dot = "") { $("callState").textContent = text; $("botDot").className = `dot ${dot}`; }
 
 async function connectBrowser() {
+  if (S.provider === "A") return connectEleven();
   if (!window.LivekitClient) { msg("ספריית LiveKit לא נטענה – רענן את הדף.", "bad"); return; }
   const { Room, RoomEvent, Track } = window.LivekitClient;
   try {
     $("connectBtn").disabled = true; setCallState("מתחבר...");
     const t = await api("POST", "/test/livekit/token", { provider: S.provider, scenario: S.session.scenario });
     const room = new Room({ audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-    S.room = room;
+    S.room = room; S.callId = t.room;
     room.on(RoomEvent.TrackSubscribed, (track) => { if (track.kind === Track.Kind.Audio) { const el = track.attach(); el.dataset.lk = "1"; document.body.appendChild(el); } });
     room.on(RoomEvent.ParticipantConnected, (p) => { if (p.isAgent) { clearTimeout(S.agentTimer); setCallState("הבוט מחובר – תגיד \"הלו\"", "on"); } });
     room.on(RoomEvent.ParticipantDisconnected, (p) => { if (p.isAgent) setCallState("הבוט ניתק – לחץ \"סיימתי את השיחה\"", ""); });
@@ -527,19 +535,113 @@ async function connectBrowser() {
   }
 }
 
+// ------------------------------------------------------------------ browser call (ElevenLabs, provider A)
+// Latency = end of your speech (mic level, measured here) -> the bot starts speaking (ElevenLabs mode).
+function micMeter() {
+  const m = { turns: [], lastSpeech: 0, userSpoke: false, floor: 0.01, stop: () => {} };
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then((stream) => {
+    const ctx = new AudioContext(); const an = ctx.createAnalyser(); an.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Float32Array(an.fftSize);
+    const iv = setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      const rms = Math.sqrt(buf.reduce((a, x) => a + x * x, 0) / buf.length);
+      m.floor = rms < m.floor ? rms : m.floor * 0.999 + rms * 0.001;
+      if (S.elMode === "listening" && rms > Math.max(0.02, m.floor * 4)) { m.lastSpeech = performance.now(); m.userSpoke = true; }
+    }, 20);
+    m.stop = () => { clearInterval(iv); stream.getTracks().forEach((t) => t.stop()); ctx.close().catch(() => {}); };
+  }).catch(() => {});
+  m.agentStarted = () => {
+    if (!m.userSpoke || !m.lastSpeech) return;
+    m.turns.push({ turn: m.turns.length + 1, latency_ms: Math.max(0, Math.round(performance.now() - m.lastSpeech)) });
+    m.userSpoke = false;
+  };
+  return m;
+}
+
+async function connectEleven() {
+  const EL = window.ElevenLabsClient;
+  if (!EL?.Conversation) { msg("ספריית ElevenLabs לא נטענה – רענן את הדף.", "bad"); return; }
+  const s = scenario();
+  try {
+    $("connectBtn").disabled = true; setCallState("מתחבר ל-ElevenLabs...");
+    await navigator.mediaDevices.getUserMedia({ audio: true }).then((st) => st.getTracks().forEach((t) => t.stop()));
+    const t = await api("POST", "/test/elevenlabs/token", { scenario: s.id });
+    // the prompt's {{variables}} for this scenario (same values the LiveKit worker uses)
+    const ctx = await api("GET", `/test/context?scenario=${encodeURIComponent(s.id)}`).catch(() => null);
+    const vars = ctx?.variables ?? {
+      first_name: s.context.first_name, bot_name: "נועה", interested_day_id: s.context.interested_day_id ?? "לא ידוע",
+      current_datetime: new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", dateStyle: "full", timeStyle: "short" }),
+      customer_context: "",
+    };
+    const pending = [];
+    const post = (role, text) => {
+      if (!text?.trim()) return;
+      if (!S.callId) { pending.push([role, text]); return; }
+      api("POST", "/test/transcript", { call_id: S.callId, role, text: text.slice(0, 4000) }).catch(() => {});
+    };
+    S.meter = micMeter(); S.hangupPending = false; S.elMode = "listening";
+    S.el = await EL.Conversation.startSession({
+      conversationToken: t.token,
+      connectionType: "webrtc",
+      dynamicVariables: Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, String(v ?? "")])),
+      onConnect: () => setCallState('מחובר ל-ElevenLabs – תגיד "הלו"', "on"),
+      onDisconnect: () => { setCallState('השיחה נותקה – לחץ "סיימתי את השיחה"', ""); $("connectBtn").disabled = false; },
+      onError: (m) => msg(`ElevenLabs: ${esc(typeof m === "string" ? m : m?.message ?? "שגיאה")}`, "bad"),
+      onMessage: (m) => post(m.role === "agent" || m.source === "ai" ? "assistant" : "user", m.message),
+      onModeChange: ({ mode }) => {
+        S.elMode = mode;
+        $("botDot").className = `dot ${mode === "speaking" ? "talk" : "on"}`;
+        if (mode === "speaking") S.meter?.agentStarted();
+        // end_call was logged by our tools server; ElevenLabs keeps the line open, so hang up once the goodbye played
+        if (mode === "listening" && S.hangupPending) setTimeout(() => S.el?.endSession().catch(() => {}), 800);
+      },
+      onAgentToolResponse: (r) => {
+        if (r?.tool_name === "end_call" && !r.is_error) {
+          S.hangupPending = true;
+          if (S.elMode === "listening") setTimeout(() => { if (S.elMode === "listening") S.el?.endSession().catch(() => {}); }, 2500);
+        }
+      },
+    });
+    S.callId = S.el.getId();
+    pending.splice(0).forEach(([r, x]) => post(r, x));
+  } catch (e) {
+    $("connectBtn").disabled = false; setCallState("לא מחובר");
+    msg(`החיבור ל-ElevenLabs נכשל: ${esc(e.message)}${/Permission|NotAllowed/i.test(e.message) ? " – צריך לאשר גישה למיקרופון." : ""}`, "bad");
+  }
+}
+
+/** After an ElevenLabs call: latency (measured here) + duration/cost (from ElevenLabs) -> /test/metrics. */
+async function finishEleven(callId, turns) {
+  let d = null;
+  try { d = await api("POST", "/test/elevenlabs/finish", { conversation_id: callId }); } catch { /* cost stays manual */ }
+  await api("POST", "/test/metrics", {
+    session_id: S.lastSessionId, call_id: callId, turns,
+    ...(d?.duration_sec != null ? { duration_sec: d.duration_sec } : {}),
+    ...(d?.cost_usd != null ? { cost_usd: d.cost_usd } : {}),
+    source: "dashboard/elevenlabs",
+  }).catch(() => {});
+  if (d?.cost_per_min_usd != null) S.lastCostPerMin = d.cost_per_min_usd;
+}
+
 async function disconnectBrowser() {
   clearTimeout(S.agentTimer);
+  if (S.el) { try { await S.el.endSession(); } catch {} S.el = null; }
+  S.meter?.stop();
   if (S.room) { try { await S.room.disconnect(); } catch {} }
   document.querySelectorAll("audio[data-lk]").forEach((a) => a.remove());
-  S.room = null;
+  S.room = null; S.callId = null; S.meter = null;
 }
 
 async function endTest() {
   $("endBtn").disabled = true;
   try {
+    const elCall = S.provider === "A" ? S.callId : null;
+    const turns = S.meter?.turns ?? [];
     await disconnectBrowser();
     msg("מסיים... (מחכה שהפעולות והמדידות האחרונות יגיעו)", "info");
-    await new Promise((r) => setTimeout(r, 2500));
+    if (elCall) await finishEleven(elCall, turns);
+    else await new Promise((r) => setTimeout(r, 2500));
     await pollCall();
     clearInterval(S.poll); S.poll = null;
     await api("POST", "/test/session/end");
@@ -559,7 +661,10 @@ function enterStep4() {
   S.lang = run?.language_switch ?? null; segSet("langSeg", S.lang === null ? "" : S.lang);
   const watch = s.guide?.watch ?? [];
   show("s4watchWrap", watch.length > 0);
-  $("s4watch").innerHTML = watch.map((w, i) => `<label class="check"><input type="checkbox" data-w="${i}" ${run?.behavior_ok ? "checked" : ""}> <span>${esc(w)}</span></label>`).join("");
+  // explicit yes/no per item: an unticked box used to count as "failed"
+  S.watch = watch.map(() => (run?.behavior_ok === true ? true : null));
+  $("s4watch").innerHTML = watch.map((w, i) => `<div class="watchrow"><div class="seg" id="w${i}"><button data-v="true">✓ כן</button><button data-v="false">✗ לא</button></div> <span>${esc(w)}</span></div>`).join("");
+  watch.forEach((_, i) => { segSet(`w${i}`, S.watch[i] === null ? "" : S.watch[i]); segBind(`w${i}`, (v) => (S.watch[i] = v === "true")); });
   $("s4notes").value = run?.notes ?? ""; $("s4discard").checked = Boolean(run?.discarded); $("s4saved").textContent = "";
   renderAuto(run);
   $("step4").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -576,7 +681,8 @@ function renderAuto(run) {
     <table><tr><th>פעולות</th><td>${run.tools.length ? run.tools.map((t) => `${t.ok ? "" : "✗ "}${esc(TOOL_HE[t.tool] ?? t.tool)}`).join(" ← ") : "אין"}</td></tr>
     <tr><th>מהירות תגובה</th><td>${run.avg_latency_ms === null ? `<span class="muted">לא נמדדה (${S.provider === "A" ? "להזין מהדשבורד של הספק" : "אולי השיחה לא הגיעה לבוט?"})</span>` : `ממוצע ${run.avg_latency_ms} ms · מקסימום ${run.max_latency_ms} ms · ${run.turns} תורות ${latOk ? badge("PASS") : badge("FAIL")}`}
       <div class="small muted">יעד: ממוצע עד ${sc.max_avg_latency_ms} ms ואף תשובה לא מעל ${sc.max_latency_ms} ms</div></td></tr>
-    ${run.phone !== "N/A" ? `<tr><th>טלפון ספרה-ספרה</th><td>${badge(run.phone)}</td></tr>` : ""}</table>`;
+    ${run.phone !== "N/A" ? `<tr><th>טלפון ספרה-ספרה</th><td>${badge(run.phone)}</td></tr>` : ""}
+    ${run.provider === "A" && S.lastCostPerMin != null ? `<tr><th>עלות לדקה</th><td>$${esc(S.lastCostPerMin)} לפי ElevenLabs <span class="small muted">(להזנה בלשונית התוצאות)</span></td></tr>` : ""}</table>`;
 }
 
 async function saveManual() {
@@ -584,8 +690,11 @@ async function saveManual() {
   if (S.lang === null && !$("s4discard").checked) { $("s4saved").innerHTML = `<span style="color:var(--bad)">ענה קודם: האם הבוט עבר לשפה אחרת?</span>`; return; }
   const body = { session_id: S.lastSessionId, notes: $("s4notes").value.trim() || undefined, discard: $("s4discard").checked || undefined };
   if (S.lang !== null) body.language_switch = S.lang;
-  const boxes = [...$("s4watch").querySelectorAll("input[data-w]")];
-  if ((s.manual_checks?.length ?? 0) > 0) body.behavior_ok = boxes.length > 0 && boxes.every((b) => b.checked);
+  if ((s.manual_checks?.length ?? 0) > 0) {
+    const watch = S.watch ?? [];
+    if (watch.some((v) => v === null) && !$("s4discard").checked) { $("s4saved").innerHTML = `<span style="color:var(--bad)">ענה כן/לא על כל שורה ב"👀"</span>`; return; }
+    if (watch.length && watch.every((v) => v !== null)) body.behavior_ok = watch.every((v) => v === true);
+  }
   try {
     await api("POST", "/test/manual/session", body);
     await refresh();

@@ -19,7 +19,20 @@ npm run lab      # starts the tools server + the voice bot, opens the dashboard 
 The dashboard (Hebrew) walks through each test: pick provider + scenario → what to say and what the bot
 must do → talk to the bot from the browser mic (or call the LiveKit number) while watching its tool
 calls and transcript live → a short form after the call → progress, the 5 criteria and the decision.
-Answers are saved to `tests/results/manual-inputs.yaml`. Needs `LIVEKIT_*` and `GOOGLE_API_KEY` in `.env`.
+Answers are saved to `tests/results/manual-inputs.yaml`.
+
+What `npm run lab` starts depends on the keys in `.env`:
+
+| Provider | Needs | What runs | Channels |
+|---|---|---|---|
+| C — LiveKit + Gemini Live | `LIVEKIT_*`, `GOOGLE_API_KEY` | voice worker, agent `mishlav-c` | browser, phone |
+| A — ElevenLabs Agents | `ELEVENLABS_API_KEY` (or `elevenLabsAgentsKey`), ngrok authtoken | ngrok tunnel + `eleven:sync` (agent created/updated from the repo, tools → tunnel) | browser |
+| B — LiveKit + Soniox + ElevenLabs | `LIVEKIT_*`, `SONIOX_API_KEY`, ElevenLabs key, `GOOGLE_API_KEY` | second worker, agent `mishlav-b` | browser, phone |
+
+```bash
+npm run eleven:sync -- --url https://<ngrok-host>   # create/update the A agent by hand (lab does this)
+npm run eleven:text -- --scenario S1                 # text-only A conversation: agent + tools smoke test
+```
 
 ## Setup
 

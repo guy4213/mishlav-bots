@@ -25,7 +25,9 @@
     "tools:export": "tsx scripts/export-tools.ts",
     "worker:console": "cd apps/voice-worker && uv run agent.py console",
     "worker:dev": "cd apps/voice-worker && uv run agent.py dev",
-    "worker:test": "cd apps/voice-worker && uv run pytest -q"
+    "worker:test": "cd apps/voice-worker && uv run pytest -q",
+    "eleven:sync": "tsx scripts/elevenlabs-sync.ts",
+    "eleven:text": "tsx scripts/elevenlabs-text.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

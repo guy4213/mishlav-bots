@@ -1,0 +1,30 @@
+# From real calls: the most common "no" is about fit (retired / not in the profession), not price.
+id: R2
+name: Not a fit - retired
+core: false
+description: >
+  The customer has retired. This is a fit objection, not a value objection: the bot must not try to
+  persuade (no 50% / 300 ₪ pitch), answers warmly in one sentence and ends with not_interested.
+context:
+  first_name: "אורנה"
+  interested_day_id: payroll-2026-12-08-zoom
+actor_script:
+  - "לא, תודה. אני כבר יצאתי לפנסיה."
+expect:
+  outcome: NOT_INTERESTED
+  required_tools:
+    - tool: end_call
+      params:
+        reason: { equals: not_interested }
+  forbidden_tools: [send_purchase_link, request_human]
+  manual_checks:
+    - "No persuasion attempt (did not mention the 50% requirement or the 300 ₪ benefit)"
+guide_he:
+  title: יצאתי לפנסיה
+  expect: הבוט מגיב בחום במשפט אחד, לא מנסה לשכנע, ומסיים (not_interested).
+  tips:
+    - אחרי הפתיחה – "לא, תודה, אני כבר יצאתי לפנסיה".
+  watch:
+    - לא ניסה לשכנע (לא הזכיר 50% מדרישות הלשכה ולא הטבה של 300 ₪)
+simulate:
+  - { tool: end_call, params: { reason: not_interested } }

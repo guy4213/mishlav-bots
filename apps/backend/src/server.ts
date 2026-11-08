@@ -22,7 +22,13 @@ export interface BuildOptions {
 /** Public paths: health check and the dashboard's static files (no data; the page sends the secret). */
 function isPublic(url: string): boolean {
   const path = url.split("?")[0]!;
-  return path === "/healthz" || path === "/dashboard" || path === "/dashboard/" || path === "/dashboard/livekit-client.js";
+  return (
+    path === "/healthz" ||
+    path === "/dashboard" ||
+    path === "/dashboard/" ||
+    path === "/dashboard/livekit-client.js" ||
+    path === "/dashboard/elevenlabs-client.js"
+  );
 }
 
 export async function buildServer(config: AppConfig, opts: BuildOptions = {}): Promise<FastifyInstance> {
@@ -70,7 +76,15 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   });
 
   await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions });
-  await registerTestRoutes(app, { sessions, toolLog, metricsLog, now });
+  await registerTestRoutes(app, {
+    sessions,
+    toolLog,
+    metricsLog,
+    now,
+    knowledge,
+    scenariosDir: join(config.repoRoot, "tests", "scenarios"),
+    botName: (opts.env ?? process.env).BOT_NAME,
+  });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
 
   return app;
