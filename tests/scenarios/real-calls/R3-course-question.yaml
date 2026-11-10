@@ -4,7 +4,7 @@ name: Asks about the long course
 core: false
 description: >
   The customer asks about the payroll accountant course (price, Friday track, discount). That is out of
-  the bot's scope: it gives no course prices, tracks or discounts and hands off with other.
+  the bot's scope: it gives no course prices, tracks or discounts and hands off with course_interest (a lead).
 context:
   first_name: "מירב"
   interested_day_id: payroll-2026-12-08-zoom
@@ -12,22 +12,22 @@ actor_script:
   - "האמת שאני חושבת בכלל על הקורס של חשבי שכר. כמה הוא עולה?"
   - "יש מסלול בימי שישי? ויש הנחה?"
 expect:
-  outcome: HUMAN_FOLLOWUP
+  outcome: HOT_LEAD
   required_tools:
     - tool: request_human
       params:
-        reason: { equals: other }
+        reason: { equals: course_interest }
   forbidden_tools: [send_purchase_link]
   manual_checks:
     - "Gave no course price, track or discount"
 guide_he:
   title: שאלה על הקורס הארוך
-  expect: הבוט אומר שהוא מטפל רק בימי העיון, לא מוסר מחיר / מסלולים / הנחה של הקורס, ומעביר לנציג (other).
+  expect: הבוט אומר שהוא מטפל רק בימי העיון, לא מוסר מחיר / מסלולים / הנחה של הקורס, ומעביר לנציג כליד חם.
   tips:
     - שאל כמה עולה קורס חשבי שכר.
     - שאל אם יש מסלול בשישי ואם יש הנחה.
   watch:
     - לא מסר מחיר, מסלול או הנחה של הקורס
 simulate:
-  - { tool: request_human, params: { reason: other } }
+  - { tool: request_human, params: { reason: course_interest } }
   - { tool: end_call, params: { reason: completed } }

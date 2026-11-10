@@ -120,6 +120,20 @@ export function loadToolDefs(root: string): ToolDef[] {
   return (JSON.parse(readFileSync(join(root, "config", "tools.json"), "utf8")) as { tools: ToolDef[] }).tools;
 }
 
+/**
+ * "end_call" is the name of ElevenLabs' own system tool: a tool of ours with that name makes ElevenLabs
+ * drop the line the moment it returns, mid-sentence (seen 2026-11-10 19:02: disconnect reason "agent",
+ * type "end_call", 5 ms after our end_call answered). So on ElevenLabs our tool is called finish_call;
+ * it still posts to /tools/end_call, so our logs and scoring are unchanged.
+ */
+export const ELEVEN_TOOL_NAME: Record<string, string> = { end_call: "finish_call" };
+export const elevenToolName = (name: string) => ELEVEN_TOOL_NAME[name] ?? name;
+
+/** The prompt as the ElevenLabs agent sees it: our tool names swapped to their ElevenLabs names. */
+export function elevenPrompt(prompt: string): string {
+  return Object.entries(ELEVEN_TOOL_NAME).reduce((p, [ours, theirs]) => p.split(ours).join(theirs), prompt);
+}
+
 /** Our JSON Schema → ElevenLabs' flat body schema (type + description [+ enum]); length limits are enforced by our server. */
 export function webhookToolConfig(def: ToolDef, toolsUrl: string, secret: string) {
   const properties = Object.fromEntries(
@@ -130,7 +144,7 @@ export function webhookToolConfig(def: ToolDef, toolsUrl: string, secret: string
   );
   return {
     type: "webhook",
-    name: def.name,
+    name: elevenToolName(def.name),
     description: def.description,
     response_timeout_secs: 20,
     api_schema: {
@@ -164,7 +178,7 @@ export async function syncAgent(o: SyncOptions): Promise<ElevenState> {
   const prev = readState(o.root);
   const toolIds: Record<string, string> = { ...(prev?.tool_ids ?? {}) };
   // render first: a prompt error must not leave half-synced tools behind
-  const prompt = agentPrompt(o.root);
+  const prompt = elevenPrompt(agentPrompt(o.root));
   const vars = promptVariables(prompt);
   const save = (agent_id: string) => {
     const state: ElevenState = { agent_id, tool_ids: toolIds, tools_url: o.toolsUrl, synced_at: new Date().toISOString() };

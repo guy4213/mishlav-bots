@@ -54,13 +54,16 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "Send the customer a purchase link for one study day, to the phone number on file. " +
     "Call only after the customer agreed to receive a link. Never takes a phone number.",
   schedule_callback:
-    "Schedule a callback at the time the customer asked for. If the time is outside business hours, " +
+    "Note the customer's request to be called back at the time they asked for. It is a note for the team " +
+    "that calls back - you have no calendar and see no one's schedule. If the time is outside business hours, " +
     "the response proposes an alternative - confirm it with the customer before ending.",
   request_human:
-    "Hand the customer to a human rep: wants a person, pays via a rep, company pays, asks for a discount, " +
-    "or asks something that is not in the knowledge base (other).",
+    "Note that a human rep should call the customer back: wants a person, pays via a rep, company pays, " +
+    "asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live " +
+    "transfer - the customer stays with you, so tell them a rep will call them back.",
   end_call:
-    "End the call. Pass the reason: completed, not_interested, do_not_call (asked to be removed), " +
+    "End the call - only after you said your closing sentence (what happens next + goodbye); never hang up " +
+    "in silence, except on voicemail. Pass the reason: completed, not_interested, do_not_call (asked to be removed), " +
     "voicemail (reached an answering machine - say nothing), already_registered, wrong_number.",
 };
 

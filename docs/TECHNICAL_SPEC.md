@@ -76,7 +76,7 @@ type Outcome =
 // closed_max_attempts is a contact status (Dialer), not a call outcome.
 
 type RequestHumanReason =
-  "wants_human" | "pay_via_rep" | "company_purchase" | "discount_request" | "other";
+  "wants_human" | "pay_via_rep" | "company_purchase" | "discount_request" | "course_interest" | "other";
 
 type EndCallReason =        // deviation from PDF, see §9
   "completed" | "not_interested" | "do_not_call" | "voicemail"

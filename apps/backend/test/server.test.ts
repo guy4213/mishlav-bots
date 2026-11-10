@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readJsonl } from "../src/jsonl";
+import { END_CALL_SAY_GOODBYE } from "../src/tools/handlers";
 import { AUTH, SECRET, testServer } from "./helpers";
 
 type App = Awaited<ReturnType<typeof testServer>>["app"];
@@ -81,7 +82,16 @@ describe("tools", () => {
   it("request_human returns the fixed answer", async () => {
     const { post } = await setup();
     const res = (await post("/tools/request_human", { reason: "discount_request" })).json();
-    expect(res).toEqual({ ok: true, status: "handed_to_rep", message_he: "הועבר לנציג" });
+    expect(res).toMatchObject({ ok: true, status: "handed_to_rep" });
+    expect(res.message_he).toContain("להיפרד"); // the bot tells the customer, never hangs up in silence
+  });
+
+  it("end_call asks for the closing sentence, except on voicemail", async () => {
+    const { post } = await setup();
+    const done = (await post("/tools/end_call", { reason: "completed" })).json();
+    expect(done).toEqual({ ok: true, status: "ending", message_he: END_CALL_SAY_GOODBYE });
+    const vm = (await post("/tools/end_call", { reason: "voicemail" })).json();
+    expect(vm.message_he).toContain("לא לומר דבר");
   });
 
   it("end_call works with an empty JSON body", async () => {
@@ -93,7 +103,7 @@ describe("tools", () => {
       payload: "",
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, status: "ending" });
+    expect(res.json()).toEqual({ ok: true, status: "ending", message_he: END_CALL_SAY_GOODBYE });
   });
 
   it("malformed JSON is a 400", async () => {
@@ -137,5 +147,12 @@ describe("test sessions", () => {
   it("rejects an invalid session body", async () => {
     const { post } = await setup();
     expect((await post("/test/session", { provider: "Z", scenario: "S1" })).statusCode).toBe(400);
+  });
+});
+
+describe("business hours in the callback answer", () => {
+  it("quotes the real hours from settings", async () => {
+    const { hoursHe } = await import("../src/tools/handlers");
+    expect(hoursHe({ days: ["sun", "mon", "tue", "wed", "thu"], open: "09:00", close: "17:00" })).toBe("א׳–ה׳ 09:00–17:00");
   });
 });

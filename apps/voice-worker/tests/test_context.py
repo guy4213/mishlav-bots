@@ -25,7 +25,7 @@ def test_render_substitutes_and_rejects_unknown_variables():
 def test_instructions_have_no_leftover_variables_and_include_knowledge():
     text = build_instructions(ROOT, CallVars(first_name="דנה", bot_name="נועה", current_datetime="x"))
     assert "{{" not in text
-    assert "שלום דנה, מדברת נועה ממכללת מישלב" in text
+    assert "היי דנה, אני נועה, נציגת הבינה המלאכותית של מכללת מישלב" in text
     assert "לא ידוע" in text  # no interested_day_id
     for day in ("payroll-2026-12-08-zoom", "payroll-2026-12-22-hotel", "payroll-2027-01-12-zoom"):
         assert f"`{day}`" in text

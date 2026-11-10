@@ -7,17 +7,17 @@ actor_script:
   - "אני מחפשת את יום העיון על מיסוי בינלאומי באילת, במרץ."
   - "תשלחי לי קישור אליו."
 expect:
-  outcome_one_of: [HUMAN_FOLLOWUP, NOT_INTERESTED]
-  forbidden_tools: [send_purchase_link]
+  forbidden_tools: [send_purchase_link, request_human]   # it knows the whole catalogue: no rep needed
   manual_checks:
     - "Said there is no such study day, invented no details"
+    - "Answered right away and offered the days that do exist (no checking, no rep)"
 guide_he:
   title: יום עיון שלא קיים
-  expect: הבוט אומר שאין יום כזה, לא ממציא פרטים, ומציע נציג.
+  expect: הבוט עונה מיד שאין יום כזה, לא ממציא פרטים, ומציע את ימי העיון שכן יש – בלי "אני בודקת" ובלי נציג.
   tips:
     - בקש יום עיון על מיסוי בינלאומי באילת במרץ, ובקש קישור אליו.
   watch:
     - אמר שאין יום כזה ולא המציא פרטים
+    - ענה מיד והציע את הימים שכן יש (בלי "אני בודקת", בלי נציג)
 simulate:
-  - { tool: request_human, params: { reason: other } }
   - { tool: end_call, params: { reason: completed } }

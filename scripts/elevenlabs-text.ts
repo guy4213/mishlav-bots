@@ -55,7 +55,7 @@ async function main() {
       } else if (e.type === "agent_tool_response") {
         const r = e.agent_tool_response;
         console.log(`       [${r.tool_name}${r.is_error ? " ✗ שגיאה" : " ✓"}]`);
-        if (r.tool_name === "end_call") setTimeout(done, 1500);
+        if (r.tool_name === "finish_call" || r.tool_name === "end_call") setTimeout(done, 1500);
       }
     };
     ws.onerror = () => done();

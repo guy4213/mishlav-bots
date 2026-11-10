@@ -308,7 +308,7 @@
 "use strict";
 // ------------------------------------------------------------------ labels
 const TOOL_HE = { get_day_info: "בדק פרטי יום עיון", send_purchase_link: "שלח קישור לרכישה", schedule_callback: "קבע שיחה חוזרת", request_human: "העביר לנציג", end_call: "סיים את השיחה" };
-const REASON_HE = { completed: "הסתיים", not_interested: "לא מעוניין", do_not_call: "הסרה מהרשימה", voicemail: "תא קולי", already_registered: "כבר רשום", wrong_number: "מספר שגוי", wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה", other: "אחר" };
+const REASON_HE = { completed: "הסתיים", not_interested: "לא מעוניין", do_not_call: "הסרה מהרשימה", voicemail: "תא קולי", already_registered: "כבר רשום", wrong_number: "מספר שגוי", wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה", course_interest: "מתעניין בקורס", other: "אחר" };
 const OUTCOME_HE = { LINK_SENT: "נשלח קישור", CALLBACK: "שיחה חוזרת", HOT_LEAD: "ליד חם לנציג", DO_NOT_CALL: "הסרה מהרשימה", VOICEMAIL: "תא קולי", HUMAN_FOLLOWUP: "מעקב נציג", NOT_INTERESTED: "לא מעוניין", COMPANY: "רכישת חברה", ALREADY_REGISTERED: "כבר רשום", WRONG_NUMBER: "מספר שגוי", UNKNOWN: "לא זוהתה תוצאה" };
 const TRI_HE = { PASS: "עבר", FAIL: "נכשל", PENDING: "ממתין", TUNE_LATENCY: "לכוונן מהירות", "N/A": "—", NONE: "לא נבדק" };
 const DECISION_HE = { WINNER: "🏆 יש זוכה", TUNE: "🔧 צריך כוונון מהירות ובדיקה חוזרת", INCOMPLETE: "⏳ עוד לא הושלם", STOP: "🛑 אף ספק לא עבר – לעצור ולעדכן את מישלב" };
@@ -580,26 +580,37 @@ async function connectEleven() {
       if (!S.callId) { pending.push([role, text]); return; }
       api("POST", "/test/transcript", { call_id: S.callId, role, text: text.slice(0, 4000) }).catch(() => {});
     };
-    S.meter = micMeter(); S.hangupPending = false; S.elMode = "listening";
+    clearInterval(S.hangTimer);
+    S.meter = micMeter(); S.hangupPending = false; S.hang = null; S.elMode = "listening"; S.elModeAt = Date.now();
     S.el = await EL.Conversation.startSession({
       conversationToken: t.token,
       connectionType: "webrtc",
       dynamicVariables: Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, String(v ?? "")])),
       onConnect: () => setCallState('מחובר ל-ElevenLabs – תגיד "הלו"', "on"),
-      onDisconnect: () => { setCallState('השיחה נותקה – לחץ "סיימתי את השיחה"', ""); $("connectBtn").disabled = false; },
+      onDisconnect: (d) => { post("event", `disconnected${S.hang ? " (before the dashboard hung up)" : ""} ${JSON.stringify(d ?? {})}`); clearInterval(S.hangTimer); S.hang = null; setCallState('השיחה נותקה – לחץ "סיימתי את השיחה"', ""); $("connectBtn").disabled = false; },
       onError: (m) => msg(`ElevenLabs: ${esc(typeof m === "string" ? m : m?.message ?? "שגיאה")}`, "bad"),
       onMessage: (m) => post(m.role === "agent" || m.source === "ai" ? "assistant" : "user", m.message),
       onModeChange: ({ mode }) => {
-        S.elMode = mode;
+        if (mode !== S.elMode) post("event", `mode ${mode}${S.hang ? " (after end_call)" : ""}`);
+        S.elMode = mode; S.elModeAt = Date.now();
+        if (mode === "speaking" && S.hang) S.hang.spoke = true;
         $("botDot").className = `dot ${mode === "speaking" ? "talk" : "on"}`;
         if (mode === "speaking") S.meter?.agentStarted();
-        // end_call was logged by our tools server; ElevenLabs keeps the line open, so hang up once the goodbye played
-        if (mode === "listening" && S.hangupPending) setTimeout(() => S.el?.endSession().catch(() => {}), 800);
       },
       onAgentToolResponse: (r) => {
-        if (r?.tool_name === "end_call" && !r.is_error) {
+        post("event", `tool ${r?.tool_name ?? "?"}${r?.is_error ? " ERROR" : ""} (bot ${S.elMode})`);
+        // end_call was logged by our tools server; ElevenLabs keeps the line open, so we hang up,
+        // but only once the goodbye has played to the end (see elHangupDue)
+        // "finish_call" = our end_call on ElevenLabs (their own "end_call" would drop the line mid-sentence)
+        if ((r?.tool_name === "finish_call" || r?.tool_name === "end_call") && !r.is_error && !S.hang) {
           S.hangupPending = true;
-          if (S.elMode === "listening") setTimeout(() => { if (S.elMode === "listening") S.el?.endSession().catch(() => {}); }, 2500);
+          S.hang = { t0: Date.now(), spoke: S.elMode === "speaking" };
+          S.hangTimer = setInterval(() => {
+            if (!S.hang || !elHangupDue({ now: Date.now(), mode: S.elMode, modeAt: S.elModeAt, ...S.hang })) return;
+            post("event", `hangup by dashboard (spoke after end_call: ${S.hang.spoke}, quiet ${Date.now() - S.elModeAt}ms)`);
+            clearInterval(S.hangTimer); S.hang = null;
+            S.el?.endSession().catch(() => {});
+          }, 100);
         }
       },
     });
@@ -610,6 +621,22 @@ async function connectEleven() {
     msg(`החיבור ל-ElevenLabs נכשל: ${esc(e.message)}${/Permission|NotAllowed/i.test(e.message) ? " – צריך לאשר גישה למיקרופון." : ""}`, "bad");
   }
 }
+
+// hangup-rule:start
+/**
+ * When to drop an ElevenLabs call after end_call. The goodbye often starts only after end_call
+ * (the tool call comes first), and ElevenLabs flips to "listening" for a moment between audio chunks
+ * mid-sentence, so: wait for the goodbye to start, then for the bot to stay quiet QUIET ms in a row.
+ * No goodbye within NO_GOODBYE ms (e.g. voicemail) -> hang up. NO_GOODBYE covers one more LLM round
+ * + TTS after the end_call result, which is where ElevenLabs says the goodbye. MAX is a hard cap.
+ */
+function elHangupDue({ now, t0, spoke, mode, modeAt, QUIET = 2500, NO_GOODBYE = 8000, MAX = 25000 }) {
+  if (now - t0 >= MAX) return true;
+  if (mode === "speaking") return false;
+  if (spoke) return now - modeAt >= QUIET;
+  return now - t0 >= NO_GOODBYE;
+}
+// hangup-rule:end
 
 /** After an ElevenLabs call: latency (measured here) + duration/cost (from ElevenLabs) -> /test/metrics. */
 async function finishEleven(callId, turns) {
@@ -626,6 +653,7 @@ async function finishEleven(callId, turns) {
 
 async function disconnectBrowser() {
   clearTimeout(S.agentTimer);
+  clearInterval(S.hangTimer); S.hang = null;
   if (S.el) { try { await S.el.endSession(); } catch {} S.el = null; }
   S.meter?.stop();
   if (S.room) { try { await S.room.disconnect(); } catch {} }

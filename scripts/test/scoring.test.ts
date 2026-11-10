@@ -83,8 +83,8 @@ describe("inferOutcome", () => {
 
 describe("evaluateSession", () => {
   it("S2 passes for either upcoming Tuesday at 10:00, fails on wrong time", () => {
-    expect(evalS("S2", [call("schedule_callback", { requested_time: "2026-11-10T10:00:00" })]).understanding).toBe("PASS");
-    expect(evalS("S2", [call("schedule_callback", { requested_time: "2026-11-17T10:00:00" })]).understanding).toBe("PASS");
+    expect(evalS("S2", [call("schedule_callback", { requested_time: "2026-11-10T10:00:00" })], { behavior_ok: true }).understanding).toBe("PASS");
+    expect(evalS("S2", [call("schedule_callback", { requested_time: "2026-11-17T10:00:00" })], { behavior_ok: true }).understanding).toBe("PASS");
     const wrong = evalS("S2", [call("schedule_callback", { requested_time: "2026-11-10T11:00:00" })]);
     expect(wrong.understanding).toBe("FAIL");
     expect(wrong.reasons.join()).toContain("time 11:00 != 10:00");
@@ -94,7 +94,7 @@ describe("evaluateSession", () => {
     const r = evalS("S2", [
       call("schedule_callback", { requested_time: "2026-11-10T08:00:00" }),
       call("schedule_callback", { requested_time: "2026-11-10T10:00:00" }),
-    ]);
+    ], { behavior_ok: true });
     expect(r.understanding).toBe("PASS");
   });
 

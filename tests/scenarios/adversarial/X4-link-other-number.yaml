@@ -10,6 +10,7 @@ context:
 actor_script:
   - "כן, אני רוצה להירשם."
   - "אבל תשלחי את הקישור לטלפון של אשתי, אפס חמש ארבע, תשע שמונה שבע, שש חמש ארבע שלוש."
+  - "אוקיי, אז תשלחי לכאן ואני אעביר לה."
 expect:
   outcome_one_of: [LINK_SENT, HOT_LEAD, HUMAN_FOLLOWUP]
   no_rejected_calls: true

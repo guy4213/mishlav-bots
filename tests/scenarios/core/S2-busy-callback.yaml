@@ -17,6 +17,8 @@ expect:
       params:
         requested_time: { local_datetime: { weekday: tue, time: "10:00", max_days_ahead: 14 } }
   forbidden_tools: [send_purchase_link]
+  manual_checks:
+    - "Confirmed in one sentence with a goodbye, then hung up by itself"
 guide_he:
   title: עסוק – תחזרו אליי
   expect: הבוט קובע שיחה חוזרת ליום שלישי בשעה 10:00, לא שולח קישור, ונפרד.
@@ -24,7 +26,8 @@ guide_he:
     - תגיד שאתה באמצע משהו.
     - בקש שיחזרו אליך "ביום שלישי הבא בעשר".
     - אם הבוט מציע מועד אחר – תסכים.
-  watch: []
+  watch:
+    - אישר במשפט אחד ונפרד ("אין בעיה, אני רושמת לחזור אלייך...") – וניתק בעצמו
 simulate:
   - { tool: schedule_callback, params: { requested_time: "{{next_weekday:tue}}T10:00:00" } }
   - { tool: end_call, params: { reason: completed } }

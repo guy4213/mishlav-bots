@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { findRepoRoot, loadDotEnvFile, loadSettings, type Settings } from "@mishlav/shared";
 
 export interface ScriptEnv {
@@ -17,7 +17,7 @@ export function scriptEnv(overrides: { baseUrl?: string; logDir?: string } = {})
   return {
     root,
     settings,
-    logDir: overrides.logDir ?? join(root, process.env.LOG_DIR ?? settings.testing.log_dir),
+    logDir: overrides.logDir ?? resolve(root, process.env.LOG_DIR ?? settings.testing.log_dir),
     scenariosDir: join(root, "tests", "scenarios"),
     baseUrl: (overrides.baseUrl ?? process.env.TOOLS_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/+$/, ""),
     secret: process.env.TOOLS_SECRET,

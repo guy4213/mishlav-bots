@@ -54,6 +54,7 @@ outcome_mapping:
     wants_human: HOT_LEAD
     pay_via_rep: HOT_LEAD
     discount_request: HOT_LEAD
+    course_interest: HOT_LEAD   # another course (the long payroll course): a lead for the rep
     company_purchase: COMPANY
     other: HUMAN_FOLLOWUP
   end_call:

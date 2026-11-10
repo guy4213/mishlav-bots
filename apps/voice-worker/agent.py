@@ -87,6 +87,9 @@ def build_llm() -> google.realtime.RealtimeModel:
         if behavior != "non_blocking":
             log.warning("%s needs non-blocking tools: ignoring GEMINI_TOOL_BEHAVIOR=%s", GEMINI_MODEL, behavior)
             behavior = "non_blocking"
+        from mishlav_worker.gemini_compat import never_send_tool_scheduling
+
+        never_send_tool_scheduling()  # else the session dies on the first silent tool output (1007)
         level = os.environ.get("GEMINI_THINKING_LEVEL", "low").upper()
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel(level))
     return google.realtime.RealtimeModel(
@@ -168,7 +171,12 @@ async def entrypoint(ctx: JobContext) -> None:
 
     agent = Agent(
         instructions=build_instructions(ROOT, call),
-        tools=build_tools(load_tool_definitions(ROOT), client),
+        # extended model = non-blocking tools: the bot talks while tools run (see tools.py)
+        tools=build_tools(
+            load_tool_definitions(ROOT),
+            client,
+            non_blocking=VOICE_PROVIDER == "gemini" and "extended-thinking" in GEMINI_MODEL,
+        ),
     )
     session = build_session(ctx.proc.userdata["vad"])
 

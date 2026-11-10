@@ -74,6 +74,86 @@ def test_end_call_hangs_up_right_after_the_goodbye_and_mutes_what_follows(monkey
     assert events == ["goodbye played", "audio False", "shutdown"]
 
 
+class RoutingClient:
+    """Answers per tool, like the tools server."""
+
+    def __init__(self, responses):
+        self.responses = responses
+        self.calls = []
+
+    async def call_tool(self, name, params):
+        self.calls.append((name, params))
+        await asyncio.sleep(0.01)
+        return self.responses[name]
+
+
+def _non_blocking_tools(client):
+    return {t.info.name: t for t in build_tools(load_tool_definitions(ROOT), client, non_blocking=True)}
+
+
+def test_non_blocking_results_never_ask_for_silence():
+    # A no-reply result is sent as SILENT scheduling, and the extended model closes the session on it
+    # (1007 "Function response scheduling is not supported for this model"). Every result must be plain.
+    client = RoutingClient(
+        {
+            "get_day_info": {"ok": True, "day": {}},
+            "send_purchase_link": {"ok": True, "status": "sent"},
+            "schedule_callback": {"ok": True, "status": "accepted"},
+            "request_human": {"ok": True, "status": "handed_to_rep"},
+        }
+    )
+    tools = _non_blocking_tools(client)
+    args = {
+        "get_day_info": {"day_id": "x"},
+        "send_purchase_link": {"day_id": "x"},
+        "schedule_callback": {"requested_time": "2026-11-12T09:00:00"},
+        "request_human": {"reason": "other"},
+    }
+    for name, a in args.items():
+        assert isinstance(asyncio.run(tools[name](raw_arguments=a, context=None)), str), name
+
+
+def test_non_blocking_end_call_waits_when_an_action_still_needs_the_customer(monkeypatch):
+    import mishlav_worker.tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "HANGUP_GRACE_S", 0)
+    events = []
+
+    async def wait_for_playout():
+        events.append("goodbye played")
+
+    session = SimpleNamespace(
+        output=SimpleNamespace(set_audio_enabled=lambda on: events.append(f"audio {on}")),
+        shutdown=lambda: events.append("shutdown"),
+    )
+    ctx = SimpleNamespace(wait_for_playout=wait_for_playout, session=session)
+    client = RoutingClient(
+        {"schedule_callback": {"ok": True, "status": "alternative"}, "end_call": {"ok": True, "status": "ending"}}
+    )
+    tools = _non_blocking_tools(client)
+
+    async def together():  # the model calls both at once
+        return await asyncio.gather(
+            tools["schedule_callback"](raw_arguments={"requested_time": "2026-11-12T21:00:00"}, context=ctx),
+            tools["end_call"](raw_arguments={"reason": "completed"}, context=ctx),
+        )
+
+    _, end = asyncio.run(together())
+    assert "not_finished" in end  # the alternative must be offered first
+    assert [c[0] for c in client.calls] == ["schedule_callback"] and events == []
+
+    client.responses["schedule_callback"] = {"ok": True, "status": "accepted"}
+
+    async def agreed():
+        await tools["schedule_callback"](raw_arguments={"requested_time": "2026-11-12T09:00:00"}, context=ctx)
+        out = await tools["end_call"](raw_arguments={"reason": "completed"}, context=ctx)
+        for _ in range(5):
+            await asyncio.sleep(0)
+        return out
+
+    out = asyncio.run(agreed())
+    assert isinstance(out, str)  # plain result: SILENT would close the extended session
+    assert events == ["goodbye played", "audio False", "shutdown"]
 def test_agent_module_imports():
     os.environ.setdefault("GOOGLE_API_KEY", "test-key")
     mod = importlib.import_module("agent")

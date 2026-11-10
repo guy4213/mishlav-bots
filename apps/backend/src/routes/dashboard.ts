@@ -141,7 +141,7 @@ const TokenRequest = z.strictObject({ provider: Provider.default("C"), scenario:
 const CALL_ID = /^[\w+.\-]{1,150}$/;
 const TranscriptAppend = z.strictObject({
   call_id: z.string().regex(CALL_ID),
-  role: z.enum(["user", "assistant"]),
+  role: z.enum(["user", "assistant", "event"]), // event: call timeline for debugging (logs/events/), not transcript
   text: z.string().min(1).max(4000),
 });
 
@@ -151,6 +151,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
   const scenariosDir = join(root, "tests", "scenarios");
   const manualPath = deps.manualInputsPath ?? join(root, "tests", "results", "manual-inputs.yaml");
   const transcriptsDir = join(deps.config.logDir, "transcripts");
+  const eventsDir = join(deps.config.logDir, "events");
 
   const readManual = (): ManualInputs => {
     if (!existsSync(manualPath)) return EMPTY_MANUAL;
@@ -303,9 +304,10 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
   app.post("/test/transcript", async (req, reply) => {
     const parsed = TranscriptAppend.safeParse(req.body ?? {});
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
-    mkdirSync(transcriptsDir, { recursive: true });
+    const dir = parsed.data.role === "event" ? eventsDir : transcriptsDir;
+    mkdirSync(dir, { recursive: true });
     const line = { ts: deps.now().toISOString(), role: parsed.data.role, text: parsed.data.text };
-    appendFileSync(join(transcriptsDir, `${parsed.data.call_id}.jsonl`), JSON.stringify(line) + "\n", "utf8");
+    appendFileSync(join(dir, `${parsed.data.call_id}.jsonl`), JSON.stringify(line) + "\n", "utf8");
     return { ok: true };
   });
 

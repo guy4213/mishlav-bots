@@ -38,6 +38,7 @@ export const REQUEST_HUMAN_REASONS = [
   "pay_via_rep",
   "company_purchase",
   "discount_request",
+  "course_interest", // asks about another course (e.g. the long payroll course): a sales lead
   "other",
 ] as const;
 export const RequestHumanReason = z.enum(REQUEST_HUMAN_REASONS);
