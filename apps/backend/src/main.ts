@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { loadAppConfig } from "./config";
+import { type AppConfig, loadAppConfig } from "./config";
+import type { PhoneHolder } from "./routes/phone";
 import { buildServer } from "./server";
 
 /** NGROK_AUTHTOKEN, else the token saved by `ngrok config add-authtoken` (v2 or v3 config). */
@@ -47,10 +48,50 @@ async function openTunnel(port: number): Promise<string | null> {
   }
 }
 
+/**
+ * The Zadarma line in this process (dashboard "call" button), when ZADARMA_SIP_* are set and PHONE_LINE
+ * isn't 0. Only one program may be registered on the extension: set PHONE_LINE=0 where another one runs.
+ * A failed registration is retried every minute; the reason shows on the dashboard meanwhile.
+ */
+async function startPhoneLine(config: AppConfig, holder: PhoneHolder): Promise<void> {
+  if (process.env.PHONE_LINE === "0") {
+    holder.reason = "PHONE_LINE=0";
+    return;
+  }
+  const { PhoneLine, phoneEnv, missingPhoneEnv } = await import("../../phone/src/line.js");
+  const env = phoneEnv({ ...process.env, PORT: String(config.port), LOG_DIR: config.logDir }, config.repoRoot);
+  const missing = missingPhoneEnv(env);
+  if (missing.length) {
+    holder.reason = `חסר במשתני הסביבה: ${missing.join(", ")}`;
+    return;
+  }
+  const line = new PhoneLine({ root: config.repoRoot, env });
+  line.on("log", ({ text }) => console.log(`[phone] ${text}`));
+  const attempt = async () => {
+    try {
+      await line.start();
+      holder.line = line;
+      holder.reason = null;
+    } catch (err) {
+      holder.reason = `${(err as Error).message} (מנסה שוב בעוד דקה)`;
+      console.warn(`[phone] ${holder.reason}`);
+      setTimeout(attempt, 60_000).unref();
+    }
+  };
+  holder.reason = "נרשם בזדארמה...";
+  await attempt();
+}
+
 async function main() {
   const config = loadAppConfig();
-  const app = await buildServer(config, { logger: { level: process.env.LOG_LEVEL ?? "info" } });
+  const phone: PhoneHolder = { line: null, reason: "starting" };
+  const app = await buildServer(config, { logger: { level: process.env.LOG_LEVEL ?? "info" }, phone });
   await app.listen({ port: config.port, host: config.host });
+  // in the background: registration takes a few seconds and must not hold the server (or Render's port check)
+  startPhoneLine(config, phone).catch((err) => {
+    phone.reason = (err as Error).message;
+    console.warn(`[phone] ${phone.reason}`);
+  });
 
   const local = `http://127.0.0.1:${config.port}`;
   const publicUrl = process.argv.includes("--tunnel") ? await openTunnel(config.port) : null;
@@ -62,9 +103,12 @@ async function main() {
   console.log(`  logs:    ${config.logDir}`);
   console.log(`  capture_dictated_details: ${config.settings.testing.capture_dictated_details}`);
   console.log(`  tools:   ${base}/tools/{get_day_info,send_purchase_link,schedule_callback,request_human,end_call}`);
-  console.log("  auth:    header X-Tools-Secret: <TOOLS_SECRET>\n");
+  console.log("  auth:    header X-Tools-Secret: <TOOLS_SECRET>");
+  console.log(`  dashboard: ${base}/dashboard`);
+  console.log(`  phone:   ${phone.line ? "Zadarma line registered" : (phone.reason ?? "off")}\n`);
 
   const shutdown = async () => {
+    await phone.line?.stop(); // unregister, so incoming calls don't ring a dead address
     await app.close();
     process.exit(0);
   };

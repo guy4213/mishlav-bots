@@ -66,7 +66,13 @@ function providerStatus(env: NodeJS.ProcessEnv, root: string) {
   const missingFor = (need: [boolean, string][]) => need.filter(([ok]) => !ok).map(([, what]) => what);
   const note = (missing: string[], ready: string) => (missing.length ? `חסר ב-.env: ${missing.join(", ")}` : ready);
 
-  const missC = missingFor([[livekit, LIVEKIT_KEYS], [gemini, "מפתח Gemini (GOOGLE_API_KEY)"]]);
+  // the Zadarma line (in this server) is C's phone channel without LiveKit
+  const zadarma = Boolean(env.ZADARMA_SIP_LOGIN && env.ZADARMA_SIP_PASSWORD) && env.PHONE_LINE !== "0";
+  const missC = missingFor([
+    [livekit || zadarma, `${LIVEKIT_KEYS} או קו זדארמה (ZADARMA_SIP_LOGIN / ZADARMA_SIP_PASSWORD)`],
+    [gemini, "מפתח Gemini (GOOGLE_API_KEY)"],
+  ]);
+  const channelsC = livekit ? ["browser", "phone"] : ["phone"];
   const missB = missingFor([
     [livekit, LIVEKIT_KEYS],
     [soniox, "מפתח Soniox (SONIOX_API_KEY)"],
@@ -80,9 +86,9 @@ function providerStatus(env: NodeJS.ProcessEnv, root: string) {
       ? "הסוכן עוד לא נוצר – הפעל דרך npm run lab (יוצר ומעדכן אותו אוטומטית)"
       : `מוכן לבדיקה · הכלים מחוברים דרך ${eleven.tools_url ?? "?"} (מתעדכן בכל הפעלה של npm run lab)`;
   return {
-    config: { livekit, gemini, soniox, agentName: livekitAgentName("C", env), agentNameB: livekitAgentName("B", env), elevenlabs: eleven },
+    config: { livekit, gemini, soniox, zadarma, agentName: livekitAgentName("C", env), agentNameB: livekitAgentName("B", env), elevenlabs: eleven },
     providers: [
-      { code: "C", name: PROVIDER_NAMES.C, ready: missC.length === 0, channels: ["browser", "phone"], note: note(missC, "מוכן לבדיקה") },
+      { code: "C", name: PROVIDER_NAMES.C, ready: missC.length === 0, channels: channelsC, note: note(missC, "מוכן לבדיקה") },
       { code: "A", name: PROVIDER_NAMES.A, ready: readyA, channels: ["browser"], note: noteA },
       { code: "B", name: PROVIDER_NAMES.B, ready: missB.length === 0, channels: ["browser", "phone"], note: note(missB, "מוכן לבדיקה") },
     ],
@@ -317,7 +323,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
     const status = providerStatus(env, root);
     const p = status.providers.find((x) => x.code === parsed.data.provider);
-    if (!p || p.code === "A" || !p.channels.includes("browser")) {
+    if (!p || p.code === "A") {
       return reply.code(400).send({ ok: false, error: "no_browser_channel", message_he: "לספק הזה אין שיחה מהדפדפן" });
     }
     if (!status.config.livekit) {

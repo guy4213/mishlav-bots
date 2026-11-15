@@ -109,6 +109,7 @@
     </div>
     <nav>
       <button data-tab="test" class="on">🧪 בדיקה</button>
+      <button data-tab="phone">📞 חיוג</button>
       <button data-tab="results">📊 התקדמות ותוצאות</button>
       <button data-tab="help">❓ עזרה</button>
     </nav>
@@ -185,7 +186,15 @@
         <p class="small muted">אחרי החיבור: תגיד "הלו" (חוץ מתרחיש תא קולי) – הבוט פותח את השיחה. עדיף עם אוזניות.</p>
       </div>
       <div id="s3phone" class="hidden">
-        <div class="banner info">📞 התקשר מהנייד למספר ה-LiveKit שלך (המספר האמריקאי), ותגיד "הלו". אחרי השיחה – לחץ "סיימתי". <br><span class="small">דורש מספר + כלל ניתוב <code>mishlav-c</code> ב-LiveKit (ראה לשונית עזרה). שיחה לארה״ב עולה כמו שיחה לחו״ל.</span></div>
+        <div id="s3dial" class="hidden">
+          <div class="row">
+            <input type="text" id="s3number" class="ltr" inputmode="tel" placeholder="0501234567" size="16">
+            <button class="btn green" id="s3dialBtn">📞 הבוט יתקשר אליי</button>
+            <span class="small muted" id="s3dialNote"></span>
+          </div>
+          <p class="small muted">הבוט מתקשר מקו זדארמה עם התרחיש הזה. עונים ואומרים "הלו". אחרי שהשיחה נגמרת – "סיימתי".</p>
+        </div>
+        <div class="banner info" id="s3livekit">📞 התקשר מהנייד למספר ה-LiveKit שלך (המספר האמריקאי), ותגיד "הלו". אחרי השיחה – לחץ "סיימתי". <br><span class="small">דורש מספר + כלל ניתוב <code>mishlav-c</code> ב-LiveKit (ראה לשונית עזרה). שיחה לארה״ב עולה כמו שיחה לחו״ל.</span></div>
       </div>
       <div class="two" style="margin-top:8px">
         <div>
@@ -223,6 +232,37 @@
         <button class="btn" id="saveManualBtn">💾 שמור</button>
         <button class="btn sec" id="nextBtn">לתרחיש הבא ←</button>
         <span id="s4saved" class="small"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PHONE TAB ===================== -->
+  <section id="tab-phone" class="hidden">
+    <div class="card">
+      <h2>📞 הבוט מתקשר למי שתבחר</h2>
+      <div id="phStatus"></div>
+      <div class="row" style="margin-top:8px">
+        <label>מספר <input type="text" id="phNumber" class="ltr" inputmode="tel" placeholder="0501234567" size="16"></label>
+        <label>תרחיש <select id="phScenario"></select></label>
+        <label>שם הלקוח (רשות) <input type="text" id="phName" size="10" placeholder="מהתרחיש"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn green" id="phDial">📞 חייג</button>
+        <button class="btn red" id="phHangup" disabled>⏹ נתק</button>
+        <span class="small" id="phNote"></span>
+      </div>
+      <p class="small muted">שיחה מכאן לא נספרת בתוצאות. לבדיקה שנספרת: לשונית "בדיקה" ← ספק ג׳ ← "מהטלפון". כל שיחה נשמרת בקבצים: <code>logs/phone.jsonl</code> (הלוג), <code>logs/transcripts/</code> (התמלול), <code>logs/tool-calls.jsonl</code> (הפעולות).</p>
+    </div>
+    <div class="two">
+      <div class="card">
+        <h2>📝 מה נאמר</h2>
+        <div class="feed" id="phTranscript"><p class="muted small">התמלול יופיע כאן בזמן השיחה</p></div>
+        <h3>🔧 מה הבוט עשה</h3>
+        <ul class="list" id="phTools"><li class="muted">עוד לא ביצע פעולות</li></ul>
+      </div>
+      <div class="card">
+        <h2>📜 לוג הקו (חי)</h2>
+        <div class="feed small ltr" id="phLog" style="text-align:left;font-family:ui-monospace,Consolas,monospace;max-height:420px"></div>
       </div>
     </div>
   </section>
@@ -317,7 +357,8 @@ const CRIT_HE = { understanding: "הבנה (6 תרחישים)", language: "רק 
 // ------------------------------------------------------------------ state
 const S = { secret: null, overview: null, report: null, provider: "C", scenario: null, actor: "male", channel: "browser",
   session: null, room: null, poll: null, lastSessionId: null, lang: null, agentTimer: null,
-  el: null, callId: null, meter: null, hangupPending: false, elMode: "listening" };
+  el: null, callId: null, meter: null, hangupPending: false, elMode: "listening",
+  ph: { since: 0, info: null, callId: null, poll: null } };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const show = (el, on = true) => (typeof el === "string" ? $(el) : el).classList.toggle("hidden", !on);
@@ -350,7 +391,7 @@ async function api(method, path, body) {
 
 // ------------------------------------------------------------------ load
 async function refresh() {
-  const [ov, rep] = await Promise.all([api("GET", "/test/overview"), api("GET", "/test/report")]);
+  const [ov, rep] = await Promise.all([api("GET", "/test/overview"), api("GET", "/test/report"), phoneInfo()]);
   S.overview = ov; S.report = rep; S.session = ov.session;
   renderChips(); renderStep1(); renderResults();
   if (S.session && !S.poll) resumeSession();
@@ -363,6 +404,7 @@ function renderChips() {
     `<span class="chip ${c.livekit ? "ok" : "bad"}">LiveKit ${c.livekit ? "✓" : "✗ חסרים מפתחות"}</span>`,
     `<span class="chip ${c.gemini ? "ok" : "bad"}">Gemini ${c.gemini ? "✓" : "✗ חסר מפתח"}</span>`,
     `<span class="chip ${c.elevenlabs?.agent_id ? "ok" : c.elevenlabs?.key ? "wait" : ""}">ElevenLabs ${c.elevenlabs?.agent_id ? "✓" : c.elevenlabs?.key ? "· סוכן לא נוצר" : "· אין מפתח"}</span>`,
+    `<span class="chip ${S.ph.info?.available ? "ok" : ""}" title="${esc(S.ph.info?.reason ?? "")}">קו טלפון ${S.ph.info?.available ? "✓" : "· לא פעיל"}</span>`,
     S.session ? `<span class="chip wait">בדיקה פתוחה: ${esc(S.session.provider)} · ${esc(S.session.scenario)}</span>` : `<span class="chip">אין בדיקה פתוחה</span>`,
   ];
   $("chips").innerHTML = chips.join("");
@@ -402,7 +444,9 @@ function renderStep1() {
   $("channelSeg").querySelector('[data-v="phone"]').disabled = !phoneOk;
   $("channelNote").textContent = S.channel === "browser"
     ? "מדברים דרך המיקרופון של המחשב – בלי טלפון ובלי עלות שיחה. הכי מהיר לנסות."
-    : "מתקשרים מהנייד למספר ה-LiveKit. קרוב יותר למציאות (קו טלפון, רעש).";
+    : S.provider === "C" && S.ph.info?.available
+      ? "הבוט מתקשר אליך לנייד מקו זדארמה (מספר ישראלי). קרוב יותר למציאות (קו טלפון, רעש)."
+      : "מתקשרים מהנייד למספר ה-LiveKit. קרוב יותר למציאות (קו טלפון, רעש).";
 }
 
 function segSet(id, v) { $(id).querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === String(v))); }
@@ -458,6 +502,11 @@ function enterStep3() {
   show("step3"); show("step4", false);
   $("s3title").textContent = `${s.id}: ${s.guide?.title ?? s.name}`;
   show("s3browser", S.channel === "browser"); show("s3phone", S.channel === "phone");
+  // provider C with the Zadarma line up: the bot calls the tester (instead of calling the LiveKit number)
+  const zadarma = S.provider === "C" && Boolean(S.ph.info?.available);
+  show("s3dial", zadarma); show("s3livekit", !zadarma);
+  if (zadarma && !$("s3number").value) $("s3number").value = savedNumber();
+  $("s3dialNote").textContent = "";
   $("s3script").innerHTML = scriptHtml(s.actor_script);
   $("s3tools").innerHTML = `<li class="muted">עוד לא ביצע פעולות</li>`;
   $("s3transcript").innerHTML = `<p class="muted small">התמלול יופיע כאן כשהשיחה מתחילה</p>`;
@@ -806,8 +855,91 @@ function renderResults() {
 
 function tab(name) {
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
-  for (const t of ["test", "results", "help"]) show(`tab-${t}`, t === name);
+  for (const t of ["test", "phone", "results", "help"]) show(`tab-${t}`, t === name);
+  clearInterval(S.ph.poll); S.ph.poll = null;
+  if (name === "phone") { renderPhoneForm(); phonePoll(); S.ph.poll = setInterval(phonePoll, 1500); }
 }
+
+// ------------------------------------------------------------------ phone line (Zadarma, in the tools server)
+const savedNumber = () => { try { return localStorage.getItem("mishlav_phone") ?? ""; } catch { return ""; } };
+const saveNumber = (n) => { try { localStorage.setItem("mishlav_phone", n); } catch {} };
+
+async function phoneInfo() {
+  try { S.ph.info = await api("GET", `/test/phone?since=${S.ph.since}`); } catch { S.ph.info = null; }
+  return S.ph.info;
+}
+
+function renderPhoneForm() {
+  if (!$("phNumber").value) $("phNumber").value = savedNumber();
+  if (!$("phScenario").options.length && S.overview) {
+    $("phScenario").innerHTML = `<option value="">ללא תרחיש (שם ויום ברירת מחדל)</option>` +
+      S.overview.scenarios.map((s) => `<option value="${esc(s.id)}">${esc(s.id)} · ${esc(s.guide?.title ?? s.name)}</option>`).join("");
+  }
+}
+
+async function phonePoll() {
+  const info = await phoneInfo();
+  if (!info) return;
+  const st = info.status;
+  $("phStatus").innerHTML = !info.available
+    ? `<div class="banner bad">קו הטלפון לא פעיל: ${esc(info.reason ?? "לא ידוע")}</div>`
+    : st.busy
+      ? `<div class="banner wait">🔴 שיחה פעילה (${st.call.direction === "out" ? "יוצאת" : "נכנסת"}) · <span class="ltr">${esc(st.call.number)}</span> · תרחיש ${esc(st.call.scenario ?? "—")}</div>`
+      : `<div class="banner ok">הקו מוכן ✓ ${st.number ? `· <span class="ltr">${esc(st.number)}</span>` : ""} · <span class="small ltr">${esc(st.model)} · ${esc(st.voice)}</span></div>`;
+  $("phDial").disabled = !info.available || st.busy;
+  $("phHangup").disabled = !st?.busy;
+  if (st?.call?.id) S.ph.callId = st.call.id;
+  if (info.log.length) {
+    S.ph.since = info.log[info.log.length - 1].seq;
+    const box = $("phLog"); const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+    box.insertAdjacentHTML("beforeend", info.log.map((l) => `<div dir="auto"><span class="muted">${esc(new Date(l.ts).toLocaleTimeString("he-IL", { hour12: false }))}</span> ${esc(l.text)}</div>`).join(""));
+    if (atEnd) box.scrollTop = box.scrollHeight;
+  }
+  if (!S.ph.callId) return;
+  const [calls, tr] = await Promise.all([
+    api("GET", `/test/calls?call_id=${encodeURIComponent(S.ph.callId)}`).catch(() => null),
+    api("GET", `/test/transcript?call_id=${encodeURIComponent(S.ph.callId)}`).catch(() => null),
+  ]);
+  if (calls) $("phTools").innerHTML = calls.calls.length ? calls.calls.map(toolLine).join("") : `<li class="muted">עוד לא ביצע פעולות</li>`;
+  if (tr?.lines.length) {
+    const box = $("phTranscript"); const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+    box.innerHTML = tr.lines.map((l) => `<div class="say ${l.role === "user" ? "user" : "assistant"}"><small>${l.role === "user" ? "לקוח" : "הבוט"}</small>${esc(l.text)}</div>`).join("");
+    if (atEnd) box.scrollTop = box.scrollHeight;
+  }
+}
+
+async function dial(number, scenarioId, name) {
+  saveNumber(number);
+  return api("POST", "/test/phone/call", { number, ...(scenarioId ? { scenario: scenarioId } : {}), ...(name ? { name } : {}) });
+}
+
+$("phDial").onclick = async () => {
+  const number = $("phNumber").value.trim();
+  if (!number) { $("phNote").textContent = "הכנס מספר"; return; }
+  $("phDial").disabled = true; $("phNote").textContent = "מחייג...";
+  try {
+    const r = await dial(number, $("phScenario").value, $("phName").value.trim());
+    S.ph.callId = r.call_id;
+    $("phTranscript").innerHTML = `<p class="muted small">מחכה שיענו...</p>`;
+    $("phTools").innerHTML = `<li class="muted">עוד לא ביצע פעולות</li>`;
+    $("phNote").textContent = "";
+  } catch (e) { $("phNote").innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+  phonePoll();
+};
+$("phHangup").onclick = async () => { await api("POST", "/test/phone/hangup").catch(() => {}); phonePoll(); };
+
+// the test flow (step 3, provider C, phone channel): the bot calls the tester with the session's scenario
+$("s3dialBtn").onclick = async () => {
+  const number = $("s3number").value.trim();
+  if (!number) { $("s3dialNote").textContent = "הכנס מספר"; return; }
+  $("s3dialBtn").disabled = true; $("s3dialNote").textContent = "מחייג...";
+  try {
+    const r = await dial(number, S.session?.scenario);
+    S.callId = r.call_id;
+    $("s3dialNote").textContent = "מצלצל – ענה ותגיד \"הלו\"";
+  } catch (e) { $("s3dialNote").innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+  finally { $("s3dialBtn").disabled = false; }
+};
 
 // ------------------------------------------------------------------ wire up
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => tab(b.dataset.tab)));

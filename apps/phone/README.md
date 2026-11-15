@@ -25,6 +25,16 @@ npm run phone -- call 0501234567     # the bot calls that number (costs Zadarma 
 
 PowerShell: `npm.cmd run phone -- call 0501234567 --scenario S1` (plain `npm` drops the `--` flags).
 
+### From the dashboard (and on Render)
+
+When `ZADARMA_SIP_LOGIN` / `ZADARMA_SIP_PASSWORD` are set, the tools server (`npm run dev` / `npm start`)
+runs the line itself (`src/line.js`): the dashboard's **📞 חיוג** tab dials any number with a scenario and
+shows the call live (transcript, tools, line log); the **בדיקה** tab (provider C, phone) has "הבוט יתקשר
+אליי" for a scored run. Everything is kept in files: `logs/phone.jsonl`, `logs/transcripts/`,
+`logs/tool-calls.jsonl`. `PHONE_LINE=0` turns it off (e.g. locally while Render holds the extension: only one
+program may be registered). Render: see `render.yaml` at the repo root. Its disk is wiped on every deploy,
+so the logs there live until the next deploy.
+
 | Option | |
 |---|---|
 | `--scenario S1` | prompt variables from that scenario's `context:` (default: the active test session's scenario) |

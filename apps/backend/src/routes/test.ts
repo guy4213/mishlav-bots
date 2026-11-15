@@ -49,12 +49,13 @@ export async function registerTestRoutes(app: FastifyInstance, deps: TestRouteDe
   app.get("/test/calls", async (req) => {
     const q = (req.query ?? {}) as Record<string, string | undefined>;
     const sessionId = q.session_id ?? deps.sessions.current()?.session_id ?? null;
+    const byCall = q.call_id; // one phone call from the dashboard, with or without a test session
     const calls = deps.toolLog
       .readAll()
       .map((l) => ToolCallLogEntry.safeParse(l))
       .filter((r) => r.success)
       .map((r) => r.data)
-      .filter((e) => e.session_id === sessionId)
+      .filter((e) => (byCall ? e.call_id === byCall : e.session_id === sessionId))
       .map(({ ts, tool, params, ok, error, response, call_id, provider }) => ({
         ts,
         tool,

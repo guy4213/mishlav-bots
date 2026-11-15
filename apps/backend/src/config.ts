@@ -31,7 +31,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     repoRoot,
     port: Number(env.PORT ?? 8787),
-    host: env.HOST ?? "127.0.0.1",
+    host: env.HOST ?? (env.RENDER ? "0.0.0.0" : "127.0.0.1"), // Render sets RENDER and only routes to 0.0.0.0
     toolsSecret,
     logDir: isAbsolute(logDirRaw) ? logDirRaw : resolve(repoRoot, logDirRaw),
     knowledgeDir: join(repoRoot, "config", "knowledge"),

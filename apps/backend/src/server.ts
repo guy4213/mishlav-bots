@@ -6,6 +6,7 @@ import type { AppConfig } from "./config";
 import { JsonlFile } from "./jsonl";
 import { loadKnowledge } from "./knowledge";
 import { registerDashboardRoutes } from "./routes/dashboard";
+import { type PhoneHolder, registerPhoneRoutes } from "./routes/phone";
 import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
 import { SessionStore } from "./sessions";
@@ -17,6 +18,8 @@ export interface BuildOptions {
   env?: NodeJS.ProcessEnv;
   /** Where the dashboard keeps manual inputs. Default: tests/results/manual-inputs.yaml. */
   manualInputsPath?: string;
+  /** The Zadarma line, filled in by main.ts once the server listens (null = no line). */
+  phone?: PhoneHolder;
 }
 
 /** Public paths: health check and the dashboard's static files (no data; the page sends the secret). */
@@ -86,6 +89,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     botName: (opts.env ?? process.env).BOT_NAME,
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
+  await registerPhoneRoutes(app, opts.phone ?? { line: null, reason: "not started" });
 
   return app;
 }

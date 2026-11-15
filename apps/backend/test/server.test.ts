@@ -178,6 +178,26 @@ describe("test sessions", () => {
   });
 });
 
+describe("phone line routes", () => {
+  it("without a line: status says why, dialing is refused", async () => {
+    const { app, post } = await setup();
+    const st = (await app.inject({ method: "GET", url: "/test/phone", headers: AUTH })).json();
+    expect(st).toMatchObject({ ok: true, available: false, reason: "not started", log: [] });
+    const dial = await post("/test/phone/call", { number: "0501234567", scenario: "S1" });
+    expect(dial.statusCode).toBe(409);
+    expect(dial.json()).toMatchObject({ ok: false, error: "no_phone_line" });
+    expect((await post("/test/phone/call", { number: "1" })).statusCode).toBe(400);
+  });
+
+  it("/test/calls?call_id= returns one phone call's tools, with or without a session", async () => {
+    const { app, post } = await setup();
+    await post("/tools/end_call", { reason: "completed" }, { ...AUTH, "x-call-id": "phone-1" });
+    await post("/tools/end_call", { reason: "completed" }, { ...AUTH, "x-call-id": "phone-2" });
+    const r = (await app.inject({ method: "GET", url: "/test/calls?call_id=phone-2", headers: AUTH })).json();
+    expect(r.calls.map((c: { call_id: string }) => c.call_id)).toEqual(["phone-2"]);
+  });
+});
+
 describe("business hours in the callback answer", () => {
   it("quotes the real hours from settings", async () => {
     const { hoursHe } = await import("../src/tools/handlers");
