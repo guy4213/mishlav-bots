@@ -26,6 +26,7 @@
     "worker:console": "cd apps/voice-worker && uv run agent.py console",
     "worker:dev": "cd apps/voice-worker && uv run agent.py dev",
     "worker:test": "cd apps/voice-worker && uv run pytest -q",
+    "phone": "node apps/phone/phone.js",
     "eleven:sync": "tsx scripts/elevenlabs-sync.ts",
     "eleven:text": "tsx scripts/elevenlabs-text.ts",
     "text:all": "tsx scripts/text-run.ts"

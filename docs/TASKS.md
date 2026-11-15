@@ -60,6 +60,8 @@ M1 ──► M2 ──► M3 ──┐
 - [x] 5 function tools (from `config/tools.json`) → POST to tools server with secret, `X-Provider: C`, `X-Call-Id: <room>`; `end_call` hangs up — verified live against the tools server
 - [x] Post per-turn metrics (end-of-user-speech → first audio, Gemini TTFA as provider time) to `/test/metrics`
 - [ ] Rent LiveKit US number + dispatch rule → agent `mishlav-c` (inbound only; Build plan = 50 free inbound min). No ngrok needed for C
+- [x] Israeli number without LiveKit: `apps/phone` (`npm run phone`) — Zadarma SIP line (+972555172508) ↔ Gemini Live `gemini-3.1-flash-live-preview`, same prompt/knowledge/tools, inbound + outbound; SIP code from `gemini-live-agent`. Verified: registration, and a text-driven call against real Gemini + tools server (opening, `get_day_info`, `end_call`)
+- [ ] First real call on the Zadarma number → read `logs/transcripts/`, `logs/tool-calls.jsonl`
 - [ ] One inbound test call → check `GET /test/calls`
 - [~] Run S1–S6 (see 3.4) → score → decide on C before moving on — first browser round done: all tool calls right; S2/S3/S6 to redo by the script; fixes after round 1: latency measurement (side-channel VAD), double opening, English line after hang-up, "other date" prompt rule + X9
 
