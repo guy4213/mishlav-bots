@@ -29,6 +29,18 @@ What `npm run lab` starts depends on the keys in `.env`:
 | A — ElevenLabs Agents | `ELEVENLABS_API_KEY` (or `elevenLabsAgentsKey`), ngrok authtoken | ngrok tunnel + `eleven:sync` (agent created/updated from the repo, tools → tunnel) | browser |
 | B — LiveKit + Soniox + ElevenLabs | `LIVEKIT_*`, `SONIOX_API_KEY`, ElevenLabs key, `GOOGLE_API_KEY` | second worker, agent `mishlav-b` | browser, phone |
 
+### Phone line (Zadarma + Gemini Live)
+
+Provider C's model on a real Israeli number, without LiveKit or Python — see
+[apps/phone/README.md](apps/phone/README.md). Same prompt, knowledge and tools; model
+`gemini-3.1-flash-live-preview` by default. Needs `GOOGLE_API_KEY` and `ZADARMA_SIP_*` in `.env`.
+
+```bash
+npm run dev                          # tools server
+npm run phone                        # the bot answers calls to the Zadarma number
+npm run phone -- call 0501234567     # the bot calls out (costs Zadarma balance)
+```
+
 ```bash
 npm run eleven:sync -- --url https://<ngrok-host>   # create/update the A agent by hand (lab does this)
 npm run eleven:text -- --scenario S1                 # text-only A conversation: agent + tools smoke test
@@ -88,6 +100,7 @@ npm run simulate -- --core --base-url https://<ngrok-host>   # verify the tunnel
 |------|------|
 | `apps/backend` | Tools server (Fastify). Mock answers now, real Tools API in Part 4 |
 | `apps/voice-worker` | Python LiveKit agent: provider C (Gemini Live, tested first), later B — see its README |
+| `apps/phone` | Node: the bot on a Zadarma SIP line with Gemini Live (`npm run phone`) — see its README |
 | `packages/shared` | Outcome enum, tool schemas, settings schema, time zone + business hours |
 | `config/settings.yaml` | Business hours, holidays, retry rules, outcome mapping, pass thresholds |
 | `config/prompt.md` | The agent prompt (Hebrew), same for every provider |
