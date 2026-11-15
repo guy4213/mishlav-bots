@@ -75,6 +75,13 @@ describe("inferOutcome", () => {
     expect(inferOutcome([call("end_call", {})], m)).toBe("UNKNOWN");
   });
 
+  it("a proposed callback time is not a booked callback (R5)", () => {
+    const alt = call("schedule_callback", { in_minutes: 10 }, true, { response: { ok: true, status: "alternative" } });
+    expect(inferOutcome([alt, call("end_call", { reason: "completed" })], m)).toBe("UNKNOWN");
+    const booked = call("schedule_callback", { requested_time: "2026-11-15T09:00:00" }, true, { response: { ok: true, status: "accepted" } });
+    expect(inferOutcome([alt, booked], m)).toBe("CALLBACK");
+  });
+
   it("do_not_call always wins; rejected calls are ignored", () => {
     expect(inferOutcome([call("end_call", { reason: "do_not_call" }), call("send_purchase_link", { day_id: "x" })], m)).toBe("DO_NOT_CALL");
     expect(inferOutcome([call("send_purchase_link", { day_id: "x", phone: "1" }, false)], m)).toBe("UNKNOWN");

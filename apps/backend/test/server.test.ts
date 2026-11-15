@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readJsonl } from "../src/jsonl";
-import { END_CALL_SAY_GOODBYE } from "../src/tools/handlers";
+import { CLOSE_NEXT, END_CALL_SAY_GOODBYE } from "../src/tools/handlers";
 import { AUTH, SECRET, testServer } from "./helpers";
 
 type App = Awaited<ReturnType<typeof testServer>>["app"];
@@ -79,11 +79,39 @@ describe("tools", () => {
     expect(bad).toMatchObject({ ok: false });
   });
 
+  it("schedule_callback 'in N minutes' uses the server clock, not the model's (R5: the model was 2h off)", async () => {
+    const { post } = await setup(); // FIXED_NOW = Sunday 2026-11-08 10:00 Israel
+    const r = (await post("/tools/schedule_callback", { in_minutes: 30 })).json(); // 10 would be lifted to the 15-min minimum lead
+    expect(r).toMatchObject({ ok: true, status: "accepted", scheduled_time: "2026-11-08T10:30:00+02:00" });
+    const both = await post("/tools/schedule_callback", { in_minutes: 10, requested_time: "2026-11-10T10:00:00" });
+    expect(both.json()).toMatchObject({ ok: false }); // exactly one of the two
+    const none = await post("/tools/schedule_callback", {});
+    expect(none.json()).toMatchObject({ ok: false });
+  });
+
   it("request_human returns the fixed answer", async () => {
     const { post } = await setup();
     const res = (await post("/tools/request_human", { reason: "discount_request" })).json();
     expect(res).toMatchObject({ ok: true, status: "handed_to_rep" });
     expect(res.message_he).toContain("להיפרד"); // the bot tells the customer, never hangs up in silence
+    // an unanswered question goes to a rep, but the call goes on (it once ended S1 before the link)
+    const other = (await post("/tools/request_human", { reason: "other" })).json();
+    expect(other).toMatchObject({ ok: true, status: "handed_to_rep" });
+    expect(other.message_he).toContain("להמשיך בשיחה");
+    expect(other.message_he).not.toContain("להיפרד");
+    expect(other.message_he).not.toContain("end_call");
+  });
+
+  it("actions that close the call say the next step is end_call (R1, R3, X7: goodbye, then an open line)", async () => {
+    const { post } = await setup();
+    const closing = [
+      await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" }),
+      await post("/tools/request_human", { reason: "company_purchase" }),
+      await post("/tools/schedule_callback", { requested_time: "2026-11-10T10:00:00" }),
+    ];
+    for (const res of closing) expect(res.json().message_he).toContain(CLOSE_NEXT);
+    const alt = (await post("/tools/schedule_callback", { requested_time: "2026-11-13T10:00:00" })).json();
+    expect(alt.message_he).not.toContain("end_call"); // not booked yet: the customer has to agree first
   });
 
   it("end_call asks for the closing sentence, except on voicemail", async () => {

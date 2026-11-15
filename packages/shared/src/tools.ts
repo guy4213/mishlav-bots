@@ -29,14 +29,27 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
   return {
     get_day_info: z.strictObject({ day_id: dayId() }),
     send_purchase_link: z.strictObject({ day_id: dayId() }),
-    schedule_callback: z.strictObject({
-      requested_time: z
-        .string()
-        .trim()
-        .min(10)
-        .max(40)
-        .describe("ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)"),
-    }),
+    schedule_callback: z
+      .strictObject({
+        requested_time: z
+          .string()
+          .trim()
+          .min(10)
+          .max(40)
+          .optional()
+          .describe("ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)"),
+        // "call me back in 10 minutes": the server adds them to its own clock, so the model can't get the time wrong
+        in_minutes: z
+          .number()
+          .int()
+          .min(1)
+          .max(600)
+          .optional()
+          .describe("When the customer says \"in N minutes\": just N. The server computes the time. Use instead of requested_time"),
+      })
+      .refine((v) => (v.requested_time === undefined) !== (v.in_minutes === undefined), {
+        message: "pass exactly one of requested_time or in_minutes",
+      }),
     request_human: requestHuman,
     end_call: z.strictObject({
       reason: EndCallReason.optional().describe("Why the call ends"),
@@ -54,13 +67,14 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "Send the customer a purchase link for one study day, to the phone number on file. " +
     "Call only after the customer agreed to receive a link. Never takes a phone number.",
   schedule_callback:
-    "Note the customer's request to be called back at the time they asked for. It is a note for the team " +
+    "Note the customer's request to be called back at the time they asked for (\"in N minutes\" -> in_minutes: N). It is a note for the team " +
     "that calls back - you have no calendar and see no one's schedule. If the time is outside business hours, " +
     "the response proposes an alternative - confirm it with the customer before ending.",
   request_human:
     "Note that a human rep should call the customer back: wants a person, pays via a rep, company pays, " +
     "asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live " +
-    "transfer - the customer stays with you, so tell them a rep will call them back.",
+    "transfer - the customer stays with you, so tell them a rep will call them back. With other, only that " +
+    "question goes to the rep: the call goes on (e.g. the link can still be sent).",
   end_call:
     "End the call - only after you said your closing sentence (what happens next + goodbye); never hang up " +
     "in silence, except on voicemail. Pass the reason: completed, not_interested, do_not_call (asked to be removed), " +

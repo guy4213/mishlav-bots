@@ -95,13 +95,16 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       status: "sent",
       test_mode: true, // no real SMS in Part 1
       day_id: day.id,
-      message_he: "הקישור לרכישה נשלח במסרון למספר שמופיע אצלנו.",
+      message_he: `הקישור לרכישה נשלח במסרון למספר שמופיע אצלנו. ${CLOSE_NEXT}`,
     };
   },
 
   schedule_callback(input, { settings, now }) {
     const tz = settings.business_hours.timezone;
-    const requested = parseRequestedTime(input.requested_time, tz);
+    const requested =
+      input.in_minutes !== undefined
+        ? new Date(now().getTime() + input.in_minutes * 60_000) // our clock, not the model's
+        : parseRequestedTime(input.requested_time ?? "", tz);
     if (!requested) {
       return {
         ok: false,
@@ -123,25 +126,41 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       return {
         ok: true,
         status: "accepted",
-        requested_time: input.requested_time,
+        requested_time: input.requested_time ?? formatLocalIso(requested, tz),
         scheduled_time,
         scheduled_time_he,
-        message_he: `נרשם שנחזור ללקוח ב${scheduled_time_he}.`,
+        message_he: `נרשם שנחזור ללקוח ב${scheduled_time_he}. ${CLOSE_NEXT}`,
       };
     }
     return {
       ok: true,
       status: "alternative",
       reason: r.reason,
-      requested_time: input.requested_time,
+      requested_time: input.requested_time ?? formatLocalIso(requested, tz),
       scheduled_time,
       scheduled_time_he,
       message_he: `המועד שביקשת מחוץ לשעות הפעילות (${hoursHe(settings.business_hours)}). המועד הקרוב האפשרי: ${scheduled_time_he}. אם הלקוח מסכים – קראי שוב עם המועד הזה.`,
     };
   },
 
-  request_human() {
-    return { ok: true, status: "handed_to_rep", message_he: "נרשם שנציג יחזור ללקוח. עכשיו לומר לו את זה ולהיפרד." };
+  request_human(input) {
+    // test-only dictated number (scenario 3): the customer must hear it back digit by digit and confirm it
+    if ("phone" in input && input.phone) {
+      return {
+        ok: true,
+        status: "handed_to_rep",
+        message_he: "נרשם. עכשיו לקרוא ללקוח את המספר ספרה-ספרה ולשאול אם הוא נכון. לא להיפרד ולא לסיים לפני שאישר.",
+      };
+    }
+    if (input.reason === "other") {
+      // an open question: the rep answers it later, the call itself goes on (flow step 4)
+      return {
+        ok: true,
+        status: "handed_to_rep",
+        message_he: "נרשם שנציג יחזור ללקוח עם תשובה לשאלה הזו. לומר לו את זה ולהמשיך בשיחה – השאלה לא סוגרת את השיחה.",
+      };
+    }
+    return { ok: true, status: "handed_to_rep", message_he: `נרשם שנציג יחזור ללקוח. ${CLOSE_NEXT}` };
   },
 
   // The model often calls the tools first and speaks after their results (ElevenLabs always does), so
@@ -152,9 +171,16 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
   },
 };
 
+/**
+ * After an action that closes the call: the real next step. Without end_call the line stays open after
+ * the goodbye (R1, R3, X7).
+ */
+export const CLOSE_NEXT =
+  "עכשיו לומר לו את זה, להיפרד ולסיים את השיחה (end_call) – אלא אם הוא עוד רוצה משהו.";
+
 /** end_call answer (not voicemail): the line drops after the bot's next sentence. */
 export const END_CALL_SAY_GOODBYE =
-  "השיחה מסתיימת. אם הלקוח עוד לא שמע ממך מה קורה עכשיו ופרידה – אמרי את זה עכשיו, במשפט אחד. אם כבר אמרת – לא לומר שום דבר נוסף.";
+  "השיחה מסתיימת. אם מאז הדברים האחרונים של הלקוח עוד לא אמרת לו מה קורה עכשיו ונפרדת – אמרי את זה עכשיו, במשפט אחד. אם כבר אמרת – לא לומר שום דבר נוסף.";
 
 const DAY_HE: Record<string, string> = { sun: "א׳", mon: "ב׳", tue: "ג׳", wed: "ד׳", thu: "ה׳", fri: "ו׳", sat: "שבת" };
 

@@ -62,26 +62,29 @@
     },
     {
       "name": "schedule_callback",
-      "description": "Note the customer's request to be called back at the time they asked for. It is a note for the team that calls back - you have no calendar and see no one's schedule. If the time is outside business hours, the response proposes an alternative - confirm it with the customer before ending.",
+      "description": "Note the customer's request to be called back at the time they asked for (\"in N minutes\" -> in_minutes: N). It is a note for the team that calls back - you have no calendar and see no one's schedule. If the time is outside business hours, the response proposes an alternative - confirm it with the customer before ending.",
       "parameters": {
         "type": "object",
         "properties": {
           "requested_time": {
+            "description": "ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)",
             "type": "string",
             "minLength": 10,
-            "maxLength": 40,
-            "description": "ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)"
+            "maxLength": 40
+          },
+          "in_minutes": {
+            "description": "When the customer says \"in N minutes\": just N. The server computes the time. Use instead of requested_time",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600
           }
         },
-        "required": [
-          "requested_time"
-        ],
         "additionalProperties": false
       }
     },
     {
       "name": "request_human",
-      "description": "Note that a human rep should call the customer back: wants a person, pays via a rep, company pays, asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live transfer - the customer stays with you, so tell them a rep will call them back.",
+      "description": "Note that a human rep should call the customer back: wants a person, pays via a rep, company pays, asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live transfer - the customer stays with you, so tell them a rep will call them back. With other, only that question goes to the rep: the call goes on (e.g. the link can still be sent).",
       "parameters": {
         "type": "object",
         "properties": {

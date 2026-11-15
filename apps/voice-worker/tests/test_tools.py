@@ -69,7 +69,7 @@ def test_end_call_hangs_up_right_after_the_goodbye_and_mutes_what_follows(monkey
             await asyncio.sleep(0)
         return out
 
-    assert asyncio.run(scenario()) is None  # no reply asked of the model
+    assert isinstance(asyncio.run(scenario()), str)  # the plain result (never a no-reply one)
     assert client.calls == [("end_call", {"reason": "voicemail"})]
     assert events == ["goodbye played", "audio False", "shutdown"]
 
@@ -117,12 +117,14 @@ def test_non_blocking_end_call_waits_when_an_action_still_needs_the_customer(mon
     import mishlav_worker.tools as tools_mod
 
     monkeypatch.setattr(tools_mod, "HANGUP_GRACE_S", 0)
+    monkeypatch.setattr(tools_mod, "GOODBYE_START_S", 0.1)  # no reply after the end_call result -> hang up
     events = []
 
     async def wait_for_playout():
         events.append("goodbye played")
 
     session = SimpleNamespace(
+        agent_state="listening",
         output=SimpleNamespace(set_audio_enabled=lambda on: events.append(f"audio {on}")),
         shutdown=lambda: events.append("shutdown"),
     )
@@ -147,8 +149,7 @@ def test_non_blocking_end_call_waits_when_an_action_still_needs_the_customer(mon
     async def agreed():
         await tools["schedule_callback"](raw_arguments={"requested_time": "2026-11-12T09:00:00"}, context=ctx)
         out = await tools["end_call"](raw_arguments={"reason": "completed"}, context=ctx)
-        for _ in range(5):
-            await asyncio.sleep(0)
+        await asyncio.sleep(0.4)
         return out
 
     out = asyncio.run(agreed())
@@ -175,3 +176,64 @@ def test_extended_thinking_model_gets_non_blocking_tools_and_a_thinking_level(mo
     opts = mod.build_llm()._opts
     assert opts.tool_behavior == types.Behavior.BLOCKING
     assert not opts.thinking_config  # NOT_GIVEN: the standard model takes no thinking level
+
+
+def test_end_call_after_a_filler_lets_the_goodbye_play_then_hangs_up(monkeypatch):
+    """The extended model says a filler ("אני מעבירה לנציג"), runs the tools, and says the goodbye in reply to
+    the end_call result: the customer must hear that goodbye (it was muted when any words came first)."""
+    import mishlav_worker.tools as tools_mod
+
+    for k, v in {"HANGUP_GRACE_S": 0, "GOODBYE_START_S": 0.3, "GOODBYE_QUIET_S": 0.2, "GOODBYE_MAX_S": 3}.items():
+        monkeypatch.setattr(tools_mod, k, v)
+    events = []
+
+    async def wait_for_playout():
+        events.append("filler played")
+
+    session = SimpleNamespace(
+        agent_state="listening",
+        output=SimpleNamespace(set_audio_enabled=lambda on: events.append(f"audio {on}")),
+        shutdown=lambda: events.append("shutdown"),
+    )
+    ctx = SimpleNamespace(wait_for_playout=wait_for_playout, session=session)
+    tool = {t.info.name: t for t in build_tools(load_tool_definitions(ROOT), FakeClient({"ok": True}))}["end_call"]
+
+    async def scenario():
+        await tool(raw_arguments={"reason": "completed"}, context=ctx)
+        await asyncio.sleep(0.15)
+        session.agent_state = "speaking"  # "רשמתי, נציג יחזור אלייך. יום טוב!"
+        events.append("goodbye")
+        await asyncio.sleep(0.5)
+        assert events == ["filler played", "goodbye"]  # not muted, not dropped mid-goodbye
+        session.agent_state = "listening"
+        await asyncio.sleep(0.5)
+
+    asyncio.run(scenario())
+    assert events == ["filler played", "goodbye", "audio False", "shutdown"]
+
+
+def test_voicemail_end_call_never_waits_for_words(monkeypatch):
+    import mishlav_worker.tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "HANGUP_GRACE_S", 0)
+    events = []
+
+    async def wait_for_playout():
+        pass
+
+    session = SimpleNamespace(
+        agent_state="listening",
+        history=SimpleNamespace(items=[SimpleNamespace(type="message", role="user", text_content="השאירו הודעה")]),
+        output=SimpleNamespace(set_audio_enabled=lambda on: events.append(f"audio {on}")),
+        shutdown=lambda: events.append("shutdown"),
+    )
+    ctx = SimpleNamespace(wait_for_playout=wait_for_playout, session=session)
+    tool = {t.info.name: t for t in build_tools(load_tool_definitions(ROOT), FakeClient({"ok": True}))}["end_call"]
+
+    async def scenario():
+        await tool(raw_arguments={"reason": "voicemail"}, context=ctx)
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+    assert events == ["audio False", "shutdown"]  # silent, at once

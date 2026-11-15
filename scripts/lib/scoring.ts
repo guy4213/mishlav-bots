@@ -57,7 +57,10 @@ export function inferOutcome(calls: ToolCallLogEntry[], mapping: Settings["outco
   for (const c of ok) {
     const reason = reasonOf(c);
     if (c.tool === "send_purchase_link") outcome = "LINK_SENT";
-    else if (c.tool === "schedule_callback") outcome = "CALLBACK";
+    // an "alternative" is only a proposal: nothing is booked until the customer agrees and it is called again
+    else if (c.tool === "schedule_callback") {
+      if ((c.response as { status?: string } | null)?.status !== "alternative") outcome = "CALLBACK";
+    }
     else if (c.tool === "request_human" && reason && reason in mapping.request_human) {
       outcome = mapping.request_human[reason as keyof typeof mapping.request_human];
     } else if (c.tool === "end_call" && reason && reason in mapping.end_call) {

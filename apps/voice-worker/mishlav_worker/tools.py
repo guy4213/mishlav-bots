@@ -21,11 +21,17 @@ log = logging.getLogger("mishlav.tools")
 
 # Short pause after the bot's last words before the line drops, so the goodbye isn't clipped.
 HANGUP_GRACE_S = 0.6
+# No words before end_call: wait for the goodbye said in reply to its result (the extended model is slow).
+GOODBYE_START_S = 6.0  # no goodbye started by then -> hang up
+GOODBYE_QUIET_S = 1.0  # bot quiet this long after speaking -> goodbye over
+GOODBYE_MAX_S = 15.0  # hard cap
 # Non-blocking: how long end_call waits for tools called alongside it (they answer in milliseconds).
 INFLIGHT_WAIT_S = 5.0
 
 # Actions whose result can leave a question open for the customer (an alternative time, an error).
 ACTIONS = {"send_purchase_link", "schedule_callback", "request_human"}
+# end_call's answer while such a result still waits for the customer
+END_CALL_HELD = {"ok": False, "error": "not_finished", "message_he": "השיחה עוד לא הסתיימה – הלקוח עוד לא ענה על מה שהכלי החזיר."}
 
 
 def raw_schema(tool: dict[str, Any]) -> dict[str, Any]:
@@ -80,10 +86,7 @@ def _make_tool(
                 await asyncio.sleep(0.02)
             if call.open_question and params.get("reason") != "do_not_call":
                 log.info("end_call held: %s is waiting for the customer's answer", call.open_question)
-                return json.dumps(
-                    {"ok": False, "error": "not_finished", "message_he": "השיחה עוד לא הסתיימה – הלקוח עוד לא ענה על מה שהכלי החזיר."},
-                    ensure_ascii=False,
-                )
+                return json.dumps(END_CALL_HELD, ensure_ascii=False)
 
         call.inflight += 1
         try:
@@ -99,24 +102,42 @@ def _make_tool(
             call.open_question = None if _plain_success(name, response) else name
 
         if name == "end_call" and response.get("ok"):
-            # The bot says goodbye before end_call (or nothing, on voicemail). Hang up as soon as that
-            # goodbye has played, and mute anything said about the result (once, in English).
-            asyncio.ensure_future(_hangup(context))
-            # Non-blocking: never ask for no reply. That is sent as SILENT scheduling, and
-            # gemini-3.8-live-extended-thinking closes the session on it (1007 "Function response
-            # scheduling is not supported for this model"). The mute above covers the reply.
-            return out if non_blocking else None
+            asyncio.ensure_future(_hangup(context, voicemail=params.get("reason") == "voicemail"))
+            # Always the plain result (its message asks for the closing sentence if none was said).
+            # Never a no-reply result: that is sent as SILENT scheduling, and the extended model closes
+            # the session on it (1007 "Function response scheduling is not supported for this model").
+            return out
         return out
 
     return function_tool(handler, raw_schema=raw_schema(definition))
 
 
-async def _hangup(context: RunContext) -> None:
+async def _wait_for_goodbye(session) -> bool:
+    """The goodbye the model says in reply to the end_call result: wait for it to start, then to end."""
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    spoke = False
+    quiet_since = started
+    while loop.time() - started < GOODBYE_MAX_S:
+        if getattr(session, "agent_state", None) == "speaking":
+            spoke, quiet_since = True, loop.time()
+        elif loop.time() - quiet_since >= (GOODBYE_QUIET_S if spoke else GOODBYE_START_S):
+            break
+        await asyncio.sleep(0.1)
+    return spoke
+
+
+async def _hangup(context: RunContext, voicemail: bool = False) -> None:
     try:
         await context.wait_for_playout()  # the words spoken before end_call
     except Exception:
         log.exception("end_call: wait_for_playout failed; hanging up anyway")
-    # Mute whatever the model says after the tool result, then drop the line.
+    if not voicemail:
+        # Words before end_call are often a filler ("I'm passing it on...", "checking..."), not the goodbye.
+        # The end_call result asks for the closing sentence only if none was said: let that reply play.
+        spoke = await _wait_for_goodbye(context.session)
+        log.info("end_call: reply after the end_call result: %s", spoke)
+    # Mute whatever else the model says about the result ("the call has ended"...), then drop the line.
     try:
         context.session.output.set_audio_enabled(False)
     except Exception:
