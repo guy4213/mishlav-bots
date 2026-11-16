@@ -96,7 +96,7 @@ M1 ──► M2 ──► M3 ──┐
 - [ ] **Supabase** (3h) — schema, migrations, RLS, dev/test/prod projects
 - [ ] **Importer** (7h) — Gold Excel ingest, column mapping in config, validation, phone normalisation, dedup, LLM note extraction (`do_not_call, needs_human, interested_day_id, preferred_call_time`), skip `[BOT]` notes, can be disabled when notes are empty
 - [ ] **Dialer** (9h) — queue, atomic claim, ≤ 20 concurrent + backoff, block-list check, `call_id → contact_id`, retry rules 4.7, hours + holidays, max attempts, kill switch, dev/test dial team numbers only
-- [ ] **Tools API real** (6h) — evolve `apps/backend`: identity from `call_id`, real link sending, task/hot-lead creation, `CallResult` validation, card deletion, active-call check, disable `capture_dictated_details`
+- [ ] **Tools API real** (6h) — evolve `apps/backend`: identity from `call_id`, real link sending, task/hot-lead creation, `request_human` adds a note on the existing lead ("a rep should call back", with the reason; the phone is on file, never asked), `CallResult` validation, card deletion, active-call check (`capture_dictated_details` already off)
 - [ ] **Export Feed** (4h) — changed-since endpoint, API key
 - [ ] **Notifier** (3h) — WhatsApp/email on hot lead
 - [ ] **MockProvider** (2h) — implements `VoiceProvider` with scripted outcomes, delays, drops, voicemail

@@ -30,13 +30,23 @@ const SILENCE_GOODBYE_MAX_MS = 9000; // the no-answer goodbye can't run longer t
 const END_REPLY_START_MS = 2500; // no reply to the end_call result by then: the goodbye was already said
 const HANGUP_GRACE_MS = 600; // after the last words, so the goodbye isn't clipped
 const END_MAX_MS = 15000;
-const TURN_MIN_VOICED_FRAMES = 10; // a caller turn for the latency metric: at least 200 ms of voice
+const TURN_MIN_VOICED_FRAMES = 10;
+// After an action that ends the call (link sent, callback booked, handed to a rep: `closing: true` in the tool
+// answer) the line drops once the closing sentence played and the line is quiet this long - also when the model
+// never calls end_call (on real calls it said goodbye and left the line open).
+const CLOSE_WAIT_MS = 2000;
+// The caller talking this long after the goodbye is a new request ("רגע, עוד שאלה"), not a "תודה, ביי":
+// the call goes on.
+const CLOSE_CANCEL_MS = 1500;
+// Every fixed closing sentence ends with "יום נעים, להתראות!" (apps/backend/src/tools/closings.ts): once the bot
+// said it since the caller last spoke, the reply to end_call is not played (it repeated the goodbye).
+const GOODBYE_WORD = 'להתראות'; // a caller turn for the latency metric: at least 200 ms of voice
 
 // Sent to the bot as text, never shown in the transcript.
 export const CUES = {
   open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, אבל עוד לא אמר כלום. פתחי את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
-  hangup: '(הודעת מערכת: אין מענה על הקו. סיימי עכשיו במשפט פרידה קצר אחד. השיחה תתנתק מיד אחריו.)',
+  hangup: '(הודעת מערכת: אין מענה על הקו. אמרי רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
 };
 
 /**
@@ -80,6 +90,9 @@ export class CallAgent extends EventEmitter {
     // before an end_call that the silence check prompted). Then the reply to the end_call result is not played:
     // in a test the model said the goodbye again. Words in the same turn as end_call (a filler) don't count.
     this.answeredSinceLead = false;
+    this.saidSinceLead = ''; // the bot's words since the caller last spoke
+    this.closing = null; // after a closing action: { spoke, doneAt, voiced }
+    this.callerVoiceAt = 0; // last time the caller really talked (100 ms of voice)
     this.turnHadAudio = false;
     this.opened = false;
     this.callerSpoke = false;
@@ -148,6 +161,7 @@ export class CallAgent extends EventEmitter {
       if (this.ended || this.ending?.voicemail || this.ending?.mute) return; // voicemail: the bot says nothing
       const now = performance.now();
       if (this.ending) this.ending.replyAudio = true;
+      if (this.closing) this.closing.spoke = true;
       this.turnHadAudio = true;
       if (!this.agentTurnActive) {
         this._logLead(); // the bot starts answering: what the caller said so far goes to the transcript
@@ -162,6 +176,7 @@ export class CallAgent extends EventEmitter {
     });
     a.on('outputTranscript', (text) => {
       this.turnText += text;
+      this.saidSinceLead += text;
     });
     a.on('inputTranscript', (text) => {
       this.leadText += text;
@@ -206,6 +221,7 @@ export class CallAgent extends EventEmitter {
     this._logAgent(false); // the words before the tool call come first in the transcript
     const responses = [];
     let endCall = null;
+    let closing = false;
     try {
       for (const fc of calls) {
         const args = fc.args ?? {};
@@ -216,6 +232,7 @@ export class CallAgent extends EventEmitter {
         // As LiveKit sends it (livekit/plugins/google/utils.py): the JSON text under "output"
         responses.push({ id: fc.id, name: fc.name, response: { output: JSON.stringify(body) } });
         if (fc.name === 'end_call' && body.ok) endCall = { voicemail: args.reason === 'voicemail' };
+        if (body.ok && body.closing) closing = true;
       }
     } finally {
       this.toolsPending--;
@@ -223,8 +240,10 @@ export class CallAgent extends EventEmitter {
     if (this.ended) return;
     this.live.sendToolResponse(responses);
     this.waitingSince = performance.now();
+    if (closing && !endCall) this.closing = { spoke: false, doneAt: 0, voiced: 0 };
     if (endCall) {
-      const mute = !endCall.voicemail && this.answeredSinceLead;
+      const saidGoodbye = this.answeredSinceLead || this.saidSinceLead.includes(GOODBYE_WORD) || !!this.closing?.spoke;
+      const mute = !endCall.voicemail && saidGoodbye;
       this.ending = { ...endCall, mute, at: performance.now(), replyAudio: false, quietSince: 0 };
       if (endCall.voicemail) this._flush();
       if (mute) this.emit('line', { who: 'note', text: 'end_call after a full answer: its reply is not played' });
@@ -243,6 +262,7 @@ export class CallAgent extends EventEmitter {
 
   _leadSpoke() {
     this.answeredSinceLead = false;
+    this.saidSinceLead = '';
     this.quietSince = performance.now();
     this.silenceChecks = 0;
     this.hangupState = null;
@@ -263,6 +283,12 @@ export class CallAgent extends EventEmitter {
       if (++this.voicedRun >= CALLER_SPOKE_FRAMES) {
         this.callerSpoke = true;
         this.answeredSinceLead = false;
+        this.saidSinceLead = '';
+        this.callerVoiceAt = now;
+      }
+      if (this.closing?.doneAt && (this.closing.voiced += 20) >= CLOSE_CANCEL_MS) {
+        this.closing = null;
+        this.emit('line', { who: 'note', text: 'the caller went on talking after the goodbye: the call goes on' });
       }
     } else this.voicedRun = 0;
     this.rec?.lead.push(samples);
@@ -409,6 +435,15 @@ export class CallAgent extends EventEmitter {
         this._hangup(e.voicemail ? 'voicemail' : 'end_call');
       }
       return;
+    }
+
+    const c = this.closing;
+    if (c?.spoke) {
+      if (this.queued > 0 || this.agentTurnActive || this.toolsPending > 0) c.doneAt = 0;
+      else {
+        c.doneAt ||= now;
+        if (now - Math.max(c.doneAt, this.callerVoiceAt) >= CLOSE_WAIT_MS) return this._hangup('closing');
+      }
     }
 
     if (!this.opened) {

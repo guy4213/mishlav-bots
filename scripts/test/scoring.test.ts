@@ -105,13 +105,9 @@ describe("evaluateSession", () => {
     expect(r.understanding).toBe("PASS");
   });
 
-  it("S3 checks the phone digit-by-digit", () => {
-    const good = evalS("S3", [call("request_human", { reason: "wants_human", name: "מיכל אברהם", phone: "+972-52-738-4915" })]);
-    expect(good.understanding).toBe("PASS");
-    expect(good.phone).toBe("PASS");
-    const bad = evalS("S3", [call("request_human", { reason: "wants_human", name: "מיכל", phone: "0527384951" })]);
-    expect(bad.phone).toBe("FAIL");
-    expect(bad.understanding).toBe("FAIL");
+  it("S3: a hand-off to a rep, no phone number needed", () => {
+    expect(evalS("S3", [call("request_human", { reason: "wants_human" })]).understanding).not.toBe("FAIL");
+    expect(evalS("S3", [call("request_human", { reason: "other" })]).understanding).toBe("FAIL");
   });
 
   it("S4 is PENDING until the manual barge-in check is filled", () => {
@@ -146,7 +142,7 @@ describe("provider evaluation and decision", () => {
   const passingCalls: Record<string, ToolCallLogEntry[]> = {
     S1: [call("get_day_info", { day_id: "payroll-2026-12-22-hotel" }), call("send_purchase_link", { day_id: "payroll-2026-12-22-hotel" })],
     S2: [call("schedule_callback", { requested_time: "2026-11-10T10:00:00" })],
-    S3: [call("request_human", { reason: "wants_human", name: "מיכל", phone: "0527384915" })],
+    S3: [call("request_human", { reason: "wants_human" })],
     S4: [call("send_purchase_link", { day_id: "payroll-2027-01-12-zoom" })],
     S5: [call("end_call", { reason: "do_not_call" })],
     S6: [call("end_call", { reason: "voicemail" })],

@@ -83,10 +83,11 @@ export function resolveCallback(requested: Date, now: Date, bh: BusinessHours, p
     return {
       status: "alternative",
       reason: requested.getTime() < now.getTime() ? "in_past" : "too_soon",
-      scheduled: nextOpenSlot(ceilToMinutes(earliest, 15), bh),
+      scheduled: nextOpenSlot(ceilToMinutes(earliest, 5), bh),
     };
   }
   const closed = closedReason(requested, bh);
   if (closed) return { status: "alternative", reason: closed, scheduled: nextOpenSlot(requested, bh) };
-  return { status: "accepted", scheduled: requested };
+  // whole minutes: "in 10 minutes" at 12:13:40 is 12:23, as the customer counts it
+  return { status: "accepted", scheduled: new Date(Math.floor(requested.getTime() / 60000) * 60000) };
 }

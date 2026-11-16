@@ -31,7 +31,7 @@ business_hours:
     - { date: "2027-10-22", close: "13:00" }   # Fri  Erev Shemini Atzeret (Friday anyway)
 
 callback:
-  min_lead_minutes: 15     # a callback must be at least this far in the future
+  min_lead_minutes: 5      # a callback must be at least this far in the future ("in 10 minutes" is common)
   max_days_ahead: 60       # beyond this the tool refuses (too_far)
 
 # Used by the Dialer (Part 4). Declared now so the file is the single source of truth.
@@ -66,9 +66,9 @@ outcome_mapping:
     wrong_number: WRONG_NUMBER
 
 testing:
-  # TEST ONLY: lets request_human carry the dictated name/phone (scenario 3 digit-by-digit check).
-  # MUST be false in production — spec 4.2 forbids a phone parameter.
-  capture_dictated_details: true
+  # TEST ONLY: lets request_human carry a dictated name/phone. Off: the phone is on file, the bot never asks
+  # for a number (Guy, Nov 2026). Spec 4.2 forbids a phone parameter in production anyway.
+  capture_dictated_details: false
   log_dir: logs
   scoring:                       # pass criteria, spec 3.5
     max_avg_latency_ms: 1200

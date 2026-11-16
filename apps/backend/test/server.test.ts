@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readJsonl } from "../src/jsonl";
+import { GOODBYE, SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT } from "../src/tools/closings";
 import { CLOSE_NEXT, END_CALL_SAY_GOODBYE } from "../src/tools/handlers";
 import { AUTH, SECRET, testServer } from "./helpers";
 
@@ -81,8 +82,14 @@ describe("tools", () => {
 
   it("schedule_callback 'in N minutes' uses the server clock, not the model's (R5: the model was 2h off)", async () => {
     const { post } = await setup(); // FIXED_NOW = Sunday 2026-11-08 10:00 Israel
-    const r = (await post("/tools/schedule_callback", { in_minutes: 30 })).json(); // 10 would be lifted to the 15-min minimum lead
-    expect(r).toMatchObject({ ok: true, status: "accepted", scheduled_time: "2026-11-08T10:30:00+02:00" });
+    const r = (await post("/tools/schedule_callback", { in_minutes: 10 })).json();
+    expect(r).toMatchObject({ ok: true, status: "accepted", scheduled_time: "2026-11-08T10:10:00+02:00" });
+    expect(r.say_he).toBe(`בסדר גמור, נדבר היום ב-10:10. ${GOODBYE}`);
+    // too soon: said as such, never as "outside business hours"
+    const soon = (await post("/tools/schedule_callback", { in_minutes: 2 })).json();
+    expect(soon).toMatchObject({ status: "alternative", reason: "too_soon" });
+    expect(soon.message_he).toContain("קרוב מדי");
+    expect(soon.message_he).not.toContain("שעות הפעילות");
     const both = await post("/tools/schedule_callback", { in_minutes: 10, requested_time: "2026-11-10T10:00:00" });
     expect(both.json()).toMatchObject({ ok: false }); // exactly one of the two
     const none = await post("/tools/schedule_callback", {});
@@ -93,12 +100,13 @@ describe("tools", () => {
     const { post } = await setup();
     const res = (await post("/tools/request_human", { reason: "discount_request" })).json();
     expect(res).toMatchObject({ ok: true, status: "handed_to_rep" });
-    expect(res.message_he).toContain("להיפרד"); // the bot tells the customer, never hangs up in silence
+    expect(res).toMatchObject({ closing: true, say_he: SAY_HANDED_TO_REP }); // fixed sentence, no number asked
     // an unanswered question goes to a rep, but the call goes on (it once ended S1 before the link)
     const other = (await post("/tools/request_human", { reason: "other" })).json();
     expect(other).toMatchObject({ ok: true, status: "handed_to_rep" });
     expect(other.message_he).toContain("להמשיך בשיחה");
-    expect(other.message_he).not.toContain("להיפרד");
+    expect(other.closing).toBeUndefined();
+    expect(other.say_he).toBeUndefined();
     expect(other.message_he).not.toContain("end_call");
   });
 
@@ -109,15 +117,23 @@ describe("tools", () => {
       await post("/tools/request_human", { reason: "company_purchase" }),
       await post("/tools/schedule_callback", { requested_time: "2026-11-10T10:00:00" }),
     ];
-    for (const res of closing) expect(res.json().message_he).toContain(CLOSE_NEXT);
+    for (const res of closing) expect(res.json()).toMatchObject({ closing: true, message_he: CLOSE_NEXT });
+    expect(closing[0]!.json().say_he).toBe(SAY_LINK_SENT);
+    expect(closing[2]!.json().say_he).toBe(`בסדר גמור, נדבר ביום שלישי, 10 בנובמבר, ב-10:00. ${GOODBYE}`);
+    for (const res of closing) expect(res.json().say_he).toMatch(/יום נעים, להתראות!$/);
+    // nothing to be said aloud about "ending the call" (the bot once told a customer it was ending the call)
+    for (const res of closing) expect(res.json().message_he).not.toMatch(/מסיימת|מסתיימת|לסיים את השיחה/);
     const alt = (await post("/tools/schedule_callback", { requested_time: "2026-11-13T10:00:00" })).json();
     expect(alt.message_he).not.toContain("end_call"); // not booked yet: the customer has to agree first
+    expect(alt.closing).toBeUndefined();
   });
 
   it("end_call asks for the closing sentence, except on voicemail", async () => {
     const { post } = await setup();
     const done = (await post("/tools/end_call", { reason: "completed" })).json();
-    expect(done).toEqual({ ok: true, status: "ending", message_he: END_CALL_SAY_GOODBYE });
+    expect(done).toEqual({ ok: true, status: "ending", say_he: SAY_END_CALL.completed, message_he: END_CALL_SAY_GOODBYE });
+    const dnc = (await post("/tools/end_call", { reason: "do_not_call" })).json();
+    expect(dnc.say_he).toBe(`בסדר, המספר הוסר מהרשימה. ${GOODBYE}`);
     const vm = (await post("/tools/end_call", { reason: "voicemail" })).json();
     expect(vm.message_he).toContain("לא לומר דבר");
   });
@@ -131,7 +147,7 @@ describe("tools", () => {
       payload: "",
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, status: "ending", message_he: END_CALL_SAY_GOODBYE });
+    expect(res.json()).toEqual({ ok: true, status: "ending", say_he: SAY_END_CALL.completed, message_he: END_CALL_SAY_GOODBYE });
   });
 
   it("malformed JSON is a 400", async () => {

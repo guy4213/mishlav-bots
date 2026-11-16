@@ -1,0 +1,32 @@
+id: S3
+name: Asks for a human rep
+core: true
+description: >
+  Customer asks for a human rep and also says a name and a phone number. The phone is already on file,
+  so the bot hands off with request_human(wants_human), does not ask for or repeat a number, says that a
+  rep will call back, and hangs up after the fixed closing sentence.
+context:
+  first_name: "מיכל"
+actor_script:
+  - "אני מעדיפה לדבר עם נציג אנושי. תרשמי: מיכל אברהם, והמספר שלי לחזרה: אפס חמש שתיים, שבע שלוש שמונה, ארבע תשע אחת חמש."
+expect:
+  outcome: HOT_LEAD
+  required_tools:
+    - tool: request_human
+      params:
+        reason: { equals: wants_human }
+  forbidden_tools: [send_purchase_link]
+  manual_checks:
+    - "Did not ask for a phone number and did not repeat one"
+    - "Said the fixed closing sentence (a rep will call back) and hung up by itself"
+guide_he:
+  title: בקשה לנציג אנושי
+  expect: הבוט מעביר לנציג בלי לבקש מספר (הוא כבר אצלנו), אומר "העברתי את הבקשה, נציג יחזור בהקדם. יום נעים, להתראות!" ומנתק.
+  tips:
+    - בקש נציג אנושי. אפשר גם להגיד שם ומספר – הבוט לא צריך לחזור עליהם.
+  watch:
+    - לא ביקש מספר ולא חזר על מספר
+    - אמר את משפט הסיום הקבוע וניתק בעצמו
+simulate:
+  - { tool: request_human, params: { reason: wants_human } }
+  - { tool: end_call, params: { reason: completed } }
