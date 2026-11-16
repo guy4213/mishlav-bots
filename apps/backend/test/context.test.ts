@@ -45,7 +45,7 @@ describe("GET /test/context", () => {
     const r = await app.inject({ method: "GET", url: "/test/context?scenario=S1", headers: AUTH });
     expect(r.statusCode).toBe(200);
     const { variables } = r.json();
-    expect(Object.keys(variables).sort()).toEqual(["bot_name", "current_datetime", "customer_context", "first_name", "interested_day_id"]);
+    expect(Object.keys(variables).sort()).toEqual(["bot_name", "current_datetime", "customer_context", "customer_gender", "first_name", "interested_day_id"]);
     expect(variables).toMatchObject({ first_name: "דנה", bot_name: "נועה", interested_day_id: "payroll-2026-12-22-hotel" });
     expect(variables.customer_context).toContain("יום פרונטלי במלון");
   });
@@ -54,7 +54,7 @@ describe("GET /test/context", () => {
     const { app } = await testServer();
     const plain = (await app.inject({ method: "GET", url: "/test/context", headers: AUTH })).json().variables;
     expect(plain).toMatchObject({ first_name: "דנה", interested_day_id: "לא ידוע" });
-    expect(plain.customer_context).toMatch(/^לא ידוע באיזה יום עיון/);
+    expect(plain.customer_context).toMatch(/^לא ידוע אם דנה גבר או אישה\. לא ידוע באיזה יום עיון/);
 
     const over = await app.inject({ method: "GET", url: "/test/context?scenario=S1&first_name=רון&day_id=payroll-2027-01-12-zoom", headers: AUTH });
     expect(over.json().variables).toMatchObject({ first_name: "רון", interested_day_id: "payroll-2027-01-12-zoom" });

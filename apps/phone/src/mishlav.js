@@ -83,7 +83,7 @@ export function loadToolDefinitions(root) {
 }
 
 // Said by the bot when the tools server can't be reached (same as the worker's tools_client.py).
-export const UNAVAILABLE = { ok: false, error: 'tools_unavailable', message_he: 'תקלה זמנית. הציעי שנציג יחזור.' };
+export const UNAVAILABLE = { ok: false, error: 'tools_unavailable', message_he: 'תקלה זמנית. להציע שנציג יחזור.' };
 
 /** HTTP client for the tools server. Every request carries the shared secret, the provider and the call id. */
 export class ToolsClient {

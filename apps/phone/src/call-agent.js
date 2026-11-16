@@ -44,9 +44,9 @@ const GOODBYE_WORD = 'להתראות'; // a caller turn for the latency metric: 
 
 // Sent to the bot as text, never shown in the transcript.
 export const CUES = {
-  open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, אבל עוד לא אמר כלום. פתחי את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
+  open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, אבל עוד לא אמר כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
-  hangup: '(הודעת מערכת: אין מענה על הקו. אמרי רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
+  hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
 };
 
 /**
@@ -57,10 +57,11 @@ export const CUES = {
 export class CallAgent extends EventEmitter {
   /**
    * @param {{ live: import('./gemini-live.js').GeminiLive, tools: import('./mishlav.js').ToolsClient,
-   *           openAfterSilenceMs?: number }} opts
+   *           openAfterSilenceMs?: number, genderReminder?: string | null }} opts
    */
-  constructor({ live, tools, openAfterSilenceMs = 4000 }) {
+  constructor({ live, tools, openAfterSilenceMs = 4000, genderReminder = null }) {
     super();
+    this.genderReminder = genderReminder; // added to every tool answer the bot gets (not logged by the server)
     this.live = live;
     this.tools = tools;
     this.openAfterSilenceMs = openAfterSilenceMs;
@@ -236,7 +237,8 @@ export class CallAgent extends EventEmitter {
         this.emit('line', { who: 'tool', text: `${fc.name}(${JSON.stringify(args)}) → ${result}` });
         if (this.cancelled.has(fc.id)) continue;
         // As LiveKit sends it (livekit/plugins/google/utils.py): the JSON text under "output"
-        responses.push({ id: fc.id, name: fc.name, response: { output: JSON.stringify(body) } });
+        const forBot = this.genderReminder && body && typeof body === 'object' ? { ...body, customer_gender_he: this.genderReminder } : body;
+        responses.push({ id: fc.id, name: fc.name, response: { output: JSON.stringify(forBot) } });
         if (fc.name === 'end_call' && body.ok) endCall = { voicemail: args.reason === 'voicemail' };
         if (body.ok && body.closing) closing = true;
       }

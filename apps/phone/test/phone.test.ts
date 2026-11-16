@@ -96,7 +96,7 @@ describe("mishlav prompt", () => {
   it("renders every variable and appends the knowledge base", () => {
     const text = buildInstructions(ROOT, VARS);
     expect(text).not.toMatch(/\{\{/);
-    expect(text).toContain("את נועה, נציגה טלפונית של מכללת מישלב");
+    expect(text).toContain("נועה – נציגה טלפונית של מכללת מישלב");
     expect(text).toContain("היי דנה");
     expect(text).toContain("# מאגר ידע");
     expect(text).not.toContain("\r");
@@ -304,6 +304,16 @@ describe("call agent", () => {
     await wait(2300);
     expect(reasons).toEqual(["closing"]);
     expect(live.sent).toEqual([CUES.open]); // no silence check that makes it say goodbye again
+    agent.end();
+  });
+
+  it("every tool answer reminds the bot of the customer's gender", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0, genderReminder: "הלקוח גבר" });
+    agent.start(new FakeRtp());
+    live.emit("toolCall", [{ id: "1", name: "get_day_info", args: { day_id: "x" } }]);
+    await wait(10);
+    expect(live.toolResponses).toEqual([{ id: "1", name: "get_day_info", response: { output: JSON.stringify({ ok: true, customer_gender_he: "הלקוח גבר" }) } }]);
     agent.end();
   });
 

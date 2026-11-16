@@ -35,6 +35,8 @@ export const Scenario = z.strictObject({
     .strictObject({
       first_name: z.string(),
       interested_day_id: z.string().optional(),
+      // fixes the customer's gender for the run (otherwise decided from the name before the call)
+      gender: z.enum(["male", "female", "unknown"]).optional(),
     })
     .default({ first_name: "דנה" }),
   actor_script: z.array(z.string()).min(1),
