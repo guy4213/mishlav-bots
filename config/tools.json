@@ -67,7 +67,7 @@
         "type": "object",
         "properties": {
           "requested_time": {
-            "description": "ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)",
+            "description": "ISO 8601 date-time, e.g. 2026-11-17T15:10:00 (Asia/Jerusalem local time when no offset), exactly the hour and minutes the customer said - never rounded",
             "type": "string",
             "minLength": 10,
             "maxLength": 40
@@ -101,7 +101,7 @@
             "description": "Why a human rep is needed"
           },
           "requested_time": {
-            "description": "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time). Omit if they have no preference",
+            "description": "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time), exactly the hour and minutes they said - never rounded",
             "type": "string",
             "minLength": 10,
             "maxLength": 40
