@@ -12,11 +12,12 @@ export const SAY_LINK_SENT = `הקישור נשלח עכשיו במסרון. ${G
 export const SAY_HANDED_TO_REP = `העברתי את הבקשה, נציג יחזור בהקדם. ${GOODBYE}`;
 
 export const SAY_END_CALL: Record<Exclude<EndCallReason, "voicemail">, string> = {
-  completed: `תודה רבה. ${GOODBYE}`,
-  not_interested: `בסדר גמור, תודה רבה. ${GOODBYE}`,
+  // one short sentence each: a reaction before it plus a long goodbye sounded like a machine (R2)
+  completed: `תודה, ${GOODBYE}`,
+  not_interested: `בסדר גמור, ${GOODBYE}`,
   do_not_call: `בסדר, המספר הוסר מהרשימה. ${GOODBYE}`,
-  already_registered: `מעולה, תודה רבה. ${GOODBYE}`,
-  wrong_number: `סליחה על ההפרעה. ${GOODBYE}`,
+  already_registered: `מעולה, ${GOODBYE}`,
+  wrong_number: `סליחה על ההפרעה, ${GOODBYE}`,
 };
 
 // Hours as said on the phone ("בשלוש", not "ב-15:00": the bot read "15:00" as "חמש עשרה").

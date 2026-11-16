@@ -297,7 +297,7 @@ describe("call agent", () => {
     const rtp = new FakeRtp();
     agent.start(rtp);
     live.emit("inputTranscript", "לא תודה, יצאתי לפנסיה");
-    live.emit("outputTranscript", "איזה כיף, בהצלחה! בסדר גמור, תודה רבה. יום נעים, להתראות!");
+    live.emit("outputTranscript", "בסדר גמור, יום נעים, להתראות!");
     live.emit("audio", Buffer.alloc(4800, 1));
     live.emit("turnComplete"); // and no end_call
     while (rtp.nextFrame());
