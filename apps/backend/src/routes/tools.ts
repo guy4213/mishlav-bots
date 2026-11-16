@@ -44,7 +44,7 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
           response = (toolHandlers[tool] as (i: unknown, c: ToolContext) => ToolResponse)(parsed.data, deps);
         } catch (err) {
           req.log.error({ err, tool }, "tool handler failed");
-          response = { ok: false, error: "internal_error", message_he: "תקלה זמנית. הציעי שנציג יחזור." };
+          response = { ok: false, error: "internal_error", message_he: "תקלה זמנית. להציע שנציג יחזור." };
         }
       }
 

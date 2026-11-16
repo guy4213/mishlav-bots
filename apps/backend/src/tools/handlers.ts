@@ -26,7 +26,7 @@ const unknownDay = (kb: KnowledgeBase): ToolResponse => ({
   ok: false,
   error: "unknown_day_id",
   available_day_ids: [...kb.days.keys()],
-  message_he: "יום העיון הזה לא קיים. אל תמציאי פרטים – בחרי יום מהקטלוג, או הציעי שנציג יחזור.",
+  message_he: "יום העיון הזה לא קיים. לא להמציא פרטים – לבחור יום מהקטלוג, או להציע שנציג יחזור.",
 });
 
 const publicDay = (d: StudyDay) => ({
@@ -89,7 +89,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       return {
         ok: false,
         error: "registration_closed",
-        message_he: "ההרשמה ליום הזה סגורה. הציעי יום אחר מהקטלוג או נציג.",
+        message_he: "ההרשמה ליום הזה סגורה. להציע יום אחר מהקטלוג או נציג.",
       };
     }
     return {
@@ -161,7 +161,7 @@ function resolveTime(
   if (!requested) {
     return {
       ok: false,
-      response: { ok: false, error: "invalid_time", message_he: "המועד לא בפורמט תקין. שלחי ISO, למשל 2026-11-17T10:00:00." },
+      response: { ok: false, error: "invalid_time", message_he: "המועד לא בפורמט תקין. לשלוח ISO, למשל 2026-11-17T10:00:00." },
     };
   }
   const r = resolveCallback(requested, now(), settings.business_hours, settings.callback);
@@ -171,7 +171,7 @@ function resolveTime(
       response: {
         ok: false,
         error: r.error,
-        message_he: `אפשר לתאם שיחה חוזרת עד ${settings.callback.max_days_ahead} ימים קדימה. בקשי מועד קרוב יותר.`,
+        message_he: `אפשר לתאם שיחה חוזרת עד ${settings.callback.max_days_ahead} ימים קדימה. לבקש מועד קרוב יותר.`,
       },
     };
   }

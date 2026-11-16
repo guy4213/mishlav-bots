@@ -3,6 +3,7 @@ import { LOG_FILES } from "@mishlav/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
+import type { GenderClassifier } from "./gender";
 import { JsonlFile } from "./jsonl";
 import { loadKnowledge } from "./knowledge";
 import { registerDashboardRoutes } from "./routes/dashboard";
@@ -20,6 +21,8 @@ export interface BuildOptions {
   manualInputsPath?: string;
   /** The Zadarma line, filled in by main.ts once the server listens (null = no line). */
   phone?: PhoneHolder;
+  /** Customer gender from the first name before a call (main.ts: Gemini). None: "unknown" (neutral wording). */
+  classifyGender?: GenderClassifier;
 }
 
 /** Public paths: health check and the dashboard's static files (no data; the page sends the secret). */
@@ -87,6 +90,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     knowledge,
     scenariosDir: join(config.repoRoot, "tests", "scenarios"),
     botName: (opts.env ?? process.env).BOT_NAME,
+    classifyGender: opts.classifyGender,
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
   await registerPhoneRoutes(app, opts.phone ?? { line: null, reason: "not started" });

@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { loadScenarios } from "../../../../scripts/lib/scenarios";
 import { buildCallVariables } from "../context";
+import { GENDERS, type Gender, type GenderClassifier } from "../gender";
 import type { JsonlFile } from "../jsonl";
 import type { KnowledgeBase } from "../knowledge";
 import type { SessionStore } from "../sessions";
@@ -17,6 +18,8 @@ export interface TestRouteDeps {
   scenariosDir: string;
   /** BOT_NAME (default נועה). */
   botName?: string;
+  /** The customer's gender from the first name, before the call (none: "unknown" -> neutral wording). */
+  classifyGender?: GenderClassifier;
 }
 
 const badRequest = (error: z.ZodError) => ({ ok: false, error: "invalid_params", details: z.prettifyError(error) });
@@ -84,12 +87,17 @@ export async function registerTestRoutes(app: FastifyInstance, deps: TestRouteDe
       ctx = (sc.context ?? {}) as Record<string, unknown>;
     }
     const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const firstName = str(q.first_name) ?? str(ctx.first_name);
+    // ?gender= / the scenario's gender win; otherwise the classifier decides from the name
+    const given = [q.gender, ctx.gender].find((g): g is Gender => GENDERS.includes(g as Gender));
+    const gender = given ?? (firstName && deps.classifyGender ? await deps.classifyGender(firstName) : "unknown");
     const variables = buildCallVariables(
       deps.knowledge,
       {
-        first_name: str(q.first_name) ?? str(ctx.first_name),
+        first_name: firstName,
         interested_day_id: str(q.day_id) ?? str(ctx.interested_day_id),
         bot_name: deps.botName,
+        gender,
       },
       deps.now(),
     );

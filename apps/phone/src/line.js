@@ -10,6 +10,15 @@ import { CallAgent } from './call-agent.js';
 import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive } from './gemini-live.js';
 import { buildInstructions, loadToolDefinitions, ToolsClient } from './mishlav.js';
 import { dialable, maskNumber } from './numbers.js';
+
+// The customer's gender, decided before the call (GET /test/context): shown in the call log, and repeated in
+// every tool answer so the bot doesn't drift mid-call (it switched between "לְךָ" and "לָךְ" with "רועי").
+const GENDER_HE = { male: 'גבר', female: 'אישה', unknown: 'מגדר לא ידוע' };
+const GENDER_REMINDER = {
+  male: 'הלקוח גבר – לפנות אליו בלשון זכר (אַתָּה, לְךָ, אֵלֶיךָ).',
+  female: 'הלקוחה אישה – לפנות אליה בלשון נקבה (אַתְּ, לָךְ, אֵלַיִךְ).',
+  unknown: null,
+};
 import { RtpSession } from './rtp.js';
 import { buildSdp, pickCodec, SipUA } from './sip.js';
 
@@ -258,8 +267,14 @@ export class PhoneLine extends EventEmitter {
       tools: this.toolDefs,
       temperature: e.temperature,
     });
-    const agent = new CallAgent({ live: new GeminiLive({ apiKey: e.apiKey, setup }), tools, openAfterSilenceMs: e.openAfterSilenceMs });
-    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name}, day ${ctx.variables.interested_day_id}`, callId);
+    const gender = ctx.variables.customer_gender ?? 'unknown';
+    const agent = new CallAgent({
+      live: new GeminiLive({ apiKey: e.apiKey, setup }),
+      tools,
+      openAfterSilenceMs: e.openAfterSilenceMs,
+      genderReminder: GENDER_REMINDER[gender],
+    });
+    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[gender] ?? gender}), day ${ctx.variables.interested_day_id}`, callId);
     return { callId, tools, session, agent, scenario: ctx.scenario };
   }
 

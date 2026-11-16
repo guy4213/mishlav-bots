@@ -248,7 +248,7 @@ async def entrypoint(ctx: JobContext) -> None:
     if user_spoke.is_set() or agent_spoke.is_set():
         return  # the caller spoke or the model already opened: a second opening would repeat itself
     try:
-        session.generate_reply(instructions="פתחי את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.")
+        session.generate_reply(instructions="לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.")
     except RuntimeError:
         log.warning("call %s: session closed before the opening line (see the error above)", call_id)
 

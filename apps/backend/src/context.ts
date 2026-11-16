@@ -5,6 +5,7 @@
  * No rules. With the facts in view the model can tell "another date" (same day, same format) from
  * "another day" on its own (it once answered "is there another date?" with the Zoom days of other topics).
  */
+import { genderFactHe, type Gender } from "./gender";
 import { datesHe, type KnowledgeBase, type StudyDay } from "./knowledge";
 
 export const TZ = "Asia/Jerusalem";
@@ -17,6 +18,8 @@ export interface CallVariables {
   interested_day_id: string;
   current_datetime: string;
   customer_context: string;
+  /** decided before the call (gender.ts); its fact opens customer_context */
+  customer_gender: Gender;
 }
 
 /** "יום פרונטלי במלון" / "יומיים מקוונים בזום" (a Zoom study day is a pair of days) */
@@ -90,16 +93,19 @@ export function buildCustomerContext(kb: KnowledgeBase, interestedDayId: string 
 
 export function buildCallVariables(
   kb: KnowledgeBase,
-  input: { first_name?: string; interested_day_id?: string; bot_name?: string },
+  input: { first_name?: string; interested_day_id?: string; bot_name?: string; gender?: Gender },
   now: Date,
 ): CallVariables {
   const dayId = input.interested_day_id && kb.days.has(input.interested_day_id) ? input.interested_day_id : "";
+  const firstName = input.first_name || DEFAULT_FIRST_NAME;
+  const gender = input.gender ?? "unknown";
   return {
-    first_name: input.first_name || DEFAULT_FIRST_NAME,
+    first_name: firstName,
     bot_name: input.bot_name || DEFAULT_BOT_NAME,
     interested_day_id: dayId || "לא ידוע", // display value, as the worker rendered it before
     current_datetime: currentDatetimeHe(now),
-    customer_context: buildCustomerContext(kb, dayId || undefined, now),
+    customer_context: `${genderFactHe(firstName, gender)} ${buildCustomerContext(kb, dayId || undefined, now)}`,
+    customer_gender: gender,
   };
 }
 

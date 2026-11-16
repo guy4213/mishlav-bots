@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { loadAppConfig, loadDotEnv } from "../apps/backend/src/config";
+import { geminiGenderClassifier } from "../apps/backend/src/gender";
 import { buildServer } from "../apps/backend/src/server";
 import { agentPrompt } from "./lib/elevenlabs";
 import { api, scriptEnv, type ScriptEnv } from "./lib/env";
@@ -300,7 +301,11 @@ async function main() {
   mkdirSync(runDir, { recursive: true });
   loadDotEnv(base.root);
   const config = loadAppConfig({ ...process.env, LOG_DIR: runDir, PORT: "0" });
-  const app = await buildServer(config, { logger: false });
+  const googleKey = process.env.GOOGLE_API_KEY;
+  const app = await buildServer(config, {
+    logger: false,
+    classifyGender: googleKey ? geminiGenderClassifier({ apiKey: googleKey }) : undefined,
+  });
   await app.listen({ host: "127.0.0.1", port: 0 });
   const addr = app.server.address();
   const port = typeof addr === "object" && addr ? addr.port : 0;

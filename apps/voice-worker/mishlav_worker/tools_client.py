@@ -10,7 +10,7 @@ import httpx
 log = logging.getLogger("mishlav.tools")
 
 # Said by the bot when the tools server can't be reached (same wording style as the server's errors).
-UNAVAILABLE = {"ok": False, "error": "tools_unavailable", "message_he": "תקלה זמנית. הציעי שנציג יחזור."}
+UNAVAILABLE = {"ok": False, "error": "tools_unavailable", "message_he": "תקלה זמנית. להציע שנציג יחזור."}
 
 
 class ToolsClient:

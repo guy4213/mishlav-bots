@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { type AppConfig, loadAppConfig } from "./config";
+import { geminiGenderClassifier } from "./gender";
 import type { PhoneHolder } from "./routes/phone";
 import { buildServer } from "./server";
 
@@ -85,7 +86,13 @@ async function startPhoneLine(config: AppConfig, holder: PhoneHolder): Promise<v
 async function main() {
   const config = loadAppConfig();
   const phone: PhoneHolder = { line: null, reason: "starting" };
-  const app = await buildServer(config, { logger: { level: process.env.LOG_LEVEL ?? "info" }, phone });
+  const googleKey = process.env.GOOGLE_API_KEY;
+  const app = await buildServer(config, {
+    logger: { level: process.env.LOG_LEVEL ?? "info" },
+    phone,
+    // the customer's gender from the first name, once before each call (no key: neutral wording)
+    classifyGender: googleKey ? geminiGenderClassifier({ apiKey: googleKey }) : undefined,
+  });
   await app.listen({ port: config.port, host: config.host });
   // in the background: registration takes a few seconds and must not hold the server (or Render's port check)
   startPhoneLine(config, phone).catch((err) => {

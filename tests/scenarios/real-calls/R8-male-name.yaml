@@ -1,0 +1,35 @@
+# From a real test call: with "רועי" the bot switched between masculine and feminine ("לְךָ" / "לָךְ").
+id: R8
+name: Male customer - masculine all the way
+core: false
+description: >
+  A male customer (רועי) asks a few questions and takes the link. The gender is decided before the call
+  from the name; the bot must address him in the masculine in every sentence, never the feminine.
+context:
+  first_name: "רועי"
+  interested_day_id: payroll-2026-12-08-zoom
+actor_script:
+  - "כן, יש לי כמה דקות."
+  - "כמה זה עולה ומתי זה?"
+  - "זה מתאים לי. תשלחי לי קישור."
+expect:
+  outcome: LINK_SENT
+  required_tools:
+    - tool: send_purchase_link
+      params:
+        day_id: { equals: payroll-2026-12-08-zoom }
+  forbidden_tools: [request_human]
+  manual_checks:
+    - "Masculine in every sentence addressed to the customer (אתה, לְךָ, אליךָ, רוצה) - never feminine"
+guide_he:
+  title: לקוח בשם רועי – לשון זכר
+  expect: הבוט מדבר אליך בלשון זכר בכל משפט (אַתָּה, לְךָ, אֵלֶיךָ), עונה על המחיר והתאריכים, ושולח קישור.
+  tips:
+    - דבר על עצמך בלשון זכר ("זה מתאים לי").
+    - הקשב במיוחד ל"לך" – צריך להישמע "לֶכָה", לא "לַךְ".
+  watch:
+    - לשון זכר בכל משפט, בלי אף מילה בנקבה
+simulate:
+  - { tool: get_day_info, params: { day_id: payroll-2026-12-08-zoom } }
+  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-08-zoom } }
+  - { tool: end_call, params: { reason: completed } }
