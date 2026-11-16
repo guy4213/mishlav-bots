@@ -73,11 +73,11 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   request_human:
     "Note that a human rep should call the customer back: wants a person, pays via a rep, company pays, " +
     "asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live " +
-    "transfer - the customer stays with you, so tell them a rep will call them back. With other, only that " +
+    "transfer: the rep calls back the number on file - never ask for a phone number. With other, only that " +
     "question goes to the rep: the call goes on (e.g. the link can still be sent).",
   end_call:
-    "End the call - only after you said your closing sentence (what happens next + goodbye); never hang up " +
-    "in silence, except on voicemail. Pass the reason: completed, not_interested, do_not_call (asked to be removed), " +
+    "End the call. Its answer carries the closing sentence (say_he): say it word for word unless you already " +
+    "said a closing sentence; never hang up in silence, except on voicemail. Pass the reason: completed, not_interested, do_not_call (asked to be removed), " +
     "voicemail (reached an answering machine - say nothing), already_registered, wrong_number.",
 };
 

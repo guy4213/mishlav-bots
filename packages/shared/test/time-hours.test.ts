@@ -19,7 +19,7 @@ const bh: BusinessHours = {
   holidays: ["2027-04-22"],
   half_days: [{ date: "2027-04-21", close: "13:00" }],
 };
-const policy = { min_lead_minutes: 15, max_days_ahead: 60 };
+const policy = { min_lead_minutes: 5, max_days_ahead: 60 };
 const local = (y: number, m: number, d: number, h: number, mi = 0) => fromLocal(y, m, d, h, mi, TZ);
 const iso = (d: Date) => formatLocalIso(d, TZ);
 
@@ -84,9 +84,16 @@ describe("business hours / callback", () => {
     const n = local(2026, 11, 8, 10, 7);
     const past = resolveCallback(local(2026, 11, 8, 9), n, bh, policy);
     expect(past.status === "alternative" && past.reason).toBe("in_past");
-    expect(past.status === "alternative" && iso(past.scheduled)).toBe("2026-11-08T10:30:00+02:00");
-    const soon = resolveCallback(local(2026, 11, 8, 10, 10), n, bh, policy);
+    expect(past.status === "alternative" && iso(past.scheduled)).toBe("2026-11-08T10:15:00+02:00");
+    const soon = resolveCallback(local(2026, 11, 8, 10, 9), n, bh, policy);
     expect(soon.status === "alternative" && soon.reason).toBe("too_soon");
+  });
+
+  it("'in 10 minutes' at 12:13 is 12:23, not 12:30 'outside business hours' (real call, Nov 2026)", () => {
+    const n = new Date(local(2026, 11, 16, 12, 13).getTime() + 40_000); // 12:13:40
+    const r = resolveCallback(new Date(n.getTime() + 10 * 60_000), n, bh, policy);
+    expect(r.status).toBe("accepted");
+    expect(iso(r.status === "accepted" ? r.scheduled : new Date(0))).toBe("2026-11-16T12:23:00+02:00");
   });
 
   it("refuses times too far ahead", () => {

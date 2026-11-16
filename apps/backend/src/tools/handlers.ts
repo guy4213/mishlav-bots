@@ -1,4 +1,5 @@
 import {
+  type ClosedReason,
   formatHebrew,
   formatLocalIso,
   parseRequestedTime,
@@ -9,6 +10,7 @@ import {
 } from "@mishlav/shared";
 import type { z } from "zod";
 import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay } from "../knowledge";
+import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, whenHe } from "./closings";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
@@ -95,7 +97,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       status: "sent",
       test_mode: true, // no real SMS in Part 1
       day_id: day.id,
-      message_he: `הקישור לרכישה נשלח במסרון למספר שמופיע אצלנו. ${CLOSE_NEXT}`,
+      ...closing(SAY_LINK_SENT),
     };
   },
 
@@ -129,7 +131,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
         requested_time: input.requested_time ?? formatLocalIso(requested, tz),
         scheduled_time,
         scheduled_time_he,
-        message_he: `נרשם שנחזור ללקוח ב${scheduled_time_he}. ${CLOSE_NEXT}`,
+        ...closing(sayCallback(r.scheduled, now(), tz)),
       };
     }
     return {
@@ -139,19 +141,13 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       requested_time: input.requested_time ?? formatLocalIso(requested, tz),
       scheduled_time,
       scheduled_time_he,
-      message_he: `המועד שביקשת מחוץ לשעות הפעילות (${hoursHe(settings.business_hours)}). המועד הקרוב האפשרי: ${scheduled_time_he}. אם הלקוח מסכים – קראי שוב עם המועד הזה.`,
+      // the real reason: "in 10 minutes" at 12:13 was once refused as "outside business hours"
+      message_he: `${ALTERNATIVE_WHY[r.reason](hoursHe(settings.business_hours))} המועד הקרוב האפשרי: ${whenHe(r.scheduled, now(), tz)}. להציע אותו ללקוח, ואם מסכים – לקרוא שוב עם המועד הזה.`,
     };
   },
 
+  // The rep calls back the number on file: nothing to ask. Part 4 adds the note on the lead (by call_id).
   request_human(input) {
-    // test-only dictated number (scenario 3): the customer must hear it back digit by digit and confirm it
-    if ("phone" in input && input.phone) {
-      return {
-        ok: true,
-        status: "handed_to_rep",
-        message_he: "נרשם. עכשיו לקרוא ללקוח את המספר ספרה-ספרה ולשאול אם הוא נכון. לא להיפרד ולא לסיים לפני שאישר.",
-      };
-    }
     if (input.reason === "other") {
       // an open question: the rep answers it later, the call itself goes on (flow step 4)
       return {
@@ -160,27 +156,39 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
         message_he: "נרשם שנציג יחזור ללקוח עם תשובה לשאלה הזו. לומר לו את זה ולהמשיך בשיחה – השאלה לא סוגרת את השיחה.",
       };
     }
-    return { ok: true, status: "handed_to_rep", message_he: `נרשם שנציג יחזור ללקוח. ${CLOSE_NEXT}` };
+    return { ok: true, status: "handed_to_rep", ...closing(SAY_HANDED_TO_REP) };
   },
 
   // The model often calls the tools first and speaks after their results (ElevenLabs always does), so
   // this answer is where the closing sentence gets said: the customer must never be dropped in silence.
   end_call(input) {
     if (input.reason === "voicemail") return { ok: true, status: "ending", message_he: "משיבון – לא לומר דבר." };
-    return { ok: true, status: "ending", message_he: END_CALL_SAY_GOODBYE };
+    return { ok: true, status: "ending", say_he: SAY_END_CALL[input.reason ?? "completed"], message_he: END_CALL_SAY_GOODBYE };
   },
 };
 
 /**
- * After an action that closes the call: the real next step. Without end_call the line stays open after
- * the goodbye (R1, R3, X7).
+ * After an action that closes the call: the fixed closing sentence (say_he) and the next step. `closing: true`
+ * tells the phone line to hang up after that sentence even if end_call never comes (it often didn't).
+ * The words here are instructions only - nothing in them is meant to be said ("I'm ending the call" was).
  */
 export const CLOSE_NEXT =
-  "עכשיו לומר לו את זה, להיפרד ולסיים את השיחה (end_call) – אלא אם הוא עוד רוצה משהו.";
+  "לומר ללקוח את המשפט שב-say_he, מילה במילה, בלי להוסיף ובלי לשנות, ולקרוא ל-end_call (completed) באותה תשובה. אם הלקוח מבקש עוד משהו – לענות לו.";
+
+const closing = (say_he: string) => ({ closing: true, say_he, message_he: CLOSE_NEXT });
 
 /** end_call answer (not voicemail): the line drops after the bot's next sentence. */
 export const END_CALL_SAY_GOODBYE =
-  "השיחה מסתיימת. אם מאז הדברים האחרונים של הלקוח עוד לא אמרת לו מה קורה עכשיו ונפרדת – אמרי את זה עכשיו, במשפט אחד. אם כבר אמרת – לא לומר שום דבר נוסף.";
+  "אם מאז הדברים האחרונים של הלקוח עוד לא נפרדת ממנו – לומר עכשיו את המשפט שב-say_he, מילה במילה, ולא שום דבר אחר. אם כבר נפרדת – לא לומר כלום.";
+
+/** Why the requested callback time was moved (the bot repeats it to the customer). */
+const ALTERNATIVE_WHY: Record<"in_past" | "too_soon" | ClosedReason, (hours: string) => string> = {
+  in_past: () => "המועד שביקש כבר עבר.",
+  too_soon: () => "המועד קרוב מדי.",
+  outside_business_hours: (h) => `המועד מחוץ לשעות הפעילות (${h}).`,
+  non_working_day: (h) => `באותו יום אין פעילות (שעות הפעילות: ${h}).`,
+  holiday: () => "באותו יום חג ואין פעילות.",
+};
 
 const DAY_HE: Record<string, string> = { sun: "א׳", mon: "ב׳", tue: "ג׳", wed: "ד׳", thu: "ה׳", fri: "ו׳", sat: "שבת" };
 

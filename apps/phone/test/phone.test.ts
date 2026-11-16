@@ -235,6 +235,60 @@ describe("call agent", () => {
     agent.end();
   });
 
+  it("a closing action hangs up after the goodbye even without end_call (S1-S3: 'יום טוב' and an open line)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sent", closing: true }) }, openAfterSilenceMs: 0 });
+    const reasons: string[] = [];
+    agent.on("hangup", (r: string) => reasons.push(r));
+    const rtp = new FakeRtp();
+    agent.start(rtp);
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "x" } }]);
+    await wait(10);
+    live.emit("audio", Buffer.alloc(4800, 1)); // "הקישור נשלח עכשיו במסרון. יום נעים, להתראות!"
+    live.emit("turnComplete");
+    while (rtp.nextFrame()); // played out
+    await wait(1000);
+    expect(reasons).toEqual([]); // the customer still has a moment to say something
+    await wait(1300);
+    expect(reasons).toEqual(["closing"]);
+    agent.end();
+  });
+
+  it("a closing action: the call goes on when the caller has more to say", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, closing: true }) }, openAfterSilenceMs: 0 });
+    const reasons: string[] = [];
+    agent.on("hangup", (r: string) => reasons.push(r));
+    const rtp = new FakeRtp();
+    agent.start(rtp);
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "x" } }]);
+    await wait(10);
+    live.emit("audio", Buffer.alloc(4800, 1));
+    live.emit("turnComplete");
+    while (rtp.nextFrame());
+    await wait(100);
+    const voice = new Int16Array(160).fill(3000);
+    for (let i = 0; i < 100; i++) rtp.emit("audio", voice); // 2 s: "רגע, עוד שאלה..."
+    await wait(2300);
+    expect(reasons).toEqual([]);
+    agent.end();
+  });
+
+  it("end_call right after the fixed goodbye in the same turn: the goodbye is not said twice (English removal call)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "ending" }) }, openAfterSilenceMs: 0 });
+    agent.start(new FakeRtp());
+    live.emit("inputTranscript", "Please remove me from your list");
+    live.emit("outputTranscript", "בסדר, המספר הוסר מהרשימה. יום נעים, להתראות!");
+    live.emit("audio", Buffer.alloc(4800, 1)); // no turnComplete yet
+    live.emit("toolCall", [{ id: "1", name: "end_call", args: { reason: "do_not_call" } }]);
+    await wait(10);
+    const before = agent.queued;
+    live.emit("audio", Buffer.alloc(4800, 1)); // the same sentence again: muted
+    expect(agent.queued).toBe(before);
+    agent.end();
+  });
+
   it("voicemail: hangs up at once and plays nothing", async () => {
     const live = new FakeLive();
     const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "ending" }) }, openAfterSilenceMs: 0 });

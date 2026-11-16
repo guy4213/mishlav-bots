@@ -24,7 +24,7 @@ export const Settings = z.object({
     half_days: z.array(z.object({ date: YMD, close: HHMM })).default([]),
   }),
   callback: z.object({
-    min_lead_minutes: z.number().int().nonnegative().default(15),
+    min_lead_minutes: z.number().int().nonnegative().default(5),
     max_days_ahead: z.number().int().positive().default(60),
   }),
   dialing: z.object({
