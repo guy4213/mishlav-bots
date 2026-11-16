@@ -18,7 +18,7 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
   // when the customer wants the rep to call (same two fields as schedule_callback); none = as soon as possible
   const when = {
     requested_time: requestedTime().describe(
-      "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time). Omit if they have no preference",
+      "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time), exactly the hour and minutes they said - never rounded",
     ),
     in_minutes: inMinutes().describe("When the customer says \"in N minutes\": just N. Use instead of requested_time"),
     asap: z
@@ -49,7 +49,7 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
     schedule_callback: z
       .strictObject({
         requested_time: requestedTime().describe(
-          "ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)",
+          "ISO 8601 date-time, e.g. 2026-11-17T15:10:00 (Asia/Jerusalem local time when no offset), exactly the hour and minutes the customer said - never rounded",
         ),
         // "call me back in 10 minutes": the server adds them to its own clock, so the model can't get the time wrong
         in_minutes: inMinutes().describe(

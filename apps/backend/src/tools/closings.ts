@@ -19,15 +19,43 @@ export const SAY_END_CALL: Record<Exclude<EndCallReason, "voicemail">, string> =
   wrong_number: `סליחה על ההפרעה. ${GOODBYE}`,
 };
 
-/** "היום ב-12:23" / "מחר ב-10:00" / "ביום שלישי, 24 בנובמבר, ב-10:00" — as it is said on the phone. */
+// Hours as said on the phone ("בשלוש", not "ב-15:00": the bot read "15:00" as "חמש עשרה").
+const HOURS_HE = ["שתים עשרה", "אחת", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע", "עשר", "אחת עשרה"];
+const UNITS_HE = ["", "אחת", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע"];
+const TEENS_HE = ["עשרה", "אחת עשרה", "שתים עשרה", "שלוש עשרה", "ארבע עשרה", "רבע", "שש עשרה", "שבע עשרה", "שמונה עשרה", "תשע עשרה"];
+const TENS_HE = ["", "", "עשרים", "שלושים", "ארבעים", "חמישים"];
+
+/** 1..59 minutes after the hour, as said: "עשרה", "רבע", "עשרים ושלוש", "חצי" */
+function minutesHe(m: number): string {
+  if (m === 30) return "חצי";
+  if (m < 10) return UNITS_HE[m]!;
+  if (m < 20) return TEENS_HE[m - 10]!;
+  const u = m % 10;
+  return u ? `${TENS_HE[Math.floor(m / 10)]} ו${UNITS_HE[u]}` : TENS_HE[m / 10]!;
+}
+
+const partOfDayHe = (h: number) => (h < 12 ? "בבוקר" : h < 16 ? "בצהריים" : h < 19 ? "אחר הצהריים" : "בערב");
+
+/** 15:10 -> "שלוש ועשרה בצהריים", 9:45 -> "רבע לעשר בבוקר", 10:00 -> "עשר בבוקר" (without the "ב") */
+export function timeHe(hour: number, minute: number): string {
+  if (minute === 45 || minute === 50 || minute === 55) {
+    const next = (hour + 1) % 24;
+    const before = minute === 45 ? "רבע" : minute === 50 ? "עשרה" : "חמש";
+    return `${before} ל${HOURS_HE[next % 12]} ${partOfDayHe(next)}`;
+  }
+  const h = HOURS_HE[hour % 12]!;
+  return minute ? `${h} ו${minutesHe(minute)} ${partOfDayHe(hour)}` : `${h} ${partOfDayHe(hour)}`;
+}
+
+/** "היום בשלוש ועשרה בצהריים" / "מחר בעשר בבוקר" / "ביום שלישי, 24 בנובמבר, בעשר בבוקר" — as said on the phone. */
 export function whenHe(t: Date, now: Date, tz: string): string {
   const p = toLocalParts(t, tz);
-  const time = `${p.hour}:${String(p.minute).padStart(2, "0")}`;
+  const time = `ב${timeHe(p.hour, p.minute)}`;
   const today = toLocalParts(now, tz);
-  if (dateKey(p) === dateKey(today)) return `היום ב-${time}`;
-  if (dateKey(p) === dateKey(addDays(today, 1))) return `מחר ב-${time}`;
+  if (dateKey(p) === dateKey(today)) return `היום ${time}`;
+  if (dateKey(p) === dateKey(addDays(today, 1))) return `מחר ${time}`;
   const day = new Intl.DateTimeFormat("he-IL", { timeZone: tz, weekday: "long", day: "numeric", month: "long" }).format(t);
-  return `ב${day}, ב-${time}`;
+  return `ב${day}, ${time}`;
 }
 
 export const sayCallback = (t: Date, now: Date, tz: string) => `בסדר גמור, נדבר ${whenHe(t, now, tz)}. ${GOODBYE}`;

@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readJsonl } from "../src/jsonl";
-import { GOODBYE, SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT } from "../src/tools/closings";
+import { GOODBYE, SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, timeHe } from "../src/tools/closings";
 import { CLOSE_NEXT, END_CALL_SAY_GOODBYE } from "../src/tools/handlers";
 import { AUTH, SECRET, testServer } from "./helpers";
 
@@ -84,7 +84,7 @@ describe("tools", () => {
     const { post } = await setup(); // FIXED_NOW = Sunday 2026-11-08 10:00 Israel
     const r = (await post("/tools/schedule_callback", { in_minutes: 10 })).json();
     expect(r).toMatchObject({ ok: true, status: "accepted", scheduled_time: "2026-11-08T10:10:00+02:00" });
-    expect(r.say_he).toBe(`בסדר גמור, נדבר היום ב-10:10. ${GOODBYE}`);
+    expect(r.say_he).toBe(`בסדר גמור, נדבר היום בעשר ועשרה בבוקר. ${GOODBYE}`);
     // too soon: said as such, never as "outside business hours"
     const soon = (await post("/tools/schedule_callback", { in_minutes: 2 })).json();
     expect(soon).toMatchObject({ status: "alternative", reason: "too_soon" });
@@ -94,6 +94,15 @@ describe("tools", () => {
     expect(both.json()).toMatchObject({ ok: false }); // exactly one of the two
     const none = await post("/tools/schedule_callback", {});
     expect(none.json()).toMatchObject({ ok: false });
+  });
+
+  it("times are said in words, minutes kept (the bot said '15:00' for 'three ten')", async () => {
+    const { post } = await setup(); // Sunday 2026-11-08 10:00
+    const r = (await post("/tools/request_human", { reason: "wants_human", requested_time: "2026-11-08T15:10:00" })).json();
+    expect(r.say_he).toBe(`העברתי את הבקשה, נציג יחזור היום בשלוש ועשרה בצהריים. ${GOODBYE}`);
+    expect(timeHe(9, 45)).toBe("רבע לעשר בבוקר");
+    expect(timeHe(12, 23)).toBe("שתים עשרה ועשרים ושלוש בצהריים");
+    expect(timeHe(16, 15)).toBe("ארבע ורבע אחר הצהריים");
   });
 
   it("request_human returns the fixed answer", async () => {
@@ -109,9 +118,9 @@ describe("tools", () => {
     // at the time the customer chose (FIXED_NOW = Sunday 2026-11-08 10:00)
     const at = (await post("/tools/request_human", { reason: "wants_human", requested_time: "2026-11-09T10:00:00" })).json();
     expect(at).toMatchObject({ closing: true, scheduled_time: "2026-11-09T10:00:00+02:00" });
-    expect(at.say_he).toBe(`העברתי את הבקשה, נציג יחזור מחר ב-10:00. ${GOODBYE}`);
+    expect(at.say_he).toBe(`העברתי את הבקשה, נציג יחזור מחר בעשר בבוקר. ${GOODBYE}`);
     const soon = (await post("/tools/request_human", { reason: "wants_human", in_minutes: 30 })).json();
-    expect(soon.say_he).toBe(`העברתי את הבקשה, נציג יחזור היום ב-10:30. ${GOODBYE}`);
+    expect(soon.say_he).toBe(`העברתי את הבקשה, נציג יחזור היום בעשר וחצי בבוקר. ${GOODBYE}`);
     // Friday: an alternative to propose first, not a goodbye
     const fri = (await post("/tools/request_human", { reason: "wants_human", requested_time: "2026-11-13T10:00:00" })).json();
     expect(fri).toMatchObject({ status: "alternative", reason: "non_working_day" });
@@ -138,7 +147,7 @@ describe("tools", () => {
     ];
     for (const res of closing) expect(res.json()).toMatchObject({ closing: true, message_he: CLOSE_NEXT });
     expect(closing[0]!.json().say_he).toBe(SAY_LINK_SENT);
-    expect(closing[2]!.json().say_he).toBe(`בסדר גמור, נדבר ביום שלישי, 10 בנובמבר, ב-10:00. ${GOODBYE}`);
+    expect(closing[2]!.json().say_he).toBe(`בסדר גמור, נדבר ביום שלישי, 10 בנובמבר, בעשר בבוקר. ${GOODBYE}`);
     for (const res of closing) expect(res.json().say_he).toMatch(/יום נעים, להתראות!$/);
     // nothing to be said aloud about "ending the call" (the bot once told a customer it was ending the call)
     for (const res of closing) expect(res.json().message_he).not.toMatch(/מסיימת|מסתיימת|לסיים את השיחה/);
