@@ -31,3 +31,5 @@ export function whenHe(t: Date, now: Date, tz: string): string {
 }
 
 export const sayCallback = (t: Date, now: Date, tz: string) => `בסדר גמור, נדבר ${whenHe(t, now, tz)}. ${GOODBYE}`;
+export const sayHandedToRepAt = (t: Date, now: Date, tz: string) =>
+  `העברתי את הבקשה, נציג יחזור ${whenHe(t, now, tz)}. ${GOODBYE}`;

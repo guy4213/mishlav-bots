@@ -101,6 +101,18 @@ describe("tools", () => {
     const res = (await post("/tools/request_human", { reason: "discount_request" })).json();
     expect(res).toMatchObject({ ok: true, status: "handed_to_rep" });
     expect(res).toMatchObject({ closing: true, say_he: SAY_HANDED_TO_REP }); // fixed sentence, no number asked
+    // at the time the customer chose (FIXED_NOW = Sunday 2026-11-08 10:00)
+    const at = (await post("/tools/request_human", { reason: "wants_human", requested_time: "2026-11-09T10:00:00" })).json();
+    expect(at).toMatchObject({ closing: true, scheduled_time: "2026-11-09T10:00:00+02:00" });
+    expect(at.say_he).toBe(`העברתי את הבקשה, נציג יחזור מחר ב-10:00. ${GOODBYE}`);
+    const soon = (await post("/tools/request_human", { reason: "wants_human", in_minutes: 30 })).json();
+    expect(soon.say_he).toBe(`העברתי את הבקשה, נציג יחזור היום ב-10:30. ${GOODBYE}`);
+    // Friday: an alternative to propose first, not a goodbye
+    const fri = (await post("/tools/request_human", { reason: "wants_human", requested_time: "2026-11-13T10:00:00" })).json();
+    expect(fri).toMatchObject({ status: "alternative", reason: "non_working_day" });
+    expect(fri.closing).toBeUndefined();
+    const both = (await post("/tools/request_human", { reason: "wants_human", in_minutes: 5, requested_time: "2026-11-09T10:00:00" })).json();
+    expect(both).toMatchObject({ ok: false });
     // an unanswered question goes to a rep, but the call goes on (it once ended S1 before the link)
     const other = (await post("/tools/request_human", { reason: "other" })).json();
     expect(other).toMatchObject({ ok: true, status: "handed_to_rep" });

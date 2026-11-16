@@ -9,12 +9,25 @@ export interface ToolSchemaOptions {
 const dayId = () =>
   z.string().trim().min(1).max(100).describe("Study day id from the closed catalogue in the prompt");
 
+const requestedTime = () => z.string().trim().min(10).max(40).optional();
+const inMinutes = () => z.number().int().min(1).max(600).optional();
+
 /** Strict zod input schemas for the 5 tools. Unknown fields are rejected. */
 export function buildToolInputSchemas(opts: ToolSchemaOptions) {
   const reason = RequestHumanReason.describe("Why a human rep is needed");
+  // when the customer wants the rep to call (same two fields as schedule_callback); none = as soon as possible
+  const when = {
+    requested_time: requestedTime().describe(
+      "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time). Omit if they have no preference",
+    ),
+    in_minutes: inMinutes().describe("When the customer says \"in N minutes\": just N. Use instead of requested_time"),
+  };
+  const atMostOne = (v: { requested_time?: string; in_minutes?: number }) =>
+    v.requested_time === undefined || v.in_minutes === undefined;
   const requestHuman = opts.captureDictatedDetails
     ? z.strictObject({
         reason,
+        ...when,
         name: z.string().trim().min(1).max(100).optional().describe("TEST ONLY: name the customer dictated"),
         phone: z
           .string()
@@ -24,33 +37,25 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
           .optional()
           .describe("TEST ONLY: phone number the customer dictated, digits exactly as heard"),
       })
-    : z.strictObject({ reason });
+    : z.strictObject({ reason, ...when });
 
   return {
     get_day_info: z.strictObject({ day_id: dayId() }),
     send_purchase_link: z.strictObject({ day_id: dayId() }),
     schedule_callback: z
       .strictObject({
-        requested_time: z
-          .string()
-          .trim()
-          .min(10)
-          .max(40)
-          .optional()
-          .describe("ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)"),
+        requested_time: requestedTime().describe(
+          "ISO 8601 date-time, e.g. 2026-11-17T10:00:00 (Asia/Jerusalem local time when no offset)",
+        ),
         // "call me back in 10 minutes": the server adds them to its own clock, so the model can't get the time wrong
-        in_minutes: z
-          .number()
-          .int()
-          .min(1)
-          .max(600)
-          .optional()
-          .describe("When the customer says \"in N minutes\": just N. The server computes the time. Use instead of requested_time"),
+        in_minutes: inMinutes().describe(
+          "When the customer says \"in N minutes\": just N. The server computes the time. Use instead of requested_time",
+        ),
       })
       .refine((v) => (v.requested_time === undefined) !== (v.in_minutes === undefined), {
         message: "pass exactly one of requested_time or in_minutes",
       }),
-    request_human: requestHuman,
+    request_human: requestHuman.refine(atMostOne, { message: "pass at most one of requested_time or in_minutes" }),
     end_call: z.strictObject({
       reason: EndCallReason.optional().describe("Why the call ends"),
     }),
@@ -71,7 +76,8 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "that calls back - you have no calendar and see no one's schedule. If the time is outside business hours, " +
     "the response proposes an alternative - confirm it with the customer before ending.",
   request_human:
-    "Note that a human rep should call the customer back: wants a person, pays via a rep, company pays, " +
+    "Note that a human rep should call the customer back, at the time the customer chose (requested_time / in_minutes; " +
+    "omit both when they have no preference): wants a person, pays via a rep, company pays, " +
     "asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live " +
     "transfer: the rep calls back the number on file - never ask for a phone number. With other, only that " +
     "question goes to the rep: the call goes on (e.g. the link can still be sent).",

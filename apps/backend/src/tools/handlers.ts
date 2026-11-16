@@ -10,7 +10,7 @@ import {
 } from "@mishlav/shared";
 import type { z } from "zod";
 import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay } from "../knowledge";
-import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, whenHe } from "./closings";
+import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
@@ -101,53 +101,15 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     };
   },
 
-  schedule_callback(input, { settings, now }) {
-    const tz = settings.business_hours.timezone;
-    const requested =
-      input.in_minutes !== undefined
-        ? new Date(now().getTime() + input.in_minutes * 60_000) // our clock, not the model's
-        : parseRequestedTime(input.requested_time ?? "", tz);
-    if (!requested) {
-      return {
-        ok: false,
-        error: "invalid_time",
-        message_he: "המועד לא בפורמט תקין. שלחי ISO, למשל 2026-11-17T10:00:00.",
-      };
-    }
-    const r = resolveCallback(requested, now(), settings.business_hours, settings.callback);
-    if (r.status === "error") {
-      return {
-        ok: false,
-        error: r.error,
-        message_he: `אפשר לתאם שיחה חוזרת עד ${settings.callback.max_days_ahead} ימים קדימה. בקשי מועד קרוב יותר.`,
-      };
-    }
-    const scheduled_time = formatLocalIso(r.scheduled, tz);
-    const scheduled_time_he = formatHebrew(r.scheduled, tz);
-    if (r.status === "accepted") {
-      return {
-        ok: true,
-        status: "accepted",
-        requested_time: input.requested_time ?? formatLocalIso(requested, tz),
-        scheduled_time,
-        scheduled_time_he,
-        ...closing(sayCallback(r.scheduled, now(), tz)),
-      };
-    }
-    return {
-      ok: true,
-      status: "alternative",
-      reason: r.reason,
-      requested_time: input.requested_time ?? formatLocalIso(requested, tz),
-      scheduled_time,
-      scheduled_time_he,
-      // the real reason: "in 10 minutes" at 12:13 was once refused as "outside business hours"
-      message_he: `${ALTERNATIVE_WHY[r.reason](hoursHe(settings.business_hours))} המועד הקרוב האפשרי: ${whenHe(r.scheduled, now(), tz)}. להציע אותו ללקוח, ואם מסכים – לקרוא שוב עם המועד הזה.`,
-    };
+  schedule_callback(input, ctx) {
+    const t = resolveTime(input, ctx);
+    if (!t.ok) return t.response;
+    return { ok: true, status: "accepted", ...t.fields, ...closing(sayCallback(t.scheduled, ctx.now(), tz(ctx))) };
   },
 
-  // The rep calls back the number on file: nothing to ask. Part 4 adds the note on the lead (by call_id).
-  request_human(input) {
+  // The rep calls back the number on file, at the time the customer chose (none = as soon as possible).
+  // Nothing else to ask (the bot once invented a "which department?" question). Part 4: a note on the lead.
+  request_human(input, ctx) {
     if (input.reason === "other") {
       // an open question: the rep answers it later, the call itself goes on (flow step 4)
       return {
@@ -156,7 +118,12 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
         message_he: "נרשם שנציג יחזור ללקוח עם תשובה לשאלה הזו. לומר לו את זה ולהמשיך בשיחה – השאלה לא סוגרת את השיחה.",
       };
     }
-    return { ok: true, status: "handed_to_rep", ...closing(SAY_HANDED_TO_REP) };
+    if (input.requested_time === undefined && input.in_minutes === undefined) {
+      return { ok: true, status: "handed_to_rep", ...closing(SAY_HANDED_TO_REP) };
+    }
+    const t = resolveTime(input, ctx);
+    if (!t.ok) return t.response;
+    return { ok: true, status: "handed_to_rep", ...t.fields, ...closing(sayHandedToRepAt(t.scheduled, ctx.now(), tz(ctx))) };
   },
 
   // The model often calls the tools first and speaks after their results (ElevenLabs always does), so
@@ -166,6 +133,58 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     return { ok: true, status: "ending", say_he: SAY_END_CALL[input.reason ?? "completed"], message_he: END_CALL_SAY_GOODBYE };
   },
 };
+
+const tz = (ctx: ToolContext) => ctx.settings.business_hours.timezone;
+
+/**
+ * The customer's callback time (schedule_callback, request_human): accepted -> the booked time; otherwise the
+ * whole tool answer (invalid, too far, or an alternative to propose - with the real reason).
+ */
+function resolveTime(
+  input: { requested_time?: string; in_minutes?: number },
+  ctx: ToolContext,
+): { ok: true; scheduled: Date; fields: Record<string, string> } | { ok: false; response: ToolResponse } {
+  const { settings, now } = ctx;
+  const zone = tz(ctx);
+  const requested =
+    input.in_minutes !== undefined
+      ? new Date(now().getTime() + input.in_minutes * 60_000) // our clock, not the model's
+      : parseRequestedTime(input.requested_time ?? "", zone);
+  if (!requested) {
+    return {
+      ok: false,
+      response: { ok: false, error: "invalid_time", message_he: "המועד לא בפורמט תקין. שלחי ISO, למשל 2026-11-17T10:00:00." },
+    };
+  }
+  const r = resolveCallback(requested, now(), settings.business_hours, settings.callback);
+  if (r.status === "error") {
+    return {
+      ok: false,
+      response: {
+        ok: false,
+        error: r.error,
+        message_he: `אפשר לתאם שיחה חוזרת עד ${settings.callback.max_days_ahead} ימים קדימה. בקשי מועד קרוב יותר.`,
+      },
+    };
+  }
+  const fields = {
+    requested_time: input.requested_time ?? formatLocalIso(requested, zone),
+    scheduled_time: formatLocalIso(r.scheduled, zone),
+    scheduled_time_he: formatHebrew(r.scheduled, zone),
+  };
+  if (r.status === "accepted") return { ok: true, scheduled: r.scheduled, fields };
+  return {
+    ok: false,
+    response: {
+      ok: true,
+      status: "alternative",
+      reason: r.reason,
+      ...fields,
+      // the real reason: "in 10 minutes" at 12:13 was once refused as "outside business hours"
+      message_he: `${ALTERNATIVE_WHY[r.reason](hoursHe(settings.business_hours))} המועד הקרוב האפשרי: ${whenHe(r.scheduled, now(), zone)}. להציע אותו ללקוח, ואם מסכים – לקרוא שוב עם המועד הזה.`,
+    },
+  };
+}
 
 /**
  * After an action that closes the call: the fixed closing sentence (say_he) and the next step. `closing: true`
