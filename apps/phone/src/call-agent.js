@@ -201,6 +201,12 @@ export class CallAgent extends EventEmitter {
     a.on('turnComplete', () => {
       this.agentTurnActive = false;
       if (this.turnHadAudio) this.answeredSinceLead = true;
+      // The fixed goodbye was said without end_call (R2: it said it 4 times - the silence checks asked again):
+      // the call is over, hang up once the line is quiet, as after a closing action.
+      if (this.turnHadAudio && !this.ending && !this.closing && this.turnText.includes(GOODBYE_WORD)) {
+        this.closing = { spoke: true, doneAt: 0, voiced: 0 };
+        this.emit('line', { who: 'note', text: 'goodbye said without end_call: hanging up when the line is quiet' });
+      }
       this.turnHadAudio = false;
       this._logAgent(false);
     });

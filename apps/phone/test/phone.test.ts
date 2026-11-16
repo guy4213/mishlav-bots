@@ -289,6 +289,24 @@ describe("call agent", () => {
     agent.end();
   });
 
+  it("the fixed goodbye without end_call still hangs up, once (R2: the goodbye 4 times)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+    const reasons: string[] = [];
+    agent.on("hangup", (r: string) => reasons.push(r));
+    const rtp = new FakeRtp();
+    agent.start(rtp);
+    live.emit("inputTranscript", "לא תודה, יצאתי לפנסיה");
+    live.emit("outputTranscript", "איזה כיף, בהצלחה! בסדר גמור, תודה רבה. יום נעים, להתראות!");
+    live.emit("audio", Buffer.alloc(4800, 1));
+    live.emit("turnComplete"); // and no end_call
+    while (rtp.nextFrame());
+    await wait(2300);
+    expect(reasons).toEqual(["closing"]);
+    expect(live.sent).toEqual([CUES.open]); // no silence check that makes it say goodbye again
+    agent.end();
+  });
+
   it("voicemail: hangs up at once and plays nothing", async () => {
     const live = new FakeLive();
     const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "ending" }) }, openAfterSilenceMs: 0 });
