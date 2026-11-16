@@ -4,7 +4,7 @@ name: Not a fit - retired
 core: false
 description: >
   The customer has retired. This is a fit objection, not a value objection: the bot must not try to
-  persuade (no 50% / 300 ₪ pitch), answers warmly in one sentence and ends with not_interested.
+  persuade (no 50% / 300 ₪ pitch), says only the one fixed closing sentence and ends with not_interested.
 context:
   first_name: "אורנה"
   interested_day_id: payroll-2026-12-08-zoom
@@ -21,7 +21,7 @@ expect:
     - "No persuasion attempt (did not mention the 50% requirement or the 300 ₪ benefit)"
 guide_he:
   title: יצאתי לפנסיה
-  expect: הבוט מגיב בחום במשפט אחד, לא מנסה לשכנע, ומסיים (not_interested).
+  expect: הבוט אומר משפט אחד בלבד – "בסדר גמור, יום נעים, להתראות!" – לא מנסה לשכנע, ומנתק (not_interested).
   tips:
     - אחרי הפתיחה – "לא, תודה, אני כבר יצאתי לפנסיה".
   watch:
