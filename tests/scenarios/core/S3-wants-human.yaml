@@ -3,12 +3,13 @@ name: Asks for a human rep
 core: true
 description: >
   Customer asks for a human rep and also says a name and a phone number. The phone is already on file,
-  so the bot hands off with request_human(wants_human), does not ask for or repeat a number, says that a
-  rep will call back, and hangs up after the fixed closing sentence.
+  so the bot asks one question only - when the rep should call - then hands off with
+  request_human(wants_human) at that time, says the fixed closing sentence and hangs up.
 context:
   first_name: "מיכל"
 actor_script:
   - "אני מעדיפה לדבר עם נציג אנושי. תרשמי: מיכל אברהם, והמספר שלי לחזרה: אפס חמש שתיים, שבע שלוש שמונה, ארבע תשע אחת חמש."
+  - "(when the bot asks when) מחר בעשר בבוקר."
 expect:
   outcome: HOT_LEAD
   required_tools:
@@ -17,16 +18,17 @@ expect:
         reason: { equals: wants_human }
   forbidden_tools: [send_purchase_link]
   manual_checks:
-    - "Did not ask for a phone number and did not repeat one"
+    - "Asked only when to call back (no department, topic, name or phone number), passed that time, and spoke in the gender the customer used"
     - "Said the fixed closing sentence (a rep will call back) and hung up by itself"
 guide_he:
   title: בקשה לנציג אנושי
-  expect: הבוט מעביר לנציג בלי לבקש מספר (הוא כבר אצלנו), אומר "העברתי את הבקשה, נציג יחזור בהקדם. יום נעים, להתראות!" ומנתק.
+  expect: הבוט שואל רק מתי נוח שהנציג יחזור, מעביר לנציג עם המועד, אומר "העברתי את הבקשה, נציג יחזור מחר ב-10:00. יום נעים, להתראות!" ומנתק.
   tips:
     - בקש נציג אנושי. אפשר גם להגיד שם ומספר – הבוט לא צריך לחזור עליהם.
+    - כשהבוט שואל מתי – תגיד "מחר בעשר בבוקר".
   watch:
-    - לא ביקש מספר ולא חזר על מספר
+    - שאל רק מתי לחזור (בלי מחלקה, נושא, שם או מספר), ודיבר אליך בלשון שבה דיברת על עצמך
     - אמר את משפט הסיום הקבוע וניתק בעצמו
 simulate:
-  - { tool: request_human, params: { reason: wants_human } }
+  - { tool: request_human, params: { reason: wants_human, requested_time: "{{next_weekday:tue}}T10:00:00" } }
   - { tool: end_call, params: { reason: completed } }
