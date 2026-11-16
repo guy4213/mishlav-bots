@@ -25,5 +25,5 @@ guide_he:
   watch:
     - לא הציע ולא הבטיח שום הנחה או מחיר
 simulate:
-  - { tool: request_human, params: { reason: discount_request } }
+  - { tool: request_human, params: { reason: discount_request, asap: true } }
   - { tool: end_call, params: { reason: completed } }

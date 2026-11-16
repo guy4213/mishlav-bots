@@ -29,5 +29,5 @@ guide_he:
   watch:
     - לא מסר מחיר, מסלול או הנחה של הקורס
 simulate:
-  - { tool: request_human, params: { reason: course_interest } }
+  - { tool: request_human, params: { reason: course_interest, asap: true } }
   - { tool: end_call, params: { reason: completed } }

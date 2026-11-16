@@ -21,9 +21,13 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
       "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time). Omit if they have no preference",
     ),
     in_minutes: inMinutes().describe("When the customer says \"in N minutes\": just N. Use instead of requested_time"),
+    asap: z
+      .literal(true)
+      .optional()
+      .describe("Only after the customer ANSWERED that any time is fine (\"לא משנה\", \"מתי שנוח\"). Never before they answered"),
   };
-  const atMostOne = (v: { requested_time?: string; in_minutes?: number }) =>
-    v.requested_time === undefined || v.in_minutes === undefined;
+  const atMostOne = (v: { requested_time?: string; in_minutes?: number; asap?: true }) =>
+    [v.requested_time, v.in_minutes, v.asap].filter((x) => x !== undefined).length <= 1;
   const requestHuman = opts.captureDictatedDetails
     ? z.strictObject({
         reason,
@@ -55,7 +59,7 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
       .refine((v) => (v.requested_time === undefined) !== (v.in_minutes === undefined), {
         message: "pass exactly one of requested_time or in_minutes",
       }),
-    request_human: requestHuman.refine(atMostOne, { message: "pass at most one of requested_time or in_minutes" }),
+    request_human: requestHuman.refine(atMostOne, { message: "pass at most one of requested_time, in_minutes or asap" }),
     end_call: z.strictObject({
       reason: EndCallReason.optional().describe("Why the call ends"),
     }),
@@ -76,8 +80,9 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "that calls back - you have no calendar and see no one's schedule. If the time is outside business hours, " +
     "the response proposes an alternative - confirm it with the customer before ending.",
   request_human:
-    "Note that a human rep should call the customer back, at the time the customer chose (requested_time / in_minutes; " +
-    "omit both when they have no preference): wants a person, pays via a rep, company pays, " +
+    "Note that a human rep should call the customer back, at the time the customer chose (requested_time / in_minutes, " +
+    "or asap when they answered that any time is fine). Ask when first and wait for the answer: without a time the " +
+    "hand-off is not noted (except other). Reasons: wants a person, pays via a rep, company pays, " +
     "asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live " +
     "transfer: the rep calls back the number on file - never ask for a phone number. With other, only that " +
     "question goes to the rep: the call goes on (e.g. the link can still be sent).",

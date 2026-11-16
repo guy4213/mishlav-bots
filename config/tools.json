@@ -84,7 +84,7 @@
     },
     {
       "name": "request_human",
-      "description": "Note that a human rep should call the customer back, at the time the customer chose (requested_time / in_minutes; omit both when they have no preference): wants a person, pays via a rep, company pays, asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live transfer: the rep calls back the number on file - never ask for a phone number. With other, only that question goes to the rep: the call goes on (e.g. the link can still be sent).",
+      "description": "Note that a human rep should call the customer back, at the time the customer chose (requested_time / in_minutes, or asap when they answered that any time is fine). Ask when first and wait for the answer: without a time the hand-off is not noted (except other). Reasons: wants a person, pays via a rep, company pays, asks for a discount, asks about another course (course_interest), or asks something that is not in the knowledge base (other). It is not a live transfer: the rep calls back the number on file - never ask for a phone number. With other, only that question goes to the rep: the call goes on (e.g. the link can still be sent).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -111,6 +111,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 600
+          },
+          "asap": {
+            "description": "Only after the customer ANSWERED that any time is fine (\"לא משנה\", \"מתי שנוח\"). Never before they answered",
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [

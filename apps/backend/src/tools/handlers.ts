@@ -118,8 +118,16 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
         message_he: "נרשם שנציג יחזור ללקוח עם תשובה לשאלה הזו. לומר לו את זה ולהמשיך בשיחה – השאלה לא סוגרת את השיחה.",
       };
     }
+    if (input.asap) return { ok: true, status: "handed_to_rep", ...closing(SAY_HANDED_TO_REP) };
     if (input.requested_time === undefined && input.in_minutes === undefined) {
-      return { ok: true, status: "handed_to_rep", ...closing(SAY_HANDED_TO_REP) };
+      // no time yet: on a real call the bot asked "when?" and handed off in the same breath, then hung up
+      return {
+        ok: true,
+        status: "waiting_for_time",
+        message_he:
+          "עוד לא נרשם. קודם לשאול את הלקוח מתי נוח שהנציג יחזור ולחכות לתשובה שלו. אם כבר שאלת – לא לומר כלום עכשיו, רק לחכות. " +
+          "אחרי שענה – לקרוא שוב עם המועד, או עם asap אם אמר שלא משנה לו.",
+      };
     }
     const t = resolveTime(input, ctx);
     if (!t.ok) return t.response;

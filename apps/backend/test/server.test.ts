@@ -98,7 +98,12 @@ describe("tools", () => {
 
   it("request_human returns the fixed answer", async () => {
     const { post } = await setup();
-    const res = (await post("/tools/request_human", { reason: "discount_request" })).json();
+    // no time yet: not noted, no goodbye - the bot asked "when?" and hung up in the same breath (real call)
+    const early = (await post("/tools/request_human", { reason: "wants_human" })).json();
+    expect(early).toMatchObject({ ok: true, status: "waiting_for_time" });
+    expect(early.closing).toBeUndefined();
+    expect(early.say_he).toBeUndefined();
+    const res = (await post("/tools/request_human", { reason: "discount_request", asap: true })).json();
     expect(res).toMatchObject({ ok: true, status: "handed_to_rep" });
     expect(res).toMatchObject({ closing: true, say_he: SAY_HANDED_TO_REP }); // fixed sentence, no number asked
     // at the time the customer chose (FIXED_NOW = Sunday 2026-11-08 10:00)
@@ -113,6 +118,8 @@ describe("tools", () => {
     expect(fri.closing).toBeUndefined();
     const both = (await post("/tools/request_human", { reason: "wants_human", in_minutes: 5, requested_time: "2026-11-09T10:00:00" })).json();
     expect(both).toMatchObject({ ok: false });
+    const asapToo = (await post("/tools/request_human", { reason: "wants_human", in_minutes: 5, asap: true })).json();
+    expect(asapToo).toMatchObject({ ok: false });
     // an unanswered question goes to a rep, but the call goes on (it once ended S1 before the link)
     const other = (await post("/tools/request_human", { reason: "other" })).json();
     expect(other).toMatchObject({ ok: true, status: "handed_to_rep" });
@@ -126,7 +133,7 @@ describe("tools", () => {
     const { post } = await setup();
     const closing = [
       await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" }),
-      await post("/tools/request_human", { reason: "company_purchase" }),
+      await post("/tools/request_human", { reason: "company_purchase", asap: true }),
       await post("/tools/schedule_callback", { requested_time: "2026-11-10T10:00:00" }),
     ];
     for (const res of closing) expect(res.json()).toMatchObject({ closing: true, message_he: CLOSE_NEXT });
