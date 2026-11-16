@@ -30,5 +30,5 @@ guide_he:
   watch:
     - התנצל בקצרה, לא שאל שוב ולא ניסה לשכנע
 simulate:
-  - { tool: request_human, params: { reason: company_purchase } }
+  - { tool: request_human, params: { reason: company_purchase, asap: true } }
   - { tool: end_call, params: { reason: completed } }
