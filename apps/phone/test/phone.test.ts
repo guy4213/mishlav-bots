@@ -24,6 +24,15 @@ const VARS = {
   customer_context: "הלקוח התעניין ביום העיון \"סגירת שנת מס בשכר\".",
 };
 
+describe("modules load", () => {
+  // line.js is not imported by the other tests: a syntax error there (a duplicate `gender`) took the line down
+  it("every phone module loads (line.js too)", async () => {
+    for (const m of ["line", "call-agent", "gemini-live", "mishlav", "sip", "rtp", "audio", "numbers"]) {
+      await expect(import(`../src/${m}.js`)).resolves.toBeTruthy();
+    }
+  });
+});
+
 describe("audio", () => {
   it("G.711 round trip keeps the signal (A-law and μ-law)", () => {
     const pcm = new Int16Array(FRAME_SAMPLES).map((_, i) => Math.round(8000 * Math.sin((2 * Math.PI * 440 * i) / 8000)));
