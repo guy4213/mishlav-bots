@@ -76,6 +76,13 @@ class FakeStore implements ContactStore {
     this.log.push(["ended", callId, nextCallAt, limits]);
     return null;
   }
+  /** the phone of each contact call (bot_call_number) */
+  callNumbers = new Map<string, string>();
+  failNumber = false;
+  async callNumber(callId: string) {
+    if (this.failNumber) throw new Error("supabase down");
+    return this.callNumbers.get(callId) ?? null;
+  }
   async goldChanges(since?: string) {
     this.log.push(["gold", since]);
     return { until: "2026-11-08T08:00:00+00:00", contacts: this.changes };
@@ -91,6 +98,10 @@ class FakeLine extends EventEmitter {
   }
   status() {
     return { registered: true, busy: false };
+  }
+  numberFor(callId: string) {
+    const last = this.dialed.at(-1) as [string, unknown] | undefined;
+    return callId === "call-1" ? (last?.[0] ?? null) : null;
   }
   recent = [];
 }

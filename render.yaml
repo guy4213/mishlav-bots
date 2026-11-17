@@ -41,5 +41,12 @@ services:
       # The automatic dialer: optional, dial only these numbers (comma-separated); leave unset in production
       - key: DIALER_ONLY_NUMBERS
         sync: false
+      # The purchase-link SMS through Zadarma's API (unset: log only, nothing is sent)
+      - key: ZADARMA_API_KEY
+        sync: false
+      - key: ZADARMA_API_SECRET
+        sync: false
+      - key: ZADARMA_SMS_SENDER # optional: a sender registered with Zadarma
+        sync: false
       # Optional: PHONE_GEMINI_MODEL, PHONE_VOICE, OPEN_AFTER_SILENCE_S, BOT_NAME,
       # LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET (browser calls), elevenLabsAgentsKey.

@@ -110,6 +110,9 @@ class FakeDb implements ContactStore, DialerStore {
   async nextScheduled() {
     return null;
   }
+  async callNumber() {
+    return null;
+  }
   async markNoPhone(id: string) {
     this.marked.push(id);
     this.setStatus(id, "wrong_number");

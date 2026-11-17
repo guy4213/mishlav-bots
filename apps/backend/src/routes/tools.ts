@@ -2,17 +2,21 @@ import { performance } from "node:perf_hooks";
 import { buildToolInputSchemas, TOOL_NAMES, type ToolCallLogEntry, type ToolName } from "@mishlav/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { z } from "zod";
-import type { ContactEvents } from "../contacts";
+import { maskNumber } from "../../../phone/src/numbers.js";
+import { type ContactEvents, toE164 } from "../contacts";
 import type { JsonlFile } from "../jsonl";
 import { redactDeep } from "../redact";
 import type { SessionStore } from "../sessions";
 import { toolHandlers, type ToolContext, type ToolResponse } from "../tools/handlers";
+import type { PhoneHolder } from "./phone";
 
-export interface ToolRouteDeps extends ToolContext {
+export interface ToolRouteDeps extends Omit<ToolContext, "recipient"> {
   toolLog: JsonlFile;
   sessions: SessionStore;
   /** Supabase contacts: every tool of a contact's call updates that contact (by call_id) */
   contacts?: ContactEvents;
+  /** the phone line: who a scenario call is on (send_purchase_link's recipient) */
+  phone?: PhoneHolder;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, 200) : null);
@@ -35,6 +39,7 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
       const parsed = (schemas[tool] as z.ZodType).safeParse(body);
 
       let response: ToolResponse;
+      let recipient: string | null = null;
       if (!parsed.success) {
         response = {
           ok: false,
@@ -44,20 +49,40 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
         };
       } else {
         try {
-          response = (toolHandlers[tool] as (i: unknown, c: ToolContext) => ToolResponse)(parsed.data, deps);
+          // the SMS recipient comes from the call, never from the bot (the schema has no phone)
+          if (tool === "send_purchase_link") recipient = await recipientFor(deps, callMeta(req).call_id, req);
+          const handler = toolHandlers[tool] as (i: unknown, c: ToolContext) => ToolResponse | Promise<ToolResponse>;
+          response = await handler(parsed.data, { ...deps, recipient });
         } catch (err) {
           req.log.error({ err, tool }, "tool handler failed");
           response = { ok: false, error: "internal_error", message_he: "תקלה זמנית. להציע שנציג יחזור." };
         }
       }
 
-      const params = logToolCall(deps, req, tool, body, response, performance.now() - started);
+      const params = logToolCall(deps, req, tool, body, response, performance.now() - started, recipient);
       const callId = callMeta(req).call_id;
       // after the answer is ready, not before: the bot never waits for Supabase
       if (callId && deps.contacts) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
       return response;
     });
   }
+}
+
+/**
+ * Who is on the call: a contact's call -> its phone in Supabase (bot_call_number, the phone in use); otherwise
+ * (a scenario call, or Supabase down) -> the number the line dialed for this call. null: neither knows it.
+ */
+async function recipientFor(deps: ToolRouteDeps, callId: string | null, req: FastifyRequest): Promise<string | null> {
+  if (!callId) return null;
+  if (deps.contacts) {
+    try {
+      const n = toE164(await deps.contacts.store.callNumber(callId));
+      if (n) return n;
+    } catch (err) {
+      req.log.warn({ err, call_id: callId }, "could not read the call's phone from Supabase; trying the line");
+    }
+  }
+  return deps.phone?.line?.numberFor(callId) ?? null;
 }
 
 function logToolCall(
@@ -67,6 +92,7 @@ function logToolCall(
   rawParams: unknown,
   response: ToolResponse,
   durationMs: number,
+  recipient: string | null,
 ): unknown {
   const meta = callMeta(req);
   const session = deps.sessions.current();
@@ -84,6 +110,7 @@ function logToolCall(
     ok: response.ok,
     ...(response.ok ? {} : { error: response.error }),
     response,
+    ...(recipient && { recipient: maskNumber(recipient) }),
     duration_ms: Math.round(durationMs * 100) / 100,
   };
   deps.toolLog.append(entry);

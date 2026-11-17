@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { findRepoRoot, loadSettings } from "@mishlav/shared";
 import type { AppConfig } from "../src/config";
 import { buildServer } from "../src/server";
+import { LogOnlySms } from "../src/sms";
 
 export const SECRET = "test-secret-0123456789abcdef";
 export const AUTH = { "x-tools-secret": SECRET };
@@ -26,6 +27,7 @@ export function testConfig(): AppConfig {
 
 export async function testServer(now: () => Date = () => FIXED_NOW) {
   const config = testConfig();
-  const app = await buildServer(config, { now, logger: false });
+  // never a real SMS from a test, whatever is in the env
+  const app = await buildServer(config, { now, logger: false, sms: new LogOnlySms(() => {}) });
   return { app, config };
 }

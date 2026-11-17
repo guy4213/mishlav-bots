@@ -115,6 +115,8 @@ export interface ContactStore {
   callEnded(callId: string, durationSec: number, nextCallAt: Date[], limits: CallLimits): Promise<string | null>;
   /** The contacts the bot changed after `since` (none: everything it ever changed). */
   goldChanges(since?: string): Promise<GoldChanges>;
+  /** The phone a contact's call is on (as written in Gold; null: not a contact's call, or no phone). */
+  callNumber(callId: string): Promise<string | null>;
 }
 
 /** Israeli number as dialed: 053-4271418 / 053 4271418 / 0534271418 / +972-53-... -> +972534271418. */
@@ -216,6 +218,10 @@ export class SupabaseContacts implements ContactStore, DialerStore {
 
   goldChanges(since?: string) {
     return this.req<GoldChanges>("POST", "/rpc/gold_changes", { p_since: since ?? null });
+  }
+
+  callNumber(callId: string) {
+    return this.req<string | null>("POST", "/rpc/bot_call_number", { p_call_id: callId });
   }
 
   async dialerControl() {

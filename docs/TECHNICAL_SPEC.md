@@ -179,7 +179,7 @@ hint for the model.
 | Tool | Success response | Error codes |
 |------|-----------------|------------|
 | `get_day_info` | `{ ok, day: {id,title,topic,date,start,end,format,location,price_ils,vat_included,open_for_registration,description}, general }` | `unknown_day_id` (+ `available_day_ids`) |
-| `send_purchase_link` | `{ ok, status: "sent", test_mode: true, message_he }` | `unknown_day_id`, `registration_closed` |
+| `send_purchase_link` | `{ ok, status: "sent", day_id, day_he, sms: {sent, provider}, closing, say_he, message_he }` - sends `sms.link_template` with the day's `purchase_url` (apps/backend/src/sms.ts: Zadarma with `ZADARMA_API_KEY` + `ZADARMA_API_SECRET`, else log only). The recipient comes from `x-call-id` on the server (contact call: `bot_call_number`; scenario call: the number the line dialed), never from the bot. | `unknown_day_id`, `registration_closed`, `no_purchase_url`, `no_phone`, `sms_failed` |
 | `schedule_callback` | `{ ok, status: "accepted"\|"alternative", reason?, requested_time, scheduled_time, scheduled_time_he, message_he }` | `invalid_time`, `too_far` |
 | `request_human` | `{ ok, status: "handed_to_rep", message_he: "הועבר לנציג" }` | — |
 | `end_call` | `{ ok, status: "ending" }` | — |
@@ -203,7 +203,8 @@ hint for the model.
 {"type":"tool_call","ts":"2026-11-08T10:15:02.114Z","session_id":"A-S1-20261108-101455",
  "scenario":"S1","provider":"A","call_id":"conv_123","tool":"send_purchase_link",
  "params":{"day_id":"payroll-2026-12-08-zoom"},"redactions":0,"ok":true,
- "response":{"ok":true,"status":"sent","test_mode":true,"message_he":"..."},"duration_ms":1.8}
+ "response":{"ok":true,"status":"sent","sms":{"sent":true,"provider":"zadarma"},"message_he":"..."},
+ "recipient":"+97250***4567","duration_ms":1.8}
 ```
 
 `logs/sessions.jsonl` — `session_start` / `session_end` records.

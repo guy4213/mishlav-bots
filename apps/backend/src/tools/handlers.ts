@@ -10,15 +10,26 @@ import {
 } from "@mishlav/shared";
 import type { z } from "zod";
 import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay } from "../knowledge";
+import type { SmsSender } from "../sms";
 import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
   settings: Settings;
   now: () => Date;
+  /** the purchase-link SMS (no keys: log only) */
+  sms: SmsSender;
+  /**
+   * Who is on this call (+972...), resolved by the server from x-call-id - never from the bot: a contact's call ->
+   * its phone in Supabase; a scenario call on the line -> the number dialed. null: unknown.
+   */
+  recipient?: string | null;
 }
 
 export type ToolResponse = { ok: true; [k: string]: unknown } | { ok: false; error: string; message_he: string; [k: string]: unknown };
+
+/** When the link can't go out, the customer still gets it: from a rep (request_human). */
+const LINK_BY_REP = "להציע ללקוח שנציג יחזור אליו עם הקישור.";
 
 type Input<T extends ToolName> = z.infer<ToolInputSchemas[T]>;
 
@@ -72,17 +83,17 @@ export function otherDates(day: StudyDay, kb: KnowledgeBase, now: Date) {
 }
 
 /**
- * Test-mode tool implementations (spec 1.4): fixed answers, no side effects.
- * In Part 4 these become the real Tools API (identity via call_id, real SMS, tasks, notifier).
+ * The tools. Pure answers, except send_purchase_link, which sends the SMS. The contact's record is updated by
+ * the route afterwards (SQL bot_tool_event, from the answer).
  */
-export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext) => ToolResponse } = {
+export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext) => ToolResponse | Promise<ToolResponse> } = {
   get_day_info(input, { knowledge, now }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
     return { ok: true, day: publicDay(day), ...otherDates(day, knowledge, now()), general: knowledge.general };
   },
 
-  send_purchase_link(input, { knowledge }) {
+  async send_purchase_link(input, { knowledge, settings, sms, recipient }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
     if (!day.open_for_registration) {
@@ -92,12 +103,26 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
         message_he: "ההרשמה ליום הזה סגורה. להציע יום אחר מהקטלוג או נציג.",
       };
     }
+    if (!day.purchase_url) {
+      return { ok: false, error: "no_purchase_url", message_he: `אין עדיין קישור רכישה ליום הזה. ${LINK_BY_REP}` };
+    }
+    // A log-only sender sends nothing anyway: text runs and browser tests (no number) still go through
+    if (!recipient && sms.live) {
+      return { ok: false, error: "no_phone", message_he: `אין מספר טלפון לשליחת המסרון. ${LINK_BY_REP}` };
+    }
+    const dayHe = `${day.title} – ${datesHe(day)}`; // the title already says hotel/zoom
+    const text = settings.sms.link_template.replaceAll("{day}", dayHe).replaceAll("{url}", day.purchase_url);
+    const sent = await sms.send(recipient ?? null, text);
+    if (!sent.ok) {
+      // ok:false: the contact's record doesn't get "link sent" (bot_tool_event ignores failed tools)
+      return { ok: false, error: "sms_failed", provider: sent.provider, message_he: `המסרון לא נשלח בגלל תקלה. ${LINK_BY_REP}` };
+    }
     return {
       ok: true,
       status: "sent",
-      test_mode: true, // no real SMS in Part 1
       day_id: day.id,
-      day_he: `${day.title} – ${datesHe(day)}`, // for the note on the lead (Gold); the title already says hotel/zoom
+      day_he: dayHe, // for the note on the lead (Gold)
+      sms: { sent: sent.sent, provider: sent.provider },
       ...closing(SAY_LINK_SENT),
     };
   },

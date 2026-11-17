@@ -161,12 +161,12 @@ export class Dialer {
     } catch (err) {
       return this.failure(err as Error);
     }
+    await this.countToday(now);
     if (!this.control.enabled) {
       this.state = "stopped";
       this.failures = 0;
       return idle;
     }
-    await this.countToday(now);
     if (!isWithinBusinessHours(now, settings.business_hours)) {
       this.state = "outside_hours";
       await this.peekNext(now);

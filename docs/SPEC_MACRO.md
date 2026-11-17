@@ -46,7 +46,7 @@ The five tools:
 | Tool | Input | Test-mode answer |
 |------|-------|-----------------|
 | `get_day_info` | `day_id` | Day details from the knowledge base |
-| `send_purchase_link` | `day_id` | "sent" (no real SMS) |
+| `send_purchase_link` | `day_id` | Sends the purchase link by SMS to the number on the call ("sent"; log only without SMS keys) |
 | `schedule_callback` | requested time | The time, or an alternative if outside business hours |
 | `request_human` | `reason` (closed list) | "handed to a rep" |
 | `end_call` | — | — |

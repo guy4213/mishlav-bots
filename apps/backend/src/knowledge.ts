@@ -20,6 +20,8 @@ export const StudyDayMeta = z
     price_ils: z.number().positive(),
     vat_included: z.boolean(),
     open_for_registration: z.boolean(),
+    /** Sent by SMS (send_purchase_link); the bot never sees or says it. None: the tool answers no_purchase_url. */
+    purchase_url: z.url({ protocol: /^https$/ }).optional(),
   })
   .superRefine((d, ctx) => {
     if (d.format === "zoom" && !(d.end_date && d.end_date > d.date)) {

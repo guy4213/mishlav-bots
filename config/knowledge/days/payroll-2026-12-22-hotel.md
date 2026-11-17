@@ -11,6 +11,7 @@ location: "TODO(mishlav): שם המלון והעיר"
 price_ils: 790
 vat_included: true
 open_for_registration: true
+purchase_url: "https://example.com/mishlav/purchase/payroll-2026-12-22-hotel"   # TODO(mishlav): placeholder - the real purchase link
 ---
 # סגירת שנת מס בשכר (מלון)
 

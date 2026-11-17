@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { findRepoRoot, loadSettings, type Provider, type TestSession, type ToolCallLogEntry } from "@mishlav/shared";
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../../apps/backend/src/server";
+import { LogOnlySms } from "../../apps/backend/src/sms";
 import { AUTH, FIXED_NOW, testConfig } from "../../apps/backend/test/helpers";
 import { loadLogs } from "../lib/data";
 import { loadScenarios, renderTemplate } from "../lib/scenarios";
@@ -213,7 +214,7 @@ describe("end-to-end: simulate every scenario through the real server", () => {
   it("each scenario's ideal tool calls score PASS (or PENDING on manual checks)", async () => {
     const config = testConfig();
     let clock = new Date(FIXED_NOW);
-    const app = await buildServer(config, { now: () => clock, logger: false });
+    const app = await buildServer(config, { now: () => clock, logger: false, sms: new LogOnlySms(() => {}) });
     try {
       for (const sc of scenarios) {
         await app.inject({ method: "POST", url: "/test/session", headers: AUTH, payload: { provider: "SIM", scenario: sc.id } });

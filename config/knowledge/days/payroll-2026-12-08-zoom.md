@@ -12,6 +12,7 @@ location: "בזום – הקישור נשלח לאחר ההרשמה"
 price_ils: 370
 vat_included: true
 open_for_registration: true
+purchase_url: "https://example.com/mishlav/purchase/payroll-2026-12-08-zoom"   # TODO(mishlav): placeholder - the real purchase link
 ---
 # עדכוני חקיקה בשכר לקראת 2027 (זום)
 

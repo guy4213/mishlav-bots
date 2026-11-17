@@ -15,6 +15,7 @@ import { type PhoneHolder, registerPhoneRoutes } from "./routes/phone";
 import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
 import { SessionStore } from "./sessions";
+import { type SmsSender, smsSenderFromEnv } from "./sms";
 
 export interface BuildOptions {
   now?: () => Date;
@@ -34,6 +35,8 @@ export interface BuildOptions {
    * run: start its loop when the server is ready (main.ts only; tests drive it through the routes).
    */
   dialer?: { store: DialerStore; run?: boolean };
+  /** The purchase-link SMS. Default: from the env (ZADARMA_API_KEY + ZADARMA_API_SECRET), else log only. */
+  sms?: SmsSender;
 }
 
 /** Paths without TOOLS_SECRET: health check, the dashboard's static files (no data; the page sends the secret),
@@ -119,7 +122,8 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     app.addHook("onReady", async () => dialer.run());
     app.addHook("onClose", async () => dialer.shutdown()); // the loop only: the switch in the database stays
   }
-  await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions, contacts });
+  const sms = opts.sms ?? smsSenderFromEnv(env, (text) => app.log.info(`[sms] ${text}`));
+  await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions, contacts, phone, sms });
   await registerTestRoutes(app, {
     sessions,
     toolLog,
