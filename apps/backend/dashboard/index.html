@@ -303,6 +303,7 @@
       <div id="phStatus"></div>
       <div class="form" style="margin-top:10px">
         <label>סטודנט מ-Supabase <select id="phContact"><option value="">— בלי (מספר ידני) —</option></select></label>
+        <div id="phContactCard" class="hidden" style="grid-column:1/-1"></div>
         <label>מספר טלפון <input type="text" id="phNumber" class="ltr" inputmode="tel" placeholder="0501234567"></label>
         <label>תרחיש <select id="phScenario"></select></label>
         <label>שם הלקוח (רשות) <input type="text" id="phName" placeholder="מהתרחיש"></label>
@@ -990,8 +991,43 @@ async function loadContacts() {
     $("phContact").innerHTML = `<option value="">${r.available ? "— בלי (מספר ידני) —" : "— Supabase לא מחובר —"}</option>` +
       S.ph.contacts.map((c) => `<option value="${esc(c.id)}"${c.status === "do_not_call" ? " disabled" : ""}>${esc(c.full_name ?? c.gold_record_id)} · ${esc(CONTACT_STATUS_HE[c.status] ?? c.status)}</option>`).join("");
     $("phContact").value = keep;
+    renderContactCard();
   } catch { /* the form still dials numbers */ }
 }
+
+// who the tester plays: everything Supabase has on the chosen student, before and after each call
+const REP_REASON_HE = { wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה", course_interest: "מתעניין בקורס", other: "שאלה פתוחה" };
+const GENDER_HE = { male: "גבר", female: "אישה", unknown: "לא ידוע" };
+const whenHe = (iso) => iso ? new Date(iso).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
+function renderContactCard() {
+  const c = (S.ph.contacts ?? []).find((x) => x.id === $("phContact").value);
+  show("phContactCard", Boolean(c));
+  if (!c) return;
+  const row = (k, v) => (v === null || v === undefined || v === "" ? "" : `<tr><th style="white-space:nowrap;padding-left:10px;text-align:right" class="muted small">${k}</th><td>${v}</td></tr>`);
+  const tasks = (c.rep_tasks ?? []).filter((t) => !t.done);
+  const notes = (t) => t ? esc(t).replace(/\n/g, "<br>") : null;
+  $("phContactCard").innerHTML = `<div class="banner info"><b>${esc(c.full_name ?? "")}</b> · ${esc(CONTACT_STATUS_HE[c.status] ?? c.status)}
+    <table style="margin-top:6px;width:100%">
+      ${row("קורס מבוקש", esc(c.requested_course))}
+      ${row("יום עיון", esc(c.interested_day_id))}
+      ${row("מקור", esc(c.source))}
+      ${row("עיר", esc(c.city))}
+      ${row("חברה", esc(c.company))}
+      ${row("סטטוס בגולד", esc(c.gold_status))}
+      ${row("מגדר (לבוט)", c.customer_gender ? esc(GENDER_HE[c.customer_gender]) : "ייקבע לפי השם")}
+      ${row("טלפון", `<span class="ltr">${esc(c.phone_e164 ?? c.phone)}</span>`)}
+      ${row("הערות מגולד", notes(c.gold_notes))}
+      ${row("ניסיונות", c.attempts ? String(c.attempts) : null)}
+      ${row("שיחה אחרונה", whenHe(c.last_call_at))}
+      ${row("תוצאה אחרונה", c.last_outcome ? esc(c.last_outcome === "NO_RESULT" ? "בלי תוצאה" : (OUTCOME_HE[c.last_outcome] ?? c.last_outcome)) : null)}
+      ${row("שיחה חוזרת", whenHe(c.callback_at))}
+      ${row("החיוג הבא", whenHe(c.next_call_at))}
+      ${row("משימות לנציג", tasks.length ? tasks.map((t) => `${esc(REP_REASON_HE[t.reason] ?? t.reason)} – ${whenHe(t.callback_at) ?? "בהקדם"}`).join("<br>") : null)}
+      ${row("הערות הבוט", notes(c.bot_notes))}
+    </table>
+    ${c.status === "do_not_call" ? `<div class="small" style="color:var(--bad)">ביקש לא להתקשר – אי אפשר לחייג</div>` : ""}</div>`;
+}
+$("phContact").onchange = renderContactCard;
 
 function renderPhoneForm() {
   if (!S.ph.contactsLoaded) { S.ph.contactsLoaded = true; loadContacts(); }
