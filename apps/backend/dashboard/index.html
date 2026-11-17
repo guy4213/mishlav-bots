@@ -1011,8 +1011,26 @@ const REP_REASON_HE = { wants_human: "רוצה נציג", pay_via_rep: "תשלו
 const GENDER_HE = { male: "גבר", female: "אישה", unknown: "לא ידוע" };
 const whenHe = (iso) => iso ? new Date(iso).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
 const PHONE_COL = ["phone", "phone2", "phone3"];
+// a chosen student fills the number (the phone the bot dials now) and the name from Supabase (locked); only the
+// scenario is the tester's
+function fillFromContact(c) {
+  const num = $("phNumber"), name = $("phName");
+  if (c) {
+    if (!S.ph.contactWasChosen) S.ph.manualNumber = num.value;
+    num.value = (c[PHONE_COL[(c.bot_state?.phone_index ?? 1) - 1]] ?? c.phone ?? "").replace(/^\+972/, "0");
+    name.value = c.full_name ?? "";
+  } else if (S.ph.contactWasChosen) {
+    num.value = S.ph.manualNumber ?? savedNumber();
+    name.value = "";
+  }
+  num.readOnly = name.readOnly = Boolean(c);
+  num.style.opacity = name.style.opacity = c ? "0.7" : "";
+  S.ph.contactWasChosen = Boolean(c);
+}
+
 function renderContactCard() {
   const c = (S.ph.contacts ?? []).find((x) => x.gold_record_id === $("phContact").value);
+  fillFromContact(c);
   show("phContactCard", Boolean(c));
   if (!c) return;
   const b = c.bot_state ?? {};
@@ -1132,7 +1150,8 @@ $("phDial").onclick = async () => {
   if (!number && !contactId) { $("phNote").textContent = "הכנס מספר או בחר סטודנט"; return; }
   $("phDial").disabled = true; $("phNote").textContent = "מחייג...";
   try {
-    const r = await dial(contactId ? "" : number, $("phScenario").value, $("phName").value.trim(), contactId);
+    // with a student, the server takes the number and the first name from Supabase
+    const r = contactId ? await dial("", $("phScenario").value, "", contactId) : await dial(number, $("phScenario").value, $("phName").value.trim());
     S.ph.callId = r.call_id;
     $("phTranscript").innerHTML = `<p class="muted small">מחכה שיענו...</p>`;
     $("phTools").innerHTML = `<li class="muted">עוד לא ביצע פעולות</li>`;
