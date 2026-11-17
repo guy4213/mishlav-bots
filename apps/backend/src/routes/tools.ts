@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { buildToolInputSchemas, TOOL_NAMES, type ToolCallLogEntry, type ToolName } from "@mishlav/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { z } from "zod";
+import type { ContactEvents } from "../contacts";
 import type { JsonlFile } from "../jsonl";
 import { redactDeep } from "../redact";
 import type { SessionStore } from "../sessions";
@@ -10,6 +11,8 @@ import { toolHandlers, type ToolContext, type ToolResponse } from "../tools/hand
 export interface ToolRouteDeps extends ToolContext {
   toolLog: JsonlFile;
   sessions: SessionStore;
+  /** Supabase contacts: every tool of a contact's call updates that contact (by call_id) */
+  contacts?: ContactEvents;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, 200) : null);
@@ -48,7 +51,10 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
         }
       }
 
-      logToolCall(deps, req, tool, body, response, performance.now() - started);
+      const params = logToolCall(deps, req, tool, body, response, performance.now() - started);
+      const callId = callMeta(req).call_id;
+      // after the answer is ready, not before: the bot never waits for Supabase
+      if (callId && deps.contacts) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
       return response;
     });
   }
@@ -61,7 +67,7 @@ function logToolCall(
   rawParams: unknown,
   response: ToolResponse,
   durationMs: number,
-): void {
+): unknown {
   const meta = callMeta(req);
   const session = deps.sessions.current();
   const { value: params, count } = redactDeep(rawParams);
@@ -82,4 +88,5 @@ function logToolCall(
   };
   deps.toolLog.append(entry);
   req.log.info({ tool, ok: response.ok, session: entry.session_id, call_id: entry.call_id }, "tool call");
+  return params; // card numbers already masked
 }

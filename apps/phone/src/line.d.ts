@@ -40,6 +40,8 @@ export interface CallOptions {
   scenario?: string;
   name?: string;
   day?: string;
+  /** the contact's gender when known (otherwise decided from the name before the call) */
+  gender?: "male" | "female" | "unknown";
 }
 
 export function phoneEnv(env: NodeJS.ProcessEnv, root: string): PhoneEnv;

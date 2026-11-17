@@ -145,7 +145,7 @@ export class PhoneLine extends EventEmitter {
    * Dial out. Resolves with { call_id } once the call is placed (ringing), not when it ends: listen to
    * 'ended' for that. Throws on a bad number, a busy line, or a bot that can't be prepared.
    */
-  async dial(rawNumber, { scenario, name, day } = {}) {
+  async dial(rawNumber, { scenario, name, day, gender } = {}) {
     if (!this.registered) throw new Error(this.error || 'the line is not registered with Zadarma');
     if (this.call) throw new Error('a call is already running on the line');
     const number = dialable(rawNumber);
@@ -153,7 +153,7 @@ export class PhoneLine extends EventEmitter {
     this.call = { id: callId, direction: 'out', number, scenario: scenario ?? null, started_at: new Date().toISOString(), sip: null };
     let prep;
     try {
-      prep = await this._prepare(callId, { scenario, name, day });
+      prep = await this._prepare(callId, { scenario, name, day, gender });
     } catch (err) {
       this._finish(callId, `could not prepare the bot: ${err.message}`);
       throw err;
@@ -254,12 +254,12 @@ export class PhoneLine extends EventEmitter {
   }
 
   /** One call's bot: prompt variables, Gemini session and tools client. */
-  async _prepare(callId, { scenario, name, day }) {
+  async _prepare(callId, { scenario, name, day, gender }) {
     const e = this.env;
     const tools = new ToolsClient({ baseUrl: e.baseUrl, secret: e.secret, provider: 'C', callId });
     const session = await tools.currentSession();
     if (session && session.provider !== 'C') this.log(`⚠ the active test session is for provider ${session.provider}, this line is C`, callId);
-    const ctx = await tools.callContext({ scenario, firstName: name, dayId: day });
+    const ctx = await tools.callContext({ scenario, firstName: name, dayId: day, gender });
     const setup = buildSetup({
       model: e.model,
       voice: e.voice,
