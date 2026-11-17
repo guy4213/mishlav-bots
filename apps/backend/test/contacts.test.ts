@@ -165,7 +165,7 @@ describe("Supabase contacts: which record, when", () => {
     store.failTools = true;
     const r = await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" }, { "x-call-id": "call-9" });
     expect(r.json()).toMatchObject({ ok: true, status: "sent" });
-    expect(r.json().day_he).toMatch(/[א-ת].*זום/); // the note on the lead names the day in Hebrew, not its id
+    expect(r.json().day_he).toMatch(/^[^A-Za-z]*[א-ת][^A-Za-z]*$/); // the note on the lead names the day in Hebrew, not its id
     await settle();
     const calls = await app.inject({ method: "GET", url: "/test/calls?call_id=call-9", headers: AUTH });
     expect(calls.json().count).toBe(1); // the tool call itself

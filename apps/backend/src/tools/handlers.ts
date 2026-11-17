@@ -97,7 +97,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       status: "sent",
       test_mode: true, // no real SMS in Part 1
       day_id: day.id,
-      day_he: `${day.title} – ${datesHe(day)}, ${FORMAT_HE[day.format]}`, // for the note on the lead (Gold)
+      day_he: `${day.title} – ${datesHe(day)}`, // for the note on the lead (Gold); the title already says hotel/zoom
       ...closing(SAY_LINK_SENT),
     };
   },
