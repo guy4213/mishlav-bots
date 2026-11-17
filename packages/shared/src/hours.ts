@@ -9,7 +9,7 @@ export interface BusinessHours {
   half_days: { date: string; close: string }[];
 }
 
-const toMinutes = (hhmm: string): number => {
+export const toMinutes = (hhmm: string): number => {
   const [h, m] = hhmm.split(":").map(Number);
   return (h ?? 0) * 60 + (m ?? 0);
 };

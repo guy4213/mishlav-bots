@@ -36,17 +36,20 @@ callback:
 
 # Used by the Dialer (Part 4). Declared now so the file is the single source of truth.
 dialing:
-  max_attempts: 4                 # then closed_max_attempts
+  # Calls with no result (no answer, voicemail, hung up before a result). PROPOSAL, pending Mishlav's approval.
+  # The streak counts no-result calls in a row; it restarts when the customer answers (or a wrong number moves
+  # to the next phone). On stop: never answered -> closed ("לא ענה"); answered once -> a rep (unreachable).
+  no_answer_streak_max: 4         # this many no-result calls in a row -> stop
+  max_total_calls: 8              # all calls of a contact, callbacks included -> stop after the last one
+  midday: "13:00"                 # morning = open..midday, afternoon = midday..close
+  no_answer_retry:                # the next call after the 1st, 2nd, 3rd no-result call in a row
+    - { after_hours: 5 }          # same day, at least 5 h later; outside hours -> the next opening
+    - { business_days: 1 }        # next business day, at the start of the other half of the day
+    - { business_days: 2 }        # two business days later, the other half again
   follow_up_days: 3               # rep follow-up after LINK_SENT
   max_concurrent_calls: 20        # subject to provider quotas, with backoff
   kill_switch: false              # stops new dials; active calls finish normally
   wrong_number_next_phone: true   # WRONG_NUMBER -> phone 2, then phone 3, else close
-  retry:
-    NO_ANSWER: { after_minutes: 180 }   # after end of day -> next business morning
-    BUSY:      { after_minutes: 180 }
-    VOICEMAIL: { after_minutes: 180 }
-    DROPPED:   { after_minutes: 60,  counts_as_attempt: true }
-    FAILED:    { after_minutes: 15,  counts_as_attempt: false }
 
 # Field/outcome mapping: how tool calls translate into outcomes (model proposes, backend decides).
 outcome_mapping:
@@ -92,7 +95,7 @@ gold_import:
     טלפון: phone
     טלפון 2: phone2
     טלפון 3: phone3
-    הערות: notes              # often a Google link; the bot appends its "[BOT] ..." lines
+    הערות: notes              # often a Google link; the bot appends its "[הערת הבוט] ..." lines
     עיר: city                 # "Empty" means empty
     כתובת: address
     כתובת 2: address2

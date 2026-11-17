@@ -2,12 +2,13 @@
  * The contacts in Supabase (supabase/migrations): who the bot calls, and how each call updates them.
  *
  * `contacts` is an exact copy of the Gold export (Gold's 16 columns, nothing of ours). The bot writes its results
- * into Gold's own fields (notes "[BOT] ..." lines, status); what it needs for dialing is in `bot_state`.
+ * into Gold's own fields (notes "[הערת הבוט] ..." lines, status); what it needs for dialing is in `bot_state`.
  *
  * Which record, when:
  *   1. dial a contact  -> callStarted(call_id, gold_record_id): calls row links the call to the contact (in_call)
  *   2. every tool      -> toolEvent(call_id, ...): Gold notes/status, bot_state, rep task of THAT contact
- *   3. the call ends   -> callEnded(call_id, ...): no result -> queued for a retry (or closed after the last try)
+ *   3. the call ends   -> callEnded(call_id, ...): no result -> queued for a retry; after the last try: closed, or
+ *                         a rep when the customer answered before (settings.yaml dialing, packages/shared/src/retry.ts)
  * The decisions live in SQL (bot_call_started / bot_tool_event / bot_call_ended), one transaction each. A call
  * that is not a contact's (a scenario test) has no calls row, so it changes nothing.
  * Gold pulls what the bot changed with goldChanges() (GET /api/gold/changes).
@@ -38,7 +39,12 @@ export interface Contact {
 /** The bot's side of a contact (internal: Gold never sees it). */
 export interface BotState {
   bot_status: string;
+  /** every call ever */
   attempts: number;
+  /** no-result calls in a row (0 after the customer answered, or a wrong number moved to the next phone) */
+  no_answer_streak: number;
+  /** the customer answered at least once */
+  ever_answered: boolean;
   next_call_at: string | null;
   callback_at: string | null;
   last_call_at: string | null;
@@ -62,12 +68,19 @@ export interface GoldChanges {
   contacts: Contact[];
 }
 
+/** When the bot stops calling a contact (settings.yaml dialing). */
+export interface CallLimits {
+  noAnswerStreakMax: number;
+  maxTotalCalls: number;
+}
+
 export interface ContactStore {
   list(): Promise<ContactRecord[]>;
   get(goldRecordId: string): Promise<ContactRecord | null>;
   callStarted(callId: string, goldRecordId: string): Promise<void>;
   toolEvent(callId: string, tool: string, params: unknown, result: unknown): Promise<string | null>;
-  callEnded(callId: string, durationSec: number, retryMinutes: number, maxAttempts: number): Promise<string | null>;
+  /** nextCallAt[i] = the next call if this one makes a no-answer streak of i + 1 (noAnswerRetryTimes). */
+  callEnded(callId: string, durationSec: number, nextCallAt: Date[], limits: CallLimits): Promise<string | null>;
   /** The contacts the bot changed after `since` (none: everything it ever changed). */
   goldChanges(since?: string): Promise<GoldChanges>;
 }
@@ -159,12 +172,13 @@ export class SupabaseContacts implements ContactStore {
     return this.req<string | null>("POST", "/rpc/bot_tool_event", { p_call_id: callId, p_tool: tool, p_params: params ?? {}, p_result: result });
   }
 
-  callEnded(callId: string, durationSec: number, retryMinutes: number, maxAttempts: number) {
+  callEnded(callId: string, durationSec: number, nextCallAt: Date[], limits: CallLimits) {
     return this.req<string | null>("POST", "/rpc/bot_call_ended", {
       p_call_id: callId,
       p_duration_sec: Math.round(durationSec),
-      p_retry_minutes: retryMinutes,
-      p_max_attempts: maxAttempts,
+      p_next_call_at: nextCallAt.map((t) => t.toISOString()),
+      p_no_answer_streak_max: limits.noAnswerStreakMax,
+      p_max_total_calls: limits.maxTotalCalls,
     });
   }
 

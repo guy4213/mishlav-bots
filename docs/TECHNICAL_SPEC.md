@@ -42,7 +42,7 @@ mishlav-bots/
   packages/
     shared/               types, outcome enum, tool schemas, settings schema, time + business hours
   config/
-    settings.yaml         hours, attempts, retry, outcome mapping, testing flags
+    settings.yaml         hours, no-answer retries + call limits, outcome mapping, testing flags
     prompt.md             the agent prompt (same for all providers, Hebrew)
     knowledge/            study-day knowledge base (Hebrew)
       general.md
@@ -332,14 +332,24 @@ with secret header + `X-Call-Id: {{system__conversation_id}}` + `X-Provider: A`.
 
 **Part 4 (shared).** Supabase schema (`supabase/migrations`): `contacts` is an exact copy of the Gold
 export (its 16 columns, keyed by `gold_record_id`, nothing of ours); the bot writes its results only into
-Gold's own fields (a `[BOT] DD.MM.YYYY HH:MI ...` line appended to `notes`, the `status` text from
+Gold's own fields (a `[הערת הבוט] DD.MM.YYYY HH:MI – ...` line appended to `notes`, all Hebrew, the `status` text from
 `gold_status_text()`). Internal tables Gold never sees: `bot_state` (bot status, attempts, next dial,
-`phone_index` = which of the three phones, `gold_changed_at`), `calls`, `rep_tasks`. The dial number
+`phone_index` = which of the three phones, `no_answer_streak`, `ever_answered`, `gold_changed_at`), `calls`,
+`rep_tasks`. Retries (`settings.dialing`; the cadence is a proposal pending Mishlav's approval): `attempts`
+counts every call; `no_answer_streak` counts calls in a row with no result and restarts when the customer answers
+(a successful `get_day_info` / `send_purchase_link` / `schedule_callback` / `request_human`, or `end_call` other
+than voicemail / wrong_number) or a wrong number moves to the next phone. After a no-result call the next dial is
+`no_answer_retry[streak]`: 5 h later the same day, then the next business day, then two business days later, both
+at the start of the other half of the day (`midday` 13:00; holidays / half days from `business_hours`). The backend
+computes the three times (`noAnswerRetryTimes`, packages/shared/src/retry.ts) and `bot_call_ended` picks one by
+the new streak. It stops at `no_answer_streak_max` (4) in a row or `max_total_calls` (8) in all (callbacks
+included; after the 8th call even a fresh callback stops): never answered -> `closed_max_attempts` (Gold "לא ענה"),
+answered once -> `hot_lead` + a rep task `unreachable` (at the customer's callback time if still ahead). The dial number
 (+972…) and first name are derived from Gold's columns at dial time. Still to come: `block_list, imports,
 audit_log`; RLS on all; three projects. Dialer: `SELECT … FOR UPDATE SKIP
 LOCKED` claim, concurrency ≤ 20 with backoff, block-list check + `call_id → contact_id` insert before
-dial, retry rules from `settings.dialing`, kill switch. Tools API: same routes, real logic, identity from
-`call_id`, `[BOT]` notes, credit-card deletion. Export feed: `GET /api/gold/changes?since=` with `X-Api-Key` (`GOLD_API_KEY`)
+dial, picks `bot_status in (new, queued, callback)` with `next_call_at` null or passed, kill switch. Tools API: same routes, real logic, identity from
+`call_id`, `[הערת הבוט]` notes, credit-card deletion. Export feed: `GET /api/gold/changes?since=` with `X-Api-Key` (`GOLD_API_KEY`)
 returns the contacts whose `gold_changed_at` > since, only the 16 Excel columns under the Excel's Hebrew
 headers (`gold_import.columns` inverted; the record id under `gold_import.record_id_key`), plus `until`.
 Notifier: WhatsApp/email on `HOT_LEAD`/`COMPANY`. `MockProvider` implements `VoiceProvider` with

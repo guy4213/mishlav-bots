@@ -9,10 +9,11 @@ import { WEEKDAYS } from "./time";
 const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected HH:MM");
 const YMD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
 
-const RetryRule = z.object({
-  after_minutes: z.number().int().positive(),
-  counts_as_attempt: z.boolean().default(true),
-});
+/** The next call after a no-result call (packages/shared/src/retry.ts). */
+const NoAnswerRetry = z.union([
+  z.strictObject({ after_hours: z.number().positive() }),
+  z.strictObject({ business_days: z.number().int().positive() }),
+]);
 
 export const Settings = z.object({
   business_hours: z.object({
@@ -27,14 +28,21 @@ export const Settings = z.object({
     min_lead_minutes: z.number().int().nonnegative().default(5),
     max_days_ahead: z.number().int().positive().default(60),
   }),
-  dialing: z.object({
-    max_attempts: z.number().int().positive(),
-    follow_up_days: z.number().int().positive(),
-    max_concurrent_calls: z.number().int().positive(),
-    kill_switch: z.boolean().default(false),
-    retry: z.partialRecord(Outcome, RetryRule),
-    wrong_number_next_phone: z.boolean().default(true),
-  }),
+  dialing: z
+    .object({
+      no_answer_streak_max: z.number().int().positive(),
+      max_total_calls: z.number().int().positive(),
+      midday: HHMM,
+      no_answer_retry: z.array(NoAnswerRetry).min(1),
+      follow_up_days: z.number().int().positive(),
+      max_concurrent_calls: z.number().int().positive(),
+      kill_switch: z.boolean().default(false),
+      wrong_number_next_phone: z.boolean().default(true),
+    })
+    .refine((d) => d.no_answer_retry.length >= d.no_answer_streak_max - 1, {
+      message: "no_answer_retry needs an entry for every streak below no_answer_streak_max",
+      path: ["no_answer_retry"],
+    }),
   outcome_mapping: z.object({
     request_human: z.record(z.enum(REQUEST_HUMAN_REASONS), Outcome),
     end_call: z.record(z.enum(END_CALL_REASONS), Outcome.nullable()),

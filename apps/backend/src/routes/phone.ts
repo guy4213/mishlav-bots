@@ -3,7 +3,7 @@
  * follows the call live. The line itself is started by main.ts after the server listens (it checks the
  * server first); until then, or without ZADARMA_SIP_* in the env, `holder.line` is null.
  */
-import type { Settings } from "@mishlav/shared";
+import { noAnswerRetryTimes, type Settings } from "@mishlav/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PhoneLine } from "../../../phone/src/line.js";
@@ -114,13 +114,14 @@ function trackContactCall(
 ) {
   const events = deps.contacts!;
   const startedAt = Date.now();
-  const retry = deps.settings.dialing.retry.NO_ANSWER?.after_minutes ?? 180;
+  const { dialing, business_hours } = deps.settings;
+  const limits = { noAnswerStreakMax: dialing.no_answer_streak_max, maxTotalCalls: dialing.max_total_calls };
   const finish = (at: number) => {
     line.off("ended", onEnded);
     line.off("ended", waitEnd);
-    void events.run(callId, "call ended", (s) =>
-      s.callEnded(callId, (at - startedAt) / 1000, retry, deps.settings.dialing.max_attempts),
-    );
+    // the next call for each streak this call can make; SQL picks by the contact's new streak
+    const nextCallAt = noAnswerRetryTimes(new Date(at), business_hours, dialing);
+    void events.run(callId, "call ended", (s) => s.callEnded(callId, (at - startedAt) / 1000, nextCallAt, limits));
   };
   const waitEnd = (e: { call_id: string }) => {
     if (e.call_id === callId) finish(Date.now());

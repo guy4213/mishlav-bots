@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import {
+  type CallLimits,
   type Contact,
   ContactEvents,
   type ContactRecord,
@@ -36,6 +37,8 @@ const CONTACT: ContactRecord = {
   bot_state: {
     bot_status: "new",
     attempts: 0,
+    no_answer_streak: 0,
+    ever_answered: false,
     next_call_at: null,
     callback_at: null,
     last_call_at: null,
@@ -53,7 +56,7 @@ class FakeStore implements ContactStore {
   log: unknown[][] = [];
   failTools = false;
   contacts = new Map([[ID, CONTACT]]);
-  changes: Contact[] = [{ ...GOLD, notes: `${GOLD.notes}\n[BOT] 08.11.2026 10:00 נשלח קישור לרכישה: d`, status: "נשלח קישור" }];
+  changes: Contact[] = [{ ...GOLD, notes: `${GOLD.notes}\n[הערת הבוט] 08.11.2026 10:00 – נשלח קישור לרכישה: d`, status: "נשלח קישור" }];
   async list() {
     return [...this.contacts.values()];
   }
@@ -69,8 +72,8 @@ class FakeStore implements ContactStore {
     this.log.push(["tool", callId, tool, params, (result as { status?: string }).status]);
     return null;
   }
-  async callEnded(callId: string, sec: number, retry: number, max: number) {
-    this.log.push(["ended", callId, retry, max]);
+  async callEnded(callId: string, sec: number, nextCallAt: Date[], limits: CallLimits) {
+    this.log.push(["ended", callId, nextCallAt, limits]);
     return null;
   }
   async goldChanges(since?: string) {
@@ -141,9 +144,13 @@ describe("Supabase contacts: which record, when", () => {
       ["tool", "call-1", "request_human", "waiting_for_time"],
       ["tool", "call-1", "request_human", "handed_to_rep"],
       ["tool", "call-1", "end_call", "ending"],
-      ["ended", "call-1", 180], // settings: NO_ANSWER retry 180 min, max 4 attempts
+      ["ended", "call-1", expect.any(Array)],
     ]);
-    expect(store.log[4]).toEqual(["ended", "call-1", 180, 4]);
+    // the next call for a streak of 1, 2, 3 (settings: dialing.no_answer_retry) and the two limits
+    const [, , nextCallAt, limits] = store.log[4] as [string, string, Date[], CallLimits];
+    expect(nextCallAt).toHaveLength(3);
+    expect(nextCallAt.every((t) => t.getTime() > Date.now())).toBe(true);
+    expect(limits).toEqual({ noAnswerStreakMax: 4, maxTotalCalls: 8 });
   });
 
   it("a call that is not a contact's (no x-call-id) writes nothing", async () => {
@@ -158,6 +165,7 @@ describe("Supabase contacts: which record, when", () => {
     store.failTools = true;
     const r = await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" }, { "x-call-id": "call-9" });
     expect(r.json()).toMatchObject({ ok: true, status: "sent" });
+    expect(r.json().day_he).toMatch(/[א-ת].*זום/); // the note on the lead names the day in Hebrew, not its id
     await settle();
     const calls = await app.inject({ method: "GET", url: "/test/calls?call_id=call-9", headers: AUTH });
     expect(calls.json().count).toBe(1); // the tool call itself
@@ -196,6 +204,15 @@ describe("Supabase contacts: which record, when", () => {
     expect((sent[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer service-key");
     await s.callStarted("call-1", ID);
     expect(JSON.parse(sent[1]!.init.body as string)).toEqual({ p_call_id: "call-1", p_gold_record_id: ID });
+    await s.callEnded("call-1", 12.4, [new Date("2026-11-17T13:00:00Z")], { noAnswerStreakMax: 4, maxTotalCalls: 8 });
+    expect(sent[2]!.url).toBe("https://x.supabase.co/rest/v1/rpc/bot_call_ended");
+    expect(JSON.parse(sent[2]!.init.body as string)).toEqual({
+      p_call_id: "call-1",
+      p_duration_sec: 12,
+      p_next_call_at: ["2026-11-17T13:00:00.000Z"],
+      p_no_answer_streak_max: 4,
+      p_max_total_calls: 8,
+    });
   });
 
   it("phone and name come from Gold's columns at dial time", () => {
@@ -237,7 +254,7 @@ describe("Gold pulls the bot's changes (GET /api/gold/changes)", () => {
     expect(headers).toHaveLength(16);
     expect(Object.keys(body.contacts[0])).toEqual(headers);
     expect(body.contacts[0]).toMatchObject({ מזהה: ID, "שם מלא": "רועי כהן", טלפון: "053-4271418", סטטוס: "נשלח קישור" });
-    expect(body.contacts[0]["הערות"]).toBe("ביקש שיחזרו אחרי 16:00\n[BOT] 08.11.2026 10:00 נשלח קישור לרכישה: d");
+    expect(body.contacts[0]["הערות"]).toBe("ביקש שיחזרו אחרי 16:00\n[הערת הבוט] 08.11.2026 10:00 – נשלח קישור לרכישה: d");
   });
 
   it("no `since`: everything the bot ever changed; a bad `since` is refused", async () => {

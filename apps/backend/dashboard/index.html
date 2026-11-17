@@ -313,7 +313,7 @@
         <button class="btn red" id="phHangup" disabled>⏹ נתק</button>
       </div>
       <p class="small" id="phNote"></p>
-      <p class="small muted">שיחה לסטודנט מ-Supabase כותבת לשדות של גולד עצמם (שורת [BOT] בסוף ה"הערות" ו"סטטוס") ומעדכנת את המצב הפנימי של הבוט (שיחה חוזרת, משימה לנציג, הטלפון הבא). שיחה מכאן לא נספרת בתוצאות. לבדיקה שנספרת: לשונית "בדיקה" ← ספק ג׳ ← "מהטלפון". הלוג המלא של הקו – בלשונית <a href="#" data-goto="logs">📜 לוגים</a>.</p>
+      <p class="small muted">שיחה לסטודנט מ-Supabase כותבת לשדות של גולד עצמם (שורת [הערת הבוט] בסוף ה"הערות" ו"סטטוס") ומעדכנת את המצב הפנימי של הבוט (שיחה חוזרת, משימה לנציג, הטלפון הבא). שיחה מכאן לא נספרת בתוצאות. לבדיקה שנספרת: לשונית "בדיקה" ← ספק ג׳ ← "מהטלפון". הלוג המלא של הקו – בלשונית <a href="#" data-goto="logs">📜 לוגים</a>.</p>
     </div>
     <div class="two">
       <div class="card">
@@ -1007,7 +1007,7 @@ async function loadContacts() {
 }
 
 // who the tester plays: everything Supabase has on the chosen student, before and after each call
-const REP_REASON_HE = { wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה", course_interest: "מתעניין בקורס", other: "שאלה פתוחה" };
+const REP_REASON_HE = { wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה", course_interest: "מתעניין בקורס", other: "שאלה פתוחה", unreachable: "ביקש שנחזור ולא השגנו" };
 const GENDER_HE = { male: "גבר", female: "אישה", unknown: "לא ידוע" };
 const whenHe = (iso) => iso ? new Date(iso).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
 const PHONE_COL = ["phone", "phone2", "phone3"];
@@ -1056,7 +1056,8 @@ function renderContactCard() {
       ${row("מחייגים ל", dialing ? `${pi === 1 ? "טלפון" : `טלפון ${pi}`} · <span class="ltr">${esc(dialing)}</span>` : "אין מספר")}
       ${row("יום עיון", esc(b.interested_day_id))}
       ${row("מגדר (לבוט)", b.customer_gender ? esc(GENDER_HE[b.customer_gender]) : "ייקבע לפי השם")}
-      ${row("ניסיונות", b.attempts ? String(b.attempts) : null)}
+      ${row("ניסיונות", b.attempts ? `${b.attempts}${b.no_answer_streak ? ` · ${b.no_answer_streak} ברצף בלי מענה` : ""}` : null)}
+      ${row("ענה בעבר", b.ever_answered ? "כן" : null)}
       ${row("שיחה אחרונה", whenHe(b.last_call_at))}
       ${row("תוצאה אחרונה", b.last_outcome ? esc(b.last_outcome === "NO_RESULT" ? "בלי תוצאה" : (OUTCOME_HE[b.last_outcome] ?? b.last_outcome)) : null)}
       ${row("שיחה חוזרת", whenHe(b.callback_at))}

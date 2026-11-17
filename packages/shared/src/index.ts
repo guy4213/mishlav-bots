@@ -4,4 +4,5 @@ export * from "./call";
 export * from "./log";
 export * from "./time";
 export * from "./hours";
+export * from "./retry";
 export * from "./settings";
