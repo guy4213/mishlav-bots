@@ -50,6 +50,10 @@ export const Settings = z.object({
       cost_close_pct: z.number().nonnegative(),
     }),
   }),
+  /** Gold export header -> `contacts` column (supabase/migrations). "" = the first column, which has no header. */
+  gold_import: z
+    .object({ sheet: z.string().optional(), columns: z.record(z.string(), z.string()) })
+    .default({ columns: {} }),
 });
 export type Settings = z.infer<typeof Settings>;
 
