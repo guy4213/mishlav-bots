@@ -42,6 +42,8 @@ export interface CallOptions {
   day?: string;
   /** the contact's gender when known (otherwise decided from the name before the call) */
   gender?: "male" | "female" | "unknown";
+  /** no answer by then: cancel (ends like any unanswered call). Outgoing calls only. */
+  ringTimeoutMs?: number;
 }
 
 export function phoneEnv(env: NodeJS.ProcessEnv, root: string): PhoneEnv;
@@ -55,5 +57,7 @@ export class PhoneLine extends EventEmitter {
   start(): Promise<void>;
   stop(): Promise<void>;
   hangup(): Promise<boolean>;
+  /** The number of the running call, if it is `callId` (else null). */
+  numberFor(callId: string): string | null;
   dial(number: string, opts?: CallOptions): Promise<{ call_id: string }>;
 }

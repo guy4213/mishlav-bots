@@ -88,13 +88,16 @@ async function main() {
   const config = loadAppConfig();
   const phone: PhoneHolder = { line: null, reason: "starting" };
   const googleKey = process.env.GOOGLE_API_KEY;
+  const contacts = contactStoreFromEnv(process.env);
   const app = await buildServer(config, {
     logger: { level: process.env.LOG_LEVEL ?? "info" },
     phone,
     // the customer's gender from the first name, once before each call (no key: neutral wording)
     classifyGender: googleKey ? geminiGenderClassifier({ apiKey: googleKey }) : undefined,
     // the contacts the bot calls and updates (none without SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)
-    contacts: contactStoreFromEnv(process.env),
+    contacts,
+    // the automatic dialer: on/off in Supabase (starts off; the dashboard turns it on); its loop runs from now on
+    dialer: contacts && { store: contacts, run: true },
   });
   await app.listen({ port: config.port, host: config.host });
   // in the background: registration takes a few seconds and must not hold the server (or Render's port check)
@@ -117,11 +120,13 @@ async function main() {
   console.log("  auth:    header X-Tools-Secret: <TOOLS_SECRET>");
   console.log(`  gold:    ${base}/api/gold/changes?since=<ISO> ${process.env.GOLD_API_KEY ? "(header X-Api-Key: <GOLD_API_KEY>)" : "off (GOLD_API_KEY not set)"}`);
   console.log(`  dashboard: ${base}/dashboard`);
-  console.log(`  phone:   ${phone.line ? "Zadarma line registered" : (phone.reason ?? "off")}\n`);
+  console.log(`  phone:   ${phone.line ? "Zadarma line registered" : (phone.reason ?? "off")}`);
+  const only = process.env.DIALER_ONLY_NUMBERS?.trim() ? " · only DIALER_ONLY_NUMBERS" : "";
+  console.log(`  dialer:  ${contacts ? `on/off from the dashboard (${base}/api/admin/dialer)${only}` : "off (no Supabase)"}\n`);
 
   const shutdown = async () => {
+    await app.close(); // ends the dialer's loop first (its switch in Supabase stays as it is)
     await phone.line?.stop(); // unregister, so incoming calls don't ring a dead address
-    await app.close();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

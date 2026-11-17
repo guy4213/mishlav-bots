@@ -68,6 +68,38 @@ export interface GoldChanges {
   contacts: Contact[];
 }
 
+/** Where a call came from: the automatic dialer, or a test from the dashboard (calls.origin). */
+export type CallOrigin = "dialer" | "manual";
+
+/** The dialer's on/off switch (table dialer_control): it survives restarts and deploys. */
+export interface DialerControl {
+  enabled: boolean;
+  changed_at: string;
+  reason: string | null;
+}
+
+/** A contact in the dialing queue (bot_next_due). */
+export interface QueuedContact {
+  gold_record_id: string;
+  bot_status: string;
+  next_call_at: string | null;
+}
+
+/** What the automatic dialer (dialer.ts) reads and writes, besides the contacts themselves. */
+export interface DialerStore {
+  get(goldRecordId: string): Promise<ContactRecord | null>;
+  dialerControl(): Promise<DialerControl>;
+  setDialer(enabled: boolean, reason: string | null): Promise<DialerControl>;
+  /** The next contact to dial at `now` (callbacks, then retries, then new), skipping `skip`. */
+  nextDue(now: Date, skip: string[]): Promise<QueuedContact | null>;
+  /** The first contact whose time comes after `now` (for the dashboard, when nothing is due). */
+  nextScheduled(now: Date): Promise<QueuedContact | null>;
+  /** No valid phone: out of the queue as a wrong number. Returns the contact's status after it. */
+  markNoPhone(goldRecordId: string): Promise<string | null>;
+  /** How many calls of this origin started since `since`. */
+  callsSince(since: Date, origin: CallOrigin): Promise<number>;
+}
+
 /** When the bot stops calling a contact (settings.yaml dialing). */
 export interface CallLimits {
   noAnswerStreakMax: number;
@@ -77,7 +109,7 @@ export interface CallLimits {
 export interface ContactStore {
   list(): Promise<ContactRecord[]>;
   get(goldRecordId: string): Promise<ContactRecord | null>;
-  callStarted(callId: string, goldRecordId: string): Promise<void>;
+  callStarted(callId: string, goldRecordId: string, origin?: CallOrigin): Promise<void>;
   toolEvent(callId: string, tool: string, params: unknown, result: unknown): Promise<string | null>;
   /** nextCallAt[i] = the next call if this one makes a no-answer streak of i + 1 (noAnswerRetryTimes). */
   callEnded(callId: string, durationSec: number, nextCallAt: Date[], limits: CallLimits): Promise<string | null>;
@@ -126,7 +158,7 @@ function normalise(c: ContactRecord): ContactRecord {
 }
 
 /** Supabase over its REST API (PostgREST), with the service role key - the only role the tables let in. */
-export class SupabaseContacts implements ContactStore {
+export class SupabaseContacts implements ContactStore, DialerStore {
   private readonly base: string;
   constructor(
     url: string,
@@ -164,8 +196,8 @@ export class SupabaseContacts implements ContactStore {
     return rows[0] ? normalise(rows[0]) : null;
   }
 
-  async callStarted(callId: string, goldRecordId: string) {
-    await this.req("POST", "/rpc/bot_call_started", { p_call_id: callId, p_gold_record_id: goldRecordId });
+  async callStarted(callId: string, goldRecordId: string, origin: CallOrigin = "manual") {
+    await this.req("POST", "/rpc/bot_call_started", { p_call_id: callId, p_gold_record_id: goldRecordId, p_origin: origin });
   }
 
   toolEvent(callId: string, tool: string, params: unknown, result: unknown) {
@@ -184,6 +216,42 @@ export class SupabaseContacts implements ContactStore {
 
   goldChanges(since?: string) {
     return this.req<GoldChanges>("POST", "/rpc/gold_changes", { p_since: since ?? null });
+  }
+
+  async dialerControl() {
+    const rows = await this.req<DialerControl[]>("GET", "/dialer_control?select=enabled,changed_at,reason");
+    if (!rows[0]) throw new Error("dialer_control has no row (supabase/migrations)");
+    return rows[0];
+  }
+
+  setDialer(enabled: boolean, reason: string | null) {
+    return this.req<DialerControl>("POST", "/rpc/dialer_set", { p_enabled: enabled, p_reason: reason });
+  }
+
+  async nextDue(now: Date, skip: string[]) {
+    const rows = await this.req<QueuedContact[]>("POST", "/rpc/bot_next_due", { p_now: now.toISOString(), p_skip: skip });
+    return rows[0] ?? null;
+  }
+
+  async nextScheduled(now: Date) {
+    const rows = await this.req<QueuedContact[]>(
+      "GET",
+      `/bot_state?select=gold_record_id,bot_status,next_call_at&bot_status=in.(new,queued,callback)` +
+        `&next_call_at=gt.${encodeURIComponent(now.toISOString())}&order=next_call_at.asc,gold_record_id.asc&limit=1`,
+    );
+    return rows[0] ?? null;
+  }
+
+  markNoPhone(goldRecordId: string) {
+    return this.req<string | null>("POST", "/rpc/bot_mark_no_phone", { p_gold_record_id: goldRecordId });
+  }
+
+  async callsSince(since: Date, origin: CallOrigin) {
+    const rows = await this.req<unknown[]>(
+      "GET",
+      `/calls?select=call_id&origin=eq.${origin}&started_at=gte.${encodeURIComponent(since.toISOString())}`,
+    );
+    return rows.length;
   }
 }
 
@@ -216,7 +284,7 @@ export class ContactEvents {
 }
 
 /** From the env: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, else no contacts (scenario tests only). */
-export function contactStoreFromEnv(env: NodeJS.ProcessEnv): ContactStore | undefined {
+export function contactStoreFromEnv(env: NodeJS.ProcessEnv): SupabaseContacts | undefined {
   const url = env.SUPABASE_URL?.trim();
   const key = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   return url && key ? new SupabaseContacts(url, key) : undefined;

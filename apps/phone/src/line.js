@@ -133,6 +133,11 @@ export class PhoneLine extends EventEmitter {
     this.registered = false;
   }
 
+  /** The number of the call on the line now, if it is `callId` (the purchase-link SMS of a scenario call). */
+  numberFor(callId) {
+    return this.call && this.call.id === callId ? this.call.number : null;
+  }
+
   /** Hang up the running call (from the dashboard). */
   async hangup() {
     if (!this.call?.sip) return false;
@@ -144,8 +149,9 @@ export class PhoneLine extends EventEmitter {
   /**
    * Dial out. Resolves with { call_id } once the call is placed (ringing), not when it ends: listen to
    * 'ended' for that. Throws on a bad number, a busy line, or a bot that can't be prepared.
+   * ringTimeoutMs: no answer by then -> the call is cancelled and ends like any unanswered call.
    */
-  async dial(rawNumber, { scenario, name, day, gender } = {}) {
+  async dial(rawNumber, { scenario, name, day, gender, ringTimeoutMs } = {}) {
     if (!this.registered) throw new Error(this.error || 'the line is not registered with Zadarma');
     if (this.call) throw new Error('a call is already running on the line');
     const number = dialable(rawNumber);
@@ -160,14 +166,14 @@ export class PhoneLine extends EventEmitter {
     }
     this.call.scenario = prep.scenario;
     this.emit('call', this.status());
-    this._dialOut(number, prep).catch((err) => {
+    this._dialOut(number, prep, ringTimeoutMs).catch((err) => {
       this.log(`❌ ${err.message}`, callId);
       this._finish(callId, err.message);
     });
     return { call_id: callId };
   }
 
-  async _dialOut(number, prep) {
+  async _dialOut(number, prep, ringTimeoutMs) {
     const rtp = new RtpSession();
     await rtp.open();
     const ready = prep.agent.connect(); // connect to Gemini while the phone rings
@@ -180,13 +186,24 @@ export class PhoneLine extends EventEmitter {
       this.log(status === 183 ? 'ringing (183)…' : 'ringing…', prep.callId);
       if (sdp?.port) rtp.setRemote(sdp.ip, sdp.port, pickCodec(sdp.payloads) ?? 8);
     });
+    // Without it an unanswered INVITE waits for the SIP transaction (3 minutes): cancel it, as a hangup would
+    let rangOut = false;
+    const ringTimer =
+      ringTimeoutMs > 0 &&
+      setTimeout(() => {
+        rangOut = true;
+        this.log(`no answer after ${Math.round(ringTimeoutMs / 1000)}s: cancelling`, prep.callId);
+        call.hangup().catch(() => {});
+      }, ringTimeoutMs);
     let answer;
     try {
       answer = await call.answered;
     } catch (err) {
       prep.agent.end();
       rtp.close();
-      throw new Error(`the call did not connect: ${err.message}`);
+      throw new Error(rangOut ? `no answer (${Math.round(ringTimeoutMs / 1000)}s)` : `the call did not connect: ${err.message}`);
+    } finally {
+      clearTimeout(ringTimer);
     }
     try {
       await ready;

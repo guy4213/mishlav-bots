@@ -346,9 +346,13 @@ the new streak. It stops at `no_answer_streak_max` (4) in a row or `max_total_ca
 included; after the 8th call even a fresh callback stops): never answered -> `closed_max_attempts` (Gold "לא ענה"),
 answered once -> `hot_lead` + a rep task `unreachable` (at the customer's callback time if still ahead). The dial number
 (+972…) and first name are derived from Gold's columns at dial time. Still to come: `block_list, imports,
-audit_log`; RLS on all; three projects. Dialer: `SELECT … FOR UPDATE SKIP
-LOCKED` claim, concurrency ≤ 20 with backoff, block-list check + `call_id → contact_id` insert before
-dial, picks `bot_status in (new, queued, callback)` with `next_call_at` null or passed, kill switch. Tools API: same routes, real logic, identity from
+audit_log`; RLS on all; three projects. Dialer (`apps/backend/src/dialer.ts`, one call at a time - the phone
+line holds one): on/off in `dialer_control` (survives deploys, starts off; `POST /api/admin/dialer/start|stop`),
+every `dialing.tick_s`: on -> business hours -> line registered and free -> `bot_next_due(now)` (callback, then
+queued by time, then new) -> no valid phone: `bot_mark_no_phone` -> `DIALER_ONLY_NUMBERS` (tests) -> dial (the
+shared `dialContact`, `calls.origin = 'dialer'`, ring timeout `dialing.ring_timeout_s`) -> wait for the end ->
+`pause_between_calls_s`. Three system failures in a row turn it off with the reason. Still to come: concurrency
+(`SELECT … FOR UPDATE SKIP LOCKED` claim, ≤ 20 with backoff), which needs more than one line. Tools API: same routes, real logic, identity from
 `call_id`, `[הערת הבוט]` notes, credit-card deletion. Export feed: `GET /api/gold/changes?since=` with `X-Api-Key` (`GOLD_API_KEY`)
 returns the contacts whose `gold_changed_at` > since, only the 16 Excel columns under the Excel's Hebrew
 headers (`gold_import.columns` inverted; the record id under `gold_import.record_id_key`), plus `until`.

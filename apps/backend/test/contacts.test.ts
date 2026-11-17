@@ -63,9 +63,9 @@ class FakeStore implements ContactStore {
   async get(id: string) {
     return this.contacts.get(id) ?? null;
   }
-  async callStarted(callId: string, goldRecordId: string) {
+  async callStarted(callId: string, goldRecordId: string, origin?: string) {
     await new Promise((r) => setTimeout(r, 30)); // slower than the tool calls after it: order must still hold
-    this.log.push(["started", callId, goldRecordId]);
+    this.log.push(["started", callId, goldRecordId, origin]);
   }
   async toolEvent(callId: string, tool: string, params: unknown, result: unknown) {
     if (this.failTools) throw new Error("supabase down");
@@ -118,16 +118,17 @@ describe("Supabase contacts: which record, when", () => {
     const { store, line, post } = await setup();
     const r = await post("/test/phone/call", { contact_id: ID });
     expect(r.json()).toMatchObject({ ok: true, call_id: "call-1", contact_id: ID });
-    expect(line.dialed).toEqual([["+972534271418", { name: "רועי" }]]);
+    // every call rings at most dialing.ring_timeout_s, then ends like a no-answer
+    expect(line.dialed).toEqual([["+972534271418", { name: "רועי", ringTimeoutMs: 40_000 }]]);
     await settle();
-    expect(store.log).toEqual([["started", "call-1", ID]]);
+    expect(store.log).toEqual([["started", "call-1", ID, "manual"]]);
   });
 
   it("after a wrong number it dials the next phone (bot_state.phone_index)", async () => {
     const { store, line, post } = await setup();
     store.contacts.set(ID, { ...CONTACT, bot_state: { ...CONTACT.bot_state!, phone_index: 2 } });
     await post("/test/phone/call", { contact_id: ID });
-    expect(line.dialed).toEqual([["+972541112222", { name: "רועי" }]]);
+    expect(line.dialed).toEqual([["+972541112222", { name: "רועי", ringTimeoutMs: 40_000 }]]);
   });
 
   it("every tool of that call updates the same contact, in order, and the end closes it", async () => {
@@ -203,7 +204,7 @@ describe("Supabase contacts: which record, when", () => {
     expect(JSON.parse(sent[0]!.init.body as string)).toEqual({ p_call_id: "call-1", p_tool: "send_purchase_link", p_params: { day_id: "d" }, p_result: { ok: true } });
     expect((sent[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer service-key");
     await s.callStarted("call-1", ID);
-    expect(JSON.parse(sent[1]!.init.body as string)).toEqual({ p_call_id: "call-1", p_gold_record_id: ID });
+    expect(JSON.parse(sent[1]!.init.body as string)).toEqual({ p_call_id: "call-1", p_gold_record_id: ID, p_origin: "manual" });
     await s.callEnded("call-1", 12.4, [new Date("2026-11-17T13:00:00Z")], { noAnswerStreakMax: 4, maxTotalCalls: 8 });
     expect(sent[2]!.url).toBe("https://x.supabase.co/rest/v1/rpc/bot_call_ended");
     expect(JSON.parse(sent[2]!.init.body as string)).toEqual({

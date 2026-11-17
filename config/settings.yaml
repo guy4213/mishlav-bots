@@ -34,7 +34,8 @@ callback:
   min_lead_minutes: 5      # a callback must be at least this far in the future ("in 10 minutes" is common)
   max_days_ahead: 60       # beyond this the tool refuses (too_far)
 
-# Used by the Dialer (Part 4). Declared now so the file is the single source of truth.
+# Retries (packages/shared/src/retry.ts) and the automatic dialer (apps/backend/src/dialer.ts).
+# The dialer's on/off switch is in the database (dialer_control), not here: the dashboard starts and stops it.
 dialing:
   # Calls with no result (no answer, voicemail, hung up before a result). PROPOSAL, pending Mishlav's approval.
   # The streak counts no-result calls in a row; it restarts when the customer answers (or a wrong number moves
@@ -47,9 +48,16 @@ dialing:
     - { business_days: 1 }        # next business day, at the start of the other half of the day
     - { business_days: 2 }        # two business days later, the other half again
   follow_up_days: 3               # rep follow-up after LINK_SENT
-  max_concurrent_calls: 20        # subject to provider quotas, with backoff
-  kill_switch: false              # stops new dials; active calls finish normally
+  max_concurrent_calls: 20        # not used yet: the phone line holds one call at a time, so the dialer does too
   wrong_number_next_phone: true   # WRONG_NUMBER -> phone 2, then phone 3, else close
+  ring_timeout_s: 40              # no answer by then -> cancel; ends like any no-answer (manual and dialer calls)
+  pause_between_calls_s: 5        # the dialer waits this long after a call before the next one
+  tick_s: 10                      # how often the dialer looks for work (on/off, hours, line, queue)
+
+# The purchase link the bot sends (send_purchase_link). {day} = the study day in Hebrew, {url} = its purchase_url
+# (config/knowledge/days/*.md). TODO(mishlav): the final wording and the sender name.
+sms:
+  link_template: "משלב: קישור לרכישת {day}: {url}"
 
 # Field/outcome mapping: how tool calls translate into outcomes (model proposes, backend decides).
 outcome_mapping:

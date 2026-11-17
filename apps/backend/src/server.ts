@@ -3,10 +3,12 @@ import { LOG_FILES } from "@mishlav/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
-import { ContactEvents, type ContactStore } from "./contacts";
+import { ContactEvents, type ContactStore, type DialerStore } from "./contacts";
+import { Dialer, parseOnlyNumbers } from "./dialer";
 import type { GenderClassifier } from "./gender";
 import { JsonlFile } from "./jsonl";
 import { loadKnowledge } from "./knowledge";
+import { registerAdminRoutes } from "./routes/admin";
 import { registerDashboardRoutes } from "./routes/dashboard";
 import { GOLD_CHANGES_PATH, registerGoldRoutes } from "./routes/gold";
 import { type PhoneHolder, registerPhoneRoutes } from "./routes/phone";
@@ -27,6 +29,11 @@ export interface BuildOptions {
   contacts?: ContactStore;
   /** Customer gender from the first name before a call (main.ts: Gemini). None: "unknown" (neutral wording). */
   classifyGender?: GenderClassifier;
+  /**
+   * The automatic dialer (dialer.ts), with `contacts`: its switch and queue in Supabase (main.ts: the same store).
+   * run: start its loop when the server is ready (main.ts only; tests drive it through the routes).
+   */
+  dialer?: { store: DialerStore; run?: boolean };
 }
 
 /** Paths without TOOLS_SECRET: health check, the dashboard's static files (no data; the page sends the secret),
@@ -94,6 +101,24 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
         app.log.error({ err, call_id: callId, what }, "supabase update failed");
       })
     : undefined;
+  const phone = opts.phone ?? { line: null, reason: "not started" };
+  const env = opts.env ?? process.env;
+  const dialer =
+    contacts && opts.dialer
+      ? new Dialer({
+          store: opts.dialer.store,
+          events: contacts,
+          phone,
+          settings: config.settings,
+          now,
+          onlyNumbers: parseOnlyNumbers(env.DIALER_ONLY_NUMBERS, (t) => app.log.warn(t)),
+          log: (text) => app.log.info(`[dialer] ${text}`),
+        })
+      : undefined;
+  if (dialer && opts.dialer?.run) {
+    app.addHook("onReady", async () => dialer.run());
+    app.addHook("onClose", async () => dialer.shutdown()); // the loop only: the switch in the database stays
+  }
   await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions, contacts });
   await registerTestRoutes(app, {
     sessions,
@@ -106,7 +131,8 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     classifyGender: opts.classifyGender,
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
-  await registerPhoneRoutes(app, opts.phone ?? { line: null, reason: "not started" }, { contacts, settings: config.settings });
+  await registerPhoneRoutes(app, phone, { contacts, settings: config.settings });
+  await registerAdminRoutes(app, { dialer });
   await registerGoldRoutes(app, {
     contacts: opts.contacts,
     settings: config.settings,

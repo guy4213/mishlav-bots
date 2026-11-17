@@ -341,3 +341,38 @@ describe("call agent", () => {
     agent.end();
   });
 });
+
+describe("phone line: ring timeout", () => {
+  it("an unanswered call is cancelled after ringTimeoutMs and ends like a no-answer", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    // @ts-expect-error plain JS module
+    const { PhoneLine } = await import("../src/line.js");
+    const line = new PhoneLine({ root: ROOT, env: { logDir: mkdtempSync(join(tmpdir(), "phone-")), number: "" } });
+    // a SIP call that rings until it is cancelled (hangup on a ringing outgoing call = CANCEL -> 487)
+    const sip = Object.assign(new EventEmitter(), { hangups: 0, answered: null as unknown as Promise<unknown>, hangup: async () => {} });
+    let reject!: (e: Error) => void;
+    sip.answered = new Promise((_, r) => (reject = r));
+    sip.answered.catch(() => {});
+    sip.hangup = async () => {
+      sip.hangups++;
+      reject(new Error("487 Request Terminated"));
+    };
+    line.registered = true;
+    line.ua = { publicIp: "127.0.0.1", invite: () => sip };
+    line._prepare = async (callId: string) => ({ callId, agent: { connect: async () => {}, end: () => {} }, scenario: null });
+
+    const ended = new Promise<{ call_id: string; reason: string }>((r) => line.once("ended", r));
+    const started = Date.now();
+    const { call_id } = await line.dial("050-1234567", { ringTimeoutMs: 60 });
+    expect(line.numberFor(call_id)).toBe("+972501234567");
+    expect(line.numberFor("another-call")).toBeNull();
+    const e = await ended;
+    expect(e).toEqual({ call_id, reason: "no answer (0s)" });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+    expect(sip.hangups).toBe(1);
+    expect(line.call).toBeNull();
+    expect(line.numberFor(call_id)).toBeNull();
+    expect(line.recent.map((l: { text: string }) => l.text)).toContain("no answer after 0s: cancelling");
+  });
+});

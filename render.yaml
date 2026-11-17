@@ -38,5 +38,8 @@ services:
       # Gold pulls the bot's changes daily: GET /api/gold/changes?since=... with header X-Api-Key (unset: refused)
       - key: GOLD_API_KEY
         sync: false
+      # The automatic dialer: optional, dial only these numbers (comma-separated); leave unset in production
+      - key: DIALER_ONLY_NUMBERS
+        sync: false
       # Optional: PHONE_GEMINI_MODEL, PHONE_VOICE, OPEN_AFTER_SILENCE_S, BOT_NAME,
       # LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET (browser calls), elevenLabsAgentsKey.

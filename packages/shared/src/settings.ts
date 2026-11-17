@@ -35,14 +35,25 @@ export const Settings = z.object({
       midday: HHMM,
       no_answer_retry: z.array(NoAnswerRetry).min(1),
       follow_up_days: z.number().int().positive(),
+      /** Unused for now: the phone line holds one call at a time (apps/phone/src/line.js), so the dialer does too. */
       max_concurrent_calls: z.number().int().positive(),
-      kill_switch: z.boolean().default(false),
       wrong_number_next_phone: z.boolean().default(true),
+      /** An unanswered call is cancelled after this long and ends like any no-answer (manual and dialer calls). */
+      ring_timeout_s: z.number().positive().default(40),
+      /** The dialer (apps/backend/src/dialer.ts): wait after a call ends before the next one. */
+      pause_between_calls_s: z.number().nonnegative().default(5),
+      /** The dialer looks for work this often (on/off in the database, hours, line, queue). */
+      tick_s: z.number().positive().default(10),
     })
     .refine((d) => d.no_answer_retry.length >= d.no_answer_streak_max - 1, {
       message: "no_answer_retry needs an entry for every streak below no_answer_streak_max",
       path: ["no_answer_retry"],
     }),
+  /** The purchase-link SMS (send_purchase_link, apps/backend/src/sms.ts). */
+  sms: z.object({
+    /** {day} = the study day in Hebrew (title + dates), {url} = its purchase_url (config/knowledge/days). */
+    link_template: z.string().refine((t) => t.includes("{url}"), { message: "link_template needs {url}" }),
+  }),
   outcome_mapping: z.object({
     request_human: z.record(z.enum(REQUEST_HUMAN_REASONS), Outcome),
     end_call: z.record(z.enum(END_CALL_REASONS), Outcome.nullable()),
