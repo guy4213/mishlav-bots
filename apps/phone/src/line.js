@@ -267,14 +267,14 @@ export class PhoneLine extends EventEmitter {
       tools: this.toolDefs,
       temperature: e.temperature,
     });
-    const gender = ctx.variables.customer_gender ?? 'unknown';
+    const customerGender = ctx.variables.customer_gender ?? 'unknown'; // as decided for this call
     const agent = new CallAgent({
       live: new GeminiLive({ apiKey: e.apiKey, setup }),
       tools,
       openAfterSilenceMs: e.openAfterSilenceMs,
-      genderReminder: GENDER_REMINDER[gender],
+      genderReminder: GENDER_REMINDER[customerGender],
     });
-    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[gender] ?? gender}), day ${ctx.variables.interested_day_id}`, callId);
+    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}`, callId);
     return { callId, tools, session, agent, scenario: ctx.scenario };
   }
 
