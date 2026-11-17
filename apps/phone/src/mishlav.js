@@ -140,11 +140,12 @@ export class ToolsClient {
   }
 
   /** Prompt variables for this call (GET /test/context): the same values every provider gets. */
-  async callContext({ scenario, firstName, dayId } = {}) {
+  async callContext({ scenario, firstName, dayId, gender } = {}) {
     const q = new URLSearchParams();
     if (scenario) q.set('scenario', scenario);
     if (firstName) q.set('first_name', firstName);
     if (dayId) q.set('day_id', dayId);
+    if (gender) q.set('gender', gender);
     const r = await this.#request('GET', `/test/context${q.size ? `?${q}` : ''}`);
     if (r.status === 404) throw new Error(`unknown scenario ${scenario}`);
     if (!r.json?.variables) throw new Error(`could not read the call context (HTTP ${r.status})`);

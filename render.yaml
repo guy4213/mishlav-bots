@@ -30,5 +30,10 @@ services:
         sync: false
       - key: ZADARMA_NUMBER # display only
         value: "+972555172508"
+      # Supabase: the contacts the bot calls and updates (project mishlav-bots)
+      - key: SUPABASE_URL
+        value: https://jrnortybjvjixbxyilct.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY # Supabase -> Project Settings -> API keys -> service_role / secret
+        sync: false
       # Optional: PHONE_GEMINI_MODEL, PHONE_VOICE, OPEN_AFTER_SILENCE_S, BOT_NAME,
       # LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET (browser calls), elevenLabsAgentsKey.

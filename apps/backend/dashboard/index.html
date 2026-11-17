@@ -302,6 +302,7 @@
       <h2>📞 הבוט מתקשר למי שתבחר</h2>
       <div id="phStatus"></div>
       <div class="form" style="margin-top:10px">
+        <label>סטודנט מ-Supabase <select id="phContact"><option value="">— בלי (מספר ידני) —</option></select></label>
         <label>מספר טלפון <input type="text" id="phNumber" class="ltr" inputmode="tel" placeholder="0501234567"></label>
         <label>תרחיש <select id="phScenario"></select></label>
         <label>שם הלקוח (רשות) <input type="text" id="phName" placeholder="מהתרחיש"></label>
@@ -311,7 +312,7 @@
         <button class="btn red" id="phHangup" disabled>⏹ נתק</button>
       </div>
       <p class="small" id="phNote"></p>
-      <p class="small muted">שיחה מכאן לא נספרת בתוצאות. לבדיקה שנספרת: לשונית "בדיקה" ← ספק ג׳ ← "מהטלפון". הלוג המלא של הקו – בלשונית <a href="#" data-goto="logs">📜 לוגים</a>.</p>
+      <p class="small muted">שיחה לסטודנט מ-Supabase מעדכנת את הרשומה שלו (סטטוס, שיחה חוזרת, משימה לנציג, הערת [BOT]). שיחה מכאן לא נספרת בתוצאות. לבדיקה שנספרת: לשונית "בדיקה" ← ספק ג׳ ← "מהטלפון". הלוג המלא של הקו – בלשונית <a href="#" data-goto="logs">📜 לוגים</a>.</p>
     </div>
     <div class="two">
       <div class="card">
@@ -979,7 +980,21 @@ async function phoneInfo() {
   return S.ph.info;
 }
 
+const CONTACT_STATUS_HE = { new: "חדש", queued: "בתור", in_call: "בשיחה", link_sent: "נשלח קישור", callback: "שיחה חוזרת", hot_lead: "ליד חם לנציג", company: "דרך החברה", human_followup: "שאלה לנציג", not_interested: "לא מעוניין", already_registered: "כבר רשום", do_not_call: "לא להתקשר", wrong_number: "מספר שגוי", voicemail: "תא קולי", no_answer: "לא ענה", closed_max_attempts: "נסגר – מקסימום ניסיונות" };
+
+async function loadContacts() {
+  try {
+    const r = await api("GET", "/test/contacts");
+    S.ph.contacts = r.contacts ?? [];
+    const keep = $("phContact").value;
+    $("phContact").innerHTML = `<option value="">${r.available ? "— בלי (מספר ידני) —" : "— Supabase לא מחובר —"}</option>` +
+      S.ph.contacts.map((c) => `<option value="${esc(c.id)}"${c.status === "do_not_call" ? " disabled" : ""}>${esc(c.full_name ?? c.gold_record_id)} · ${esc(CONTACT_STATUS_HE[c.status] ?? c.status)}</option>`).join("");
+    $("phContact").value = keep;
+  } catch { /* the form still dials numbers */ }
+}
+
 function renderPhoneForm() {
+  if (!S.ph.contactsLoaded) { S.ph.contactsLoaded = true; loadContacts(); }
   if (!$("phNumber").value) $("phNumber").value = savedNumber();
   if (!$("phScenario").options.length && S.overview) {
     $("phScenario").innerHTML = `<option value="">ללא תרחיש (שם ויום ברירת מחדל)</option>` +
@@ -996,6 +1011,9 @@ async function phonePoll() {
     : st.busy
       ? `<div class="banner wait">🔴 שיחה פעילה (${st.call.direction === "out" ? "יוצאת" : "נכנסת"}) · <span class="ltr">${esc(st.call.number)}</span> · תרחיש ${esc(st.call.scenario ?? "—")}</div>`
       : `<div class="banner ok">הקו מוכן ✓ ${st.number ? `· <span class="ltr">${esc(st.number)}</span>` : ""} · <span class="small ltr">${esc(st.model)} · ${esc(st.voice)}</span></div>`;
+  // a call just ended: show the contacts' new statuses
+  if (S.ph.wasBusy && !st?.busy) setTimeout(loadContacts, 1500);
+  S.ph.wasBusy = Boolean(st?.busy);
   $("phDial").disabled = !info.available || st.busy;
   $("phHangup").disabled = !st?.busy;
   if (st?.call?.id) S.ph.callId = st.call.id;
@@ -1019,17 +1037,21 @@ async function phonePoll() {
   }
 }
 
-async function dial(number, scenarioId, name) {
-  saveNumber(number);
-  return api("POST", "/test/phone/call", { number, ...(scenarioId ? { scenario: scenarioId } : {}), ...(name ? { name } : {}) });
+async function dial(number, scenarioId, name, contactId) {
+  if (number) saveNumber(number);
+  return api("POST", "/test/phone/call", {
+    ...(contactId ? { contact_id: contactId } : { number }),
+    ...(scenarioId ? { scenario: scenarioId } : {}), ...(name ? { name } : {}),
+  });
 }
 
 $("phDial").onclick = async () => {
+  const contactId = $("phContact").value;
   const number = $("phNumber").value.trim();
-  if (!number) { $("phNote").textContent = "הכנס מספר"; return; }
+  if (!number && !contactId) { $("phNote").textContent = "הכנס מספר או בחר סטודנט"; return; }
   $("phDial").disabled = true; $("phNote").textContent = "מחייג...";
   try {
-    const r = await dial(number, $("phScenario").value, $("phName").value.trim());
+    const r = await dial(contactId ? "" : number, $("phScenario").value, $("phName").value.trim(), contactId);
     S.ph.callId = r.call_id;
     $("phTranscript").innerHTML = `<p class="muted small">מחכה שיענו...</p>`;
     $("phTools").innerHTML = `<li class="muted">עוד לא ביצע פעולות</li>`;

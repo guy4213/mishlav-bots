@@ -3,6 +3,7 @@ import { LOG_FILES } from "@mishlav/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
+import { ContactEvents, type ContactStore } from "./contacts";
 import type { GenderClassifier } from "./gender";
 import { JsonlFile } from "./jsonl";
 import { loadKnowledge } from "./knowledge";
@@ -21,6 +22,8 @@ export interface BuildOptions {
   manualInputsPath?: string;
   /** The Zadarma line, filled in by main.ts once the server listens (null = no line). */
   phone?: PhoneHolder;
+  /** Supabase contacts (main.ts: from SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY). None: scenario tests only. */
+  contacts?: ContactStore;
   /** Customer gender from the first name before a call (main.ts: Gemini). None: "unknown" (neutral wording). */
   classifyGender?: GenderClassifier;
 }
@@ -81,7 +84,14 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     }
   });
 
-  await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions });
+  // a failed Supabase update is logged next to the tool calls (the dashboard's call view and logs show it)
+  const contacts = opts.contacts
+    ? new ContactEvents(opts.contacts, (callId, what, err) => {
+        toolLog.append({ type: "supabase_error", ts: now().toISOString(), call_id: callId, what, error: err.message });
+        app.log.error({ err, call_id: callId, what }, "supabase update failed");
+      })
+    : undefined;
+  await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions, contacts });
   await registerTestRoutes(app, {
     sessions,
     toolLog,
@@ -93,7 +103,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     classifyGender: opts.classifyGender,
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
-  await registerPhoneRoutes(app, opts.phone ?? { line: null, reason: "not started" });
+  await registerPhoneRoutes(app, opts.phone ?? { line: null, reason: "not started" }, { contacts, settings: config.settings });
 
   return app;
 }

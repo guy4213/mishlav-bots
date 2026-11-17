@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { type AppConfig, loadAppConfig } from "./config";
+import { contactStoreFromEnv } from "./contacts";
 import { geminiGenderClassifier } from "./gender";
 import type { PhoneHolder } from "./routes/phone";
 import { buildServer } from "./server";
@@ -92,6 +93,8 @@ async function main() {
     phone,
     // the customer's gender from the first name, once before each call (no key: neutral wording)
     classifyGender: googleKey ? geminiGenderClassifier({ apiKey: googleKey }) : undefined,
+    // the contacts the bot calls and updates (none without SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)
+    contacts: contactStoreFromEnv(process.env),
   });
   await app.listen({ port: config.port, host: config.host });
   // in the background: registration takes a few seconds and must not hold the server (or Render's port check)
@@ -109,6 +112,7 @@ async function main() {
   if (publicUrl) console.log(`  public:  ${publicUrl}`);
   console.log(`  logs:    ${config.logDir}`);
   console.log(`  capture_dictated_details: ${config.settings.testing.capture_dictated_details}`);
+  console.log(`  supabase: ${process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? `contacts at ${process.env.SUPABASE_URL}` : "off (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set)"}`);
   console.log(`  tools:   ${base}/tools/{get_day_info,send_purchase_link,schedule_callback,request_human,end_call}`);
   console.log("  auth:    header X-Tools-Secret: <TOOLS_SECRET>");
   console.log(`  dashboard: ${base}/dashboard`);
