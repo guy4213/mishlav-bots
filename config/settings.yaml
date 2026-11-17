@@ -77,24 +77,26 @@ testing:
     provider_priority: [C, A, B] # C (Gemini Live) first by team decision; PDF had A, C, B
     cost_close_pct: 15           # flag when a lower-priority passer is this much cheaper per minute
 
-# Gold Excel import (Part 4): the student export's header -> the `contacts` column in Supabase
-# (supabase/migrations). Built from the real export's format; sample: apps/backend/fixtures/gold-sample.xlsx.
+# Gold Excel (Part 4): the student export's header -> the `contacts` column in Supabase (supabase/migrations).
+# `contacts` is an exact copy of the export; Gold pulls the bot's changes back under the same headers
+# (GET /api/gold/changes). Built from the real export's format; sample: apps/backend/fixtures/gold-sample.xlsx.
 gold_import:
   sheet: תלמידים
+  record_id_key: מזהה         # the first column has no header: the record id's key in what Gold pulls
   columns:
-    "": gold_record_id        # the first column has no header: Gold's record id (20 characters)
+    "": gold_record_id        # the first column: Gold's record id (20 characters)
     ת.ז: national_id
     חברה: company
-    שם מלא: full_name         # first_name = its first word
+    שם מלא: full_name         # the bot calls the customer by its first word
     אימייל: email
     טלפון: phone
     טלפון 2: phone2
     טלפון 3: phone3
-    הערות: gold_notes         # often a Google link; "[BOT] ..." notes are the bot's own
+    הערות: notes              # often a Google link; the bot appends its "[BOT] ..." lines
     עיר: city                 # "Empty" means empty
     כתובת: address
     כתובת 2: address2
     מחלקה: department
     קורס מבוקש: requested_course   # trim: some end with a space
     מקור: source
-    סטטוס: gold_status
+    סטטוס: status             # the bot sets it (gold_status_text in supabase/migrations)

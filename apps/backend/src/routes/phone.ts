@@ -7,7 +7,7 @@ import type { Settings } from "@mishlav/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PhoneLine } from "../../../phone/src/line.js";
-import type { ContactEvents } from "../contacts";
+import { type ContactEvents, dialNumber, firstName } from "../contacts";
 
 export interface PhoneHolder {
   line: PhoneLine | null;
@@ -18,8 +18,8 @@ export interface PhoneHolder {
 const DialRequest = z
   .strictObject({
     number: z.string().trim().min(6).max(30).optional(),
-    /** a contact in Supabase: its number, name, day and gender; the call updates that contact */
-    contact_id: z.uuid().optional(),
+    /** a contact in Supabase (its gold_record_id): its phone, name, day and gender; the call updates that contact */
+    contact_id: z.string().trim().min(1).max(64).optional(),
     scenario: z.string().trim().max(20).optional(),
     name: z.string().trim().max(40).optional(),
     day: z.string().trim().max(100).optional(),
@@ -69,27 +69,28 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
         return reply.code(502).send({ ok: false, error: "supabase_error", message_he: (err as Error).message });
       }
       if (!contact) return reply.code(404).send({ ok: false, error: "unknown_contact", message_he: "אין איש קשר כזה" });
-      if (contact.status === "do_not_call") {
+      if (contact.bot_state?.bot_status === "do_not_call") {
         return reply.code(409).send({ ok: false, error: "do_not_call", message_he: "ביקש לא להתקשר אליו – לא מחייגים" });
       }
     }
-    const dialNumber = number ?? contact?.phone_e164 ?? contact?.phone;
-    if (!dialNumber) return reply.code(409).send({ ok: false, error: "no_phone", message_he: "לאיש הקשר אין מספר טלפון" });
+    // the contact's phone in use (phone / phone2 / phone3 after a wrong number), as +972...
+    const toDial = number ?? (contact && dialNumber(contact));
+    if (!toDial) return reply.code(409).send({ ok: false, error: "no_phone", message_he: "לאיש הקשר אין מספר טלפון תקין" });
     // the line's 'ended' can come right after dial() returns: catch it from now on
     const ended = new Map<string, number>();
     const onEnded = (e: { call_id: string }) => ended.set(e.call_id, Date.now());
     if (contact) line.on("ended", onEnded);
     try {
-      const r = await line.dial(dialNumber, {
+      const r = await line.dial(toDial, {
         ...opts,
         ...(contact && {
-          name: opts.name ?? contact.first_name ?? undefined,
-          day: opts.day ?? contact.interested_day_id ?? undefined,
-          gender: contact.customer_gender ?? undefined,
+          name: opts.name ?? firstName(contact.full_name) ?? undefined,
+          day: opts.day ?? contact.bot_state?.interested_day_id ?? undefined,
+          gender: contact.bot_state?.customer_gender ?? undefined,
         }),
       });
-      if (contact && deps.contacts) trackContactCall(line, deps, r.call_id, contact.id, ended, onEnded);
-      return { ok: true, ...r, ...(contact && { contact_id: contact.id }) };
+      if (contact && deps.contacts) trackContactCall(line, deps, r.call_id, contact.gold_record_id, ended, onEnded);
+      return { ok: true, ...r, ...(contact && { contact_id: contact.gold_record_id }) };
     } catch (err) {
       if (contact) line.off("ended", onEnded);
       return reply.code(409).send({ ok: false, error: "dial_failed", message_he: (err as Error).message });
@@ -107,7 +108,7 @@ function trackContactCall(
   line: PhoneLine,
   deps: PhoneRouteDeps,
   callId: string,
-  contactId: string,
+  goldRecordId: string,
   ended: Map<string, number>,
   onEnded: (e: { call_id: string }) => void,
 ) {
@@ -124,7 +125,7 @@ function trackContactCall(
   const waitEnd = (e: { call_id: string }) => {
     if (e.call_id === callId) finish(Date.now());
   };
-  void events.run(callId, "call started", (s) => s.callStarted(callId, contactId));
+  void events.run(callId, "call started", (s) => s.callStarted(callId, goldRecordId));
   const already = ended.get(callId);
   if (already) finish(already);
   else line.on("ended", waitEnd);

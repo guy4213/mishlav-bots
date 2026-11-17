@@ -1,39 +1,68 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { type Contact, ContactEvents, type ContactStore, SupabaseContacts } from "../src/contacts";
+import {
+  type Contact,
+  ContactEvents,
+  type ContactRecord,
+  type ContactStore,
+  firstName,
+  SupabaseContacts,
+  toE164,
+  toGoldRecord,
+} from "../src/contacts";
 import { buildServer } from "../src/server";
 import { AUTH, FIXED_NOW, testConfig } from "./helpers";
 
-const CONTACT: Contact = {
-  id: "11111111-1111-4111-8111-111111111111",
+const GOLD: Contact = {
   gold_record_id: "a000000000000001demo",
+  national_id: "000012344",
+  company: null,
   full_name: "רועי כהן",
-  first_name: "רועי",
+  email: "roi.cohen@example.com",
   phone: "053-4271418",
-  phone_e164: "+972534271418",
-  status: "new",
-  interested_day_id: null,
-  customer_gender: null,
-  attempts: 0,
-  next_call_at: null,
-  callback_at: null,
-  last_outcome: null,
+  phone2: "054 1112222",
+  phone3: null,
+  notes: "ביקש שיחזרו אחרי 16:00",
+  city: "תל אביב-יפו",
+  address: null,
+  address2: null,
+  department: "ימי עיון",
+  requested_course: "יום עיון חשבונאות",
+  source: "אתר מישלב",
+  status: null,
 };
+const CONTACT: ContactRecord = {
+  ...GOLD,
+  bot_state: {
+    bot_status: "new",
+    attempts: 0,
+    next_call_at: null,
+    callback_at: null,
+    last_call_at: null,
+    last_outcome: null,
+    interested_day_id: null,
+    customer_gender: null,
+    phone_index: 1,
+    gold_changed_at: null,
+  },
+};
+const ID = CONTACT.gold_record_id;
 
 /** Records what the bot would write to Supabase, in order. */
 class FakeStore implements ContactStore {
   log: unknown[][] = [];
   failTools = false;
-  contacts = new Map([[CONTACT.id, CONTACT]]);
+  contacts = new Map([[ID, CONTACT]]);
+  changes: Contact[] = [{ ...GOLD, notes: `${GOLD.notes}\n[BOT] 08.11.2026 10:00 נשלח קישור לרכישה: d`, status: "נשלח קישור" }];
   async list() {
     return [...this.contacts.values()];
   }
   async get(id: string) {
     return this.contacts.get(id) ?? null;
   }
-  async callStarted(callId: string, contactId: string) {
+  async callStarted(callId: string, goldRecordId: string) {
     await new Promise((r) => setTimeout(r, 30)); // slower than the tool calls after it: order must still hold
-    this.log.push(["started", callId, contactId]);
+    this.log.push(["started", callId, goldRecordId]);
   }
   async toolEvent(callId: string, tool: string, params: unknown, result: unknown) {
     if (this.failTools) throw new Error("supabase down");
@@ -43,6 +72,10 @@ class FakeStore implements ContactStore {
   async callEnded(callId: string, sec: number, retry: number, max: number) {
     this.log.push(["ended", callId, retry, max]);
     return null;
+  }
+  async goldChanges(since?: string) {
+    this.log.push(["gold", since]);
+    return { until: "2026-11-08T08:00:00+00:00", contacts: this.changes };
   }
 }
 
@@ -59,13 +92,14 @@ class FakeLine extends EventEmitter {
   recent = [];
 }
 
-async function setup() {
+async function setup(env: NodeJS.ProcessEnv = {}) {
   const store = new FakeStore();
   const line = new FakeLine();
   const config = testConfig();
   const app = await buildServer(config, {
     now: () => FIXED_NOW,
     logger: false,
+    env,
     contacts: store,
     phone: { line: line as never, reason: null },
   });
@@ -77,18 +111,25 @@ async function setup() {
 const settle = () => new Promise((r) => setTimeout(r, 80));
 
 describe("Supabase contacts: which record, when", () => {
-  it("dialing a contact uses its number, name and gender, and links the call to it", async () => {
+  it("dialing a contact uses its phone (as +972), first name and gender, and links the call to it", async () => {
     const { store, line, post } = await setup();
-    const r = await post("/test/phone/call", { contact_id: CONTACT.id });
-    expect(r.json()).toMatchObject({ ok: true, call_id: "call-1", contact_id: CONTACT.id });
+    const r = await post("/test/phone/call", { contact_id: ID });
+    expect(r.json()).toMatchObject({ ok: true, call_id: "call-1", contact_id: ID });
     expect(line.dialed).toEqual([["+972534271418", { name: "רועי" }]]);
     await settle();
-    expect(store.log).toEqual([["started", "call-1", CONTACT.id]]);
+    expect(store.log).toEqual([["started", "call-1", ID]]);
+  });
+
+  it("after a wrong number it dials the next phone (bot_state.phone_index)", async () => {
+    const { store, line, post } = await setup();
+    store.contacts.set(ID, { ...CONTACT, bot_state: { ...CONTACT.bot_state!, phone_index: 2 } });
+    await post("/test/phone/call", { contact_id: ID });
+    expect(line.dialed).toEqual([["+972541112222", { name: "רועי" }]]);
   });
 
   it("every tool of that call updates the same contact, in order, and the end closes it", async () => {
     const { store, line, post } = await setup();
-    await post("/test/phone/call", { contact_id: CONTACT.id });
+    await post("/test/phone/call", { contact_id: ID });
     // the bot's tools come with the call id (x-call-id), right after the dial - before callStarted finished
     await post("/tools/request_human", { reason: "wants_human" }, { "x-call-id": "call-1" });
     await post("/tools/request_human", { reason: "wants_human", in_minutes: 30 }, { "x-call-id": "call-1" });
@@ -96,7 +137,7 @@ describe("Supabase contacts: which record, when", () => {
     line.emit("ended", { call_id: "call-1", reason: "local" });
     await settle();
     expect(store.log.map((l) => l.slice(0, 3).concat(l[0] === "tool" ? [l[4]] : []))).toEqual([
-      ["started", "call-1", CONTACT.id],
+      ["started", "call-1", ID],
       ["tool", "call-1", "request_human", "waiting_for_time"],
       ["tool", "call-1", "request_human", "handed_to_rep"],
       ["tool", "call-1", "end_call", "ending"],
@@ -128,8 +169,8 @@ describe("Supabase contacts: which record, when", () => {
 
   it("never dials a contact who asked not to be called", async () => {
     const { store, line, post } = await setup();
-    store.contacts.set(CONTACT.id, { ...CONTACT, status: "do_not_call" });
-    const r = await post("/test/phone/call", { contact_id: CONTACT.id });
+    store.contacts.set(ID, { ...CONTACT, bot_state: { ...CONTACT.bot_state!, bot_status: "do_not_call" } });
+    const r = await post("/test/phone/call", { contact_id: ID });
     expect(r.statusCode).toBe(409);
     expect(line.dialed).toEqual([]);
   });
@@ -153,5 +194,70 @@ describe("Supabase contacts: which record, when", () => {
     expect(sent[0]!.url).toBe("https://x.supabase.co/rest/v1/rpc/bot_tool_event");
     expect(JSON.parse(sent[0]!.init.body as string)).toEqual({ p_call_id: "call-1", p_tool: "send_purchase_link", p_params: { day_id: "d" }, p_result: { ok: true } });
     expect((sent[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer service-key");
+    await s.callStarted("call-1", ID);
+    expect(JSON.parse(sent[1]!.init.body as string)).toEqual({ p_call_id: "call-1", p_gold_record_id: ID });
+  });
+
+  it("phone and name come from Gold's columns at dial time", () => {
+    expect(["053-4271418", "053 4271418", "0534271418", "+972-53-4271418", "972534271418"].map(toE164)).toEqual(Array(5).fill("+972534271418"));
+    expect(toE164("03-1234567")).toBe("+97231234567");
+    expect([toE164(null), toE164(""), toE164("123")]).toEqual([null, null, null]);
+    expect([firstName("  רועי   כהן "), firstName("דנה"), firstName(null), firstName(" ")]).toEqual(["רועי", "דנה", null, null]);
+  });
+});
+
+describe("Gold pulls the bot's changes (GET /api/gold/changes)", () => {
+  const KEY = "gold-key-0123456789abcdef";
+  const get = (app: Awaited<ReturnType<typeof setup>>["app"], url: string, headers: Record<string, string> = {}) =>
+    app.inject({ method: "GET", url, headers });
+
+  it("without GOLD_API_KEY configured it refuses everything", async () => {
+    const { app, store } = await setup({});
+    expect((await get(app, "/api/gold/changes", { "x-api-key": "anything" })).statusCode).toBe(503);
+    expect((await get(app, "/api/gold/changes", AUTH)).statusCode).toBe(503);
+    expect(store.log).toEqual([]);
+  });
+
+  it("a wrong or missing key (or the tools secret) gets nothing", async () => {
+    const { app, store } = await setup({ GOLD_API_KEY: KEY });
+    expect((await get(app, "/api/gold/changes")).statusCode).toBe(401);
+    expect((await get(app, "/api/gold/changes", { "x-api-key": "wrong" })).statusCode).toBe(401);
+    expect((await get(app, "/api/gold/changes", AUTH)).statusCode).toBe(401);
+    expect(store.log).toEqual([]);
+  });
+
+  it("returns only the Excel's 16 columns under its Hebrew headers, and `until` for the next pull", async () => {
+    const { app, store, config } = await setup({ GOLD_API_KEY: KEY });
+    const r = await get(app, "/api/gold/changes?since=2026-11-07T00:00:00Z", { "x-api-key": KEY });
+    expect(r.statusCode).toBe(200);
+    const body = r.json();
+    expect(store.log).toEqual([["gold", "2026-11-07T00:00:00.000Z"]]);
+    expect(body).toMatchObject({ since: "2026-11-07T00:00:00.000Z", until: "2026-11-08T08:00:00+00:00", count: 1 });
+    const headers = Object.keys(config.settings.gold_import.columns).map((h) => h || "מזהה");
+    expect(headers).toHaveLength(16);
+    expect(Object.keys(body.contacts[0])).toEqual(headers);
+    expect(body.contacts[0]).toMatchObject({ מזהה: ID, "שם מלא": "רועי כהן", טלפון: "053-4271418", סטטוס: "נשלח קישור" });
+    expect(body.contacts[0]["הערות"]).toBe("ביקש שיחזרו אחרי 16:00\n[BOT] 08.11.2026 10:00 נשלח קישור לרכישה: d");
+  });
+
+  it("no `since`: everything the bot ever changed; a bad `since` is refused", async () => {
+    const { app, store } = await setup({ GOLD_API_KEY: KEY });
+    expect((await get(app, "/api/gold/changes", { "x-api-key": KEY })).json()).toMatchObject({ since: null, count: 1 });
+    expect(store.log).toEqual([["gold", undefined]]);
+    expect((await get(app, "/api/gold/changes?since=yesterday", { "x-api-key": KEY })).statusCode).toBe(400);
+  });
+
+  it("the dashboard sees the same payload behind the tools secret", async () => {
+    const { app } = await setup({ GOLD_API_KEY: KEY });
+    const dash = (await get(app, "/test/gold/changes", AUTH)).json();
+    const gold = (await get(app, "/api/gold/changes", { "x-api-key": KEY })).json();
+    expect(dash).toEqual(gold);
+    expect((await get(app, "/test/gold/changes", { "x-api-key": KEY })).statusCode).toBe(401);
+  });
+
+  it("toGoldRecord: the record id goes under record_id_key, nothing else is added", () => {
+    const gi = { record_id_key: "ID", columns: { "": "gold_record_id", "שם מלא": "full_name" } };
+    const extra = { ...GOLD, bot_status: "link_sent" } as unknown as Contact;
+    expect(toGoldRecord(extra, gi)).toEqual({ ID: ID, "שם מלא": "רועי כהן" });
   });
 });

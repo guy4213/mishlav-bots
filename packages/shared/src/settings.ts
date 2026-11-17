@@ -50,10 +50,17 @@ export const Settings = z.object({
       cost_close_pct: z.number().nonnegative(),
     }),
   }),
-  /** Gold export header -> `contacts` column (supabase/migrations). "" = the first column, which has no header. */
+  /**
+   * Gold export header -> `contacts` column (supabase/migrations). "" = the first column, which has no header;
+   * record_id_key is its key in what Gold pulls back (GET /api/gold/changes).
+   */
   gold_import: z
-    .object({ sheet: z.string().optional(), columns: z.record(z.string(), z.string()) })
-    .default({ columns: {} }),
+    .object({
+      sheet: z.string().optional(),
+      record_id_key: z.string().min(1).default("מזהה"),
+      columns: z.record(z.string(), z.string()),
+    })
+    .default({ record_id_key: "מזהה", columns: {} }),
 });
 export type Settings = z.infer<typeof Settings>;
 

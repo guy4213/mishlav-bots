@@ -8,6 +8,7 @@ import type { GenderClassifier } from "./gender";
 import { JsonlFile } from "./jsonl";
 import { loadKnowledge } from "./knowledge";
 import { registerDashboardRoutes } from "./routes/dashboard";
+import { GOLD_CHANGES_PATH, registerGoldRoutes } from "./routes/gold";
 import { type PhoneHolder, registerPhoneRoutes } from "./routes/phone";
 import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
@@ -16,7 +17,7 @@ import { SessionStore } from "./sessions";
 export interface BuildOptions {
   now?: () => Date;
   logger?: FastifyServerOptions["logger"];
-  /** Env used by the dashboard (LiveKit / Gemini keys). Default: process.env. */
+  /** Env used by the dashboard (LiveKit / Gemini keys) and the Gold API (GOLD_API_KEY). Default: process.env. */
   env?: NodeJS.ProcessEnv;
   /** Where the dashboard keeps manual inputs. Default: tests/results/manual-inputs.yaml. */
   manualInputsPath?: string;
@@ -28,11 +29,13 @@ export interface BuildOptions {
   classifyGender?: GenderClassifier;
 }
 
-/** Public paths: health check and the dashboard's static files (no data; the page sends the secret). */
+/** Paths without TOOLS_SECRET: health check, the dashboard's static files (no data; the page sends the secret),
+ * and the Gold API (its own key, routes/gold.ts). */
 function isPublic(url: string): boolean {
   const path = url.split("?")[0]!;
   return (
     path === "/healthz" ||
+    path === GOLD_CHANGES_PATH ||
     path === "/dashboard" ||
     path === "/dashboard/" ||
     path === "/dashboard/livekit-client.js" ||
@@ -104,6 +107,11 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
   await registerPhoneRoutes(app, opts.phone ?? { line: null, reason: "not started" }, { contacts, settings: config.settings });
+  await registerGoldRoutes(app, {
+    contacts: opts.contacts,
+    settings: config.settings,
+    apiKey: (opts.env ?? process.env).GOLD_API_KEY?.trim() || undefined,
+  });
 
   return app;
 }

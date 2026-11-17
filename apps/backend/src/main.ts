@@ -115,6 +115,7 @@ async function main() {
   console.log(`  supabase: ${process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? `contacts at ${process.env.SUPABASE_URL}` : "off (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set)"}`);
   console.log(`  tools:   ${base}/tools/{get_day_info,send_purchase_link,schedule_callback,request_human,end_call}`);
   console.log("  auth:    header X-Tools-Secret: <TOOLS_SECRET>");
+  console.log(`  gold:    ${base}/api/gold/changes?since=<ISO> ${process.env.GOLD_API_KEY ? "(header X-Api-Key: <GOLD_API_KEY>)" : "off (GOLD_API_KEY not set)"}`);
   console.log(`  dashboard: ${base}/dashboard`);
   console.log(`  phone:   ${phone.line ? "Zadarma line registered" : (phone.reason ?? "off")}\n`);
 

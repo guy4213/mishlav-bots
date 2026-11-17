@@ -23,7 +23,7 @@
 - Recordings/transcripts of real Mishlav calls contain personal data: no external service without Mishlav's approval.
 
 ## Where things are
-- Handoff and the reasons behind past decisions: `docs/HANDOFF.md`. Roadmap: `docs/TASKS.md`.
+ Roadmap: `docs/TASKS.md`.
 - Bot prompt: `config/prompt.md` · knowledge: `config/knowledge/` · tools: `packages/shared/src/tools.ts`
   (then `npm run tools:export`) · tool logic: `apps/backend/src/tools/handlers.ts`.
 - Run everything: `npm run lab` → dashboard at http://127.0.0.1:8787/dashboard. Restart it after changing the prompt,

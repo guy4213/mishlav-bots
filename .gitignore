@@ -20,3 +20,6 @@ transcripts/
 
 # Provider A agent/tool ids (npm run eleven:sync)
 .elevenlabs.json
+
+# Supabase CLI link state (project ref, pooler url)
+supabase/.temp/

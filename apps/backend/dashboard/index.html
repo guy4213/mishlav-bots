@@ -313,7 +313,7 @@
         <button class="btn red" id="phHangup" disabled>⏹ נתק</button>
       </div>
       <p class="small" id="phNote"></p>
-      <p class="small muted">שיחה לסטודנט מ-Supabase מעדכנת את הרשומה שלו (סטטוס, שיחה חוזרת, משימה לנציג, הערת [BOT]). שיחה מכאן לא נספרת בתוצאות. לבדיקה שנספרת: לשונית "בדיקה" ← ספק ג׳ ← "מהטלפון". הלוג המלא של הקו – בלשונית <a href="#" data-goto="logs">📜 לוגים</a>.</p>
+      <p class="small muted">שיחה לסטודנט מ-Supabase כותבת לשדות של גולד עצמם (שורת [BOT] בסוף ה"הערות" ו"סטטוס") ומעדכנת את המצב הפנימי של הבוט (שיחה חוזרת, משימה לנציג, הטלפון הבא). שיחה מכאן לא נספרת בתוצאות. לבדיקה שנספרת: לשונית "בדיקה" ← ספק ג׳ ← "מהטלפון". הלוג המלא של הקו – בלשונית <a href="#" data-goto="logs">📜 לוגים</a>.</p>
     </div>
     <div class="two">
       <div class="card">
@@ -324,6 +324,17 @@
         <h2>🔧 מה הבוט עשה</h2>
         <ul class="list" id="phTools"><li class="muted">עוד לא ביצע פעולות</li></ul>
       </div>
+    </div>
+    <div class="card">
+      <h2>📤 מה גולד יקבל</h2>
+      <p class="small muted">בדיוק מה שגולד מושך פעם ביום (<code>GET /api/gold/changes</code>): אנשי הקשר שהבוט שינה, רק עמודות האקסל ובשמות שלהן – בלי שום מידע פנימי של הבוט.</p>
+      <div class="row">
+        <label class="small">מאז <select id="goldSince"><option value="">מההתחלה (כל מה שהבוט שינה)</option><option value="24">היום האחרון</option><option value="168">השבוע האחרון</option></select></label>
+        <button class="btn sec" id="goldLoad">🔄 רענן</button>
+        <span id="goldNote" class="small muted"></span>
+      </div>
+      <div class="scroll" style="margin-top:8px"><table id="goldTable"></table></div>
+      <details style="margin-top:8px"><summary>JSON כפי שגולד מקבל</summary><pre id="goldJson" class="ltr" style="background:var(--none-soft);padding:10px;border-radius:8px;overflow:auto;max-height:50vh"></pre></details>
     </div>
   </section>
 
@@ -989,7 +1000,7 @@ async function loadContacts() {
     S.ph.contacts = r.contacts ?? [];
     const keep = $("phContact").value;
     $("phContact").innerHTML = `<option value="">${r.available ? "— בלי (מספר ידני) —" : "— Supabase לא מחובר —"}</option>` +
-      S.ph.contacts.map((c) => `<option value="${esc(c.id)}"${c.status === "do_not_call" ? " disabled" : ""}>${esc(c.full_name ?? c.gold_record_id)} · ${esc(CONTACT_STATUS_HE[c.status] ?? c.status)}</option>`).join("");
+      S.ph.contacts.map((c) => { const st = c.bot_state?.bot_status ?? "new"; return `<option value="${esc(c.gold_record_id)}"${st === "do_not_call" ? " disabled" : ""}>${esc(c.full_name ?? c.gold_record_id)} · ${esc(CONTACT_STATUS_HE[st] ?? st)}</option>`; }).join("");
     $("phContact").value = keep;
     renderContactCard();
   } catch { /* the form still dials numbers */ }
@@ -999,38 +1010,72 @@ async function loadContacts() {
 const REP_REASON_HE = { wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה", course_interest: "מתעניין בקורס", other: "שאלה פתוחה" };
 const GENDER_HE = { male: "גבר", female: "אישה", unknown: "לא ידוע" };
 const whenHe = (iso) => iso ? new Date(iso).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
+const PHONE_COL = ["phone", "phone2", "phone3"];
 function renderContactCard() {
-  const c = (S.ph.contacts ?? []).find((x) => x.id === $("phContact").value);
+  const c = (S.ph.contacts ?? []).find((x) => x.gold_record_id === $("phContact").value);
   show("phContactCard", Boolean(c));
   if (!c) return;
+  const b = c.bot_state ?? {};
+  const st = b.bot_status ?? "new";
+  const pi = b.phone_index ?? 1;
+  const dialing = c[PHONE_COL[pi - 1]];
   const row = (k, v) => (v === null || v === undefined || v === "" ? "" : `<tr><th style="white-space:nowrap;padding-left:10px;text-align:right" class="muted small">${k}</th><td>${v}</td></tr>`);
   const tasks = (c.rep_tasks ?? []).filter((t) => !t.done);
   const notes = (t) => t ? esc(t).replace(/\n/g, "<br>") : null;
-  $("phContactCard").innerHTML = `<div class="banner info"><b>${esc(c.full_name ?? "")}</b> · ${esc(CONTACT_STATUS_HE[c.status] ?? c.status)}
-    <table style="margin-top:6px;width:100%">
+  $("phContactCard").innerHTML = `<div class="banner info"><b>${esc(c.full_name ?? "")}</b> · ${esc(CONTACT_STATUS_HE[st] ?? st)}
+    <div class="small muted" style="margin-top:6px">בגולד</div>
+    <table style="width:100%">
+      ${row("סטטוס", esc(c.status))}
       ${row("קורס מבוקש", esc(c.requested_course))}
-      ${row("יום עיון", esc(c.interested_day_id))}
       ${row("מקור", esc(c.source))}
       ${row("עיר", esc(c.city))}
       ${row("חברה", esc(c.company))}
-      ${row("סטטוס בגולד", esc(c.gold_status))}
-      ${row("מגדר (לבוט)", c.customer_gender ? esc(GENDER_HE[c.customer_gender]) : "ייקבע לפי השם")}
-      ${row("טלפון", `<span class="ltr">${esc(c.phone_e164 ?? c.phone)}</span>`)}
-      ${row("הערות מגולד", notes(c.gold_notes))}
-      ${row("ניסיונות", c.attempts ? String(c.attempts) : null)}
-      ${row("שיחה אחרונה", whenHe(c.last_call_at))}
-      ${row("תוצאה אחרונה", c.last_outcome ? esc(c.last_outcome === "NO_RESULT" ? "בלי תוצאה" : (OUTCOME_HE[c.last_outcome] ?? c.last_outcome)) : null)}
-      ${row("שיחה חוזרת", whenHe(c.callback_at))}
-      ${row("החיוג הבא", whenHe(c.next_call_at))}
-      ${row("משימות לנציג", tasks.length ? tasks.map((t) => `${esc(REP_REASON_HE[t.reason] ?? t.reason)} – ${whenHe(t.callback_at) ?? "בהקדם"}`).join("<br>") : null)}
-      ${row("הערות הבוט", notes(c.bot_notes))}
+      ${row("טלפונים", [c.phone, c.phone2, c.phone3].map((p) => (p ? `<span class="ltr">${esc(p)}</span>` : null)).filter(Boolean).join("<br>"))}
+      ${row("הערות", notes(c.notes))}
     </table>
-    ${c.status === "do_not_call" ? `<div class="small" style="color:var(--bad)">ביקש לא להתקשר – אי אפשר לחייג</div>` : ""}</div>`;
+    <div class="small muted" style="margin-top:6px">אצל הבוט (גולד לא רואה)</div>
+    <table style="width:100%">
+      ${row("מחייגים ל", dialing ? `${pi === 1 ? "טלפון" : `טלפון ${pi}`} · <span class="ltr">${esc(dialing)}</span>` : "אין מספר")}
+      ${row("יום עיון", esc(b.interested_day_id))}
+      ${row("מגדר (לבוט)", b.customer_gender ? esc(GENDER_HE[b.customer_gender]) : "ייקבע לפי השם")}
+      ${row("ניסיונות", b.attempts ? String(b.attempts) : null)}
+      ${row("שיחה אחרונה", whenHe(b.last_call_at))}
+      ${row("תוצאה אחרונה", b.last_outcome ? esc(b.last_outcome === "NO_RESULT" ? "בלי תוצאה" : (OUTCOME_HE[b.last_outcome] ?? b.last_outcome)) : null)}
+      ${row("שיחה חוזרת", whenHe(b.callback_at))}
+      ${row("החיוג הבא", whenHe(b.next_call_at))}
+      ${row("משימות לנציג", tasks.length ? tasks.map((t) => `${esc(REP_REASON_HE[t.reason] ?? t.reason)} – ${whenHe(t.callback_at) ?? "בהקדם"}`).join("<br>") : null)}
+      ${row("עודכן לגולד", whenHe(b.gold_changed_at))}
+    </table>
+    ${st === "do_not_call" ? `<div class="small" style="color:var(--bad)">ביקש לא להתקשר – אי אפשר לחייג</div>` : ""}</div>`;
 }
 $("phContact").onchange = renderContactCard;
 
+// what Gold will receive: the same answer as GET /api/gold/changes, through the dashboard's own route
+async function loadGold() {
+  const hours = Number($("goldSince").value);
+  const since = hours ? new Date(Date.now() - hours * 3600e3).toISOString() : "";
+  $("goldNote").textContent = "טוען...";
+  try {
+    const r = await api("GET", `/test/gold/changes${since ? `?since=${encodeURIComponent(since)}` : ""}`);
+    $("goldNote").textContent = r.count ? `${r.count} אנשי קשר · המשיכה הבאה: since=${r.until}` : "אין שינויים לשלוח";
+    const cols = r.contacts.length ? Object.keys(r.contacts[0]) : [];
+    const cell = (v) => (v === null || v === undefined ? "" : esc(v).replace(/\n/g, "<br>"));
+    $("goldTable").innerHTML = cols.length
+      ? `<tr>${cols.map((k) => `<th style="white-space:nowrap">${esc(k)}</th>`).join("")}</tr>` +
+        r.contacts.map((c) => `<tr>${cols.map((k) => `<td>${cell(c[k])}</td>`).join("")}</tr>`).join("")
+      : "";
+    $("goldJson").textContent = JSON.stringify(r, null, 2);
+  } catch (e) {
+    $("goldNote").innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`;
+    $("goldTable").innerHTML = "";
+    $("goldJson").textContent = "";
+  }
+}
+$("goldLoad").onclick = loadGold;
+$("goldSince").onchange = loadGold;
+
 function renderPhoneForm() {
-  if (!S.ph.contactsLoaded) { S.ph.contactsLoaded = true; loadContacts(); }
+  if (!S.ph.contactsLoaded) { S.ph.contactsLoaded = true; loadContacts(); loadGold(); }
   if (!$("phNumber").value) $("phNumber").value = savedNumber();
   if (!$("phScenario").options.length && S.overview) {
     $("phScenario").innerHTML = `<option value="">ללא תרחיש (שם ויום ברירת מחדל)</option>` +
@@ -1048,7 +1093,7 @@ async function phonePoll() {
       ? `<div class="banner wait">🔴 שיחה פעילה (${st.call.direction === "out" ? "יוצאת" : "נכנסת"}) · <span class="ltr">${esc(st.call.number)}</span> · תרחיש ${esc(st.call.scenario ?? "—")}</div>`
       : `<div class="banner ok">הקו מוכן ✓ ${st.number ? `· <span class="ltr">${esc(st.number)}</span>` : ""} · <span class="small ltr">${esc(st.model)} · ${esc(st.voice)}</span></div>`;
   // a call just ended: show the contacts' new statuses
-  if (S.ph.wasBusy && !st?.busy) setTimeout(loadContacts, 1500);
+  if (S.ph.wasBusy && !st?.busy) setTimeout(() => { loadContacts(); loadGold(); }, 1500);
   S.ph.wasBusy = Boolean(st?.busy);
   $("phDial").disabled = !info.available || st.busy;
   $("phHangup").disabled = !st?.busy;
