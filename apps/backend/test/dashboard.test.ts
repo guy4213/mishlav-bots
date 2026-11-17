@@ -21,16 +21,13 @@ async function server(env: NodeJS.ProcessEnv = {}) {
 }
 
 describe("dashboard", () => {
-  it("serves the page and the LiveKit client without a secret, but no data", async () => {
+  it("serves the page without a secret, but no data", async () => {
     const { app } = await server();
     const page = await app.inject({ method: "GET", url: "/dashboard" });
     expect(page.statusCode).toBe(200);
     expect(page.headers["content-type"]).toContain("text/html");
     expect(page.body).toContain('dir="rtl"');
     expect(page.body).not.toContain("test-secret");
-    const js = await app.inject({ method: "GET", url: "/dashboard/livekit-client.js" });
-    expect(js.statusCode).toBe(200);
-    expect(js.body).toContain("LivekitClient");
     for (const url of ["/test/overview", "/test/report", "/dashboard/../test/overview"]) {
       expect((await app.inject({ method: "GET", url })).statusCode, url).toBe(401);
     }
@@ -120,11 +117,8 @@ describe("dashboard", () => {
     expect((await app.inject({ method: "POST", url: "/test/livekit/token", headers: AUTH, payload: { provider: "A" } })).statusCode).toBe(400);
   });
 
-  it("serves the ElevenLabs browser client and refuses an A token without a key", async () => {
+  it("refuses an ElevenLabs (A) token without a key", async () => {
     const { app } = await server({});
-    const js = await app.inject({ method: "GET", url: "/dashboard/elevenlabs-client.js" });
-    expect(js.statusCode).toBe(200);
-    expect(js.body).toContain("ElevenLabsClient");
     const t = await app.inject({ method: "POST", url: "/test/elevenlabs/token", headers: AUTH, payload: {} });
     expect(t.statusCode).toBe(400);
     expect(t.json().error).toBe("elevenlabs_not_configured");

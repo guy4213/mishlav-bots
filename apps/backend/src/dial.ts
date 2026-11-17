@@ -1,16 +1,20 @@
 /**
  * Dialing one contact, the same way for the dashboard's "call" button (routes/phone.ts) and the automatic dialer
  * (dialer.ts): load it, never a do-not-call, its phone in use, dial with its name / day / gender, and follow the
- * call so the contact's record is linked now and closed when the line says the call ended.
+ * call so the contact's record is linked now and closed when the line says the call ended (with its transcript
+ * stored in calls.transcript, so the dashboard's history survives a deploy).
  */
 import { noAnswerRetryTimes, type Settings } from "@mishlav/shared";
 import type { CallOptions, PhoneLine } from "../../phone/src/line.js";
 import { type CallOrigin, type ContactEvents, type ContactRecord, dialNumber, firstName } from "./contacts";
+import { readTranscript, transcriptForDb } from "./transcripts";
 
 export interface DialDeps {
   contacts: ContactEvents;
   settings: Settings;
   line: PhoneLine;
+  /** where the line writes each call's transcript (logs/transcripts); none: not stored in the database */
+  transcriptsDir?: string;
 }
 
 export interface DialOptions extends Omit<CallOptions, "gender" | "ringTimeoutMs"> {
@@ -93,7 +97,11 @@ function trackContactCall(
       line.off("ended", waitEnd);
       // the next call for each streak this call can make; SQL picks by the contact's new streak
       const nextCallAt = noAnswerRetryTimes(new Date(at), business_hours, dialing);
-      void events.run(callId, "call ended", (s) => s.callEnded(callId, (at - startedAt) / 1000, nextCallAt, limits)).then(resolve);
+      const closed = events.run(callId, "call ended", (s) => s.callEnded(callId, (at - startedAt) / 1000, nextCallAt, limits));
+      // the line has written the whole transcript by now (it says 'ended' last); none when nobody answered
+      const lines = deps.transcriptsDir ? transcriptForDb(readTranscript(deps.transcriptsDir, callId)) : [];
+      if (lines.length) void events.run(callId, "transcript", async (s) => s.saveTranscript?.(callId, lines));
+      void closed.then(resolve);
     };
     const waitEnd = (e: { call_id: string }) => {
       if (e.call_id === callId) finish(Date.now());

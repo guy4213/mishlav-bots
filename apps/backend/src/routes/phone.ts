@@ -31,6 +31,8 @@ export interface PhoneRouteDeps {
   /** Supabase contacts (none: dial numbers only) */
   contacts?: ContactEvents;
   settings: Settings;
+  /** logs/transcripts: a contact call's transcript is stored in Supabase at its end */
+  transcriptsDir?: string;
 }
 
 export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHolder, deps: PhoneRouteDeps): Promise<void> {
@@ -63,7 +65,7 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
     const line = holder.line;
     if (contact_id) {
       if (!deps.contacts) return reply.code(409).send({ ok: false, error: "no_contacts", message_he: "Supabase לא מחובר (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)" });
-      const r = await dialContact({ contacts: deps.contacts, settings: deps.settings, line }, contact_id, { ...opts, number, origin: "manual" });
+      const r = await dialContact({ contacts: deps.contacts, settings: deps.settings, line, transcriptsDir: deps.transcriptsDir }, contact_id, { ...opts, number, origin: "manual" });
       if (!r.ok) return reply.code(DIAL_ERROR_CODE[r.error]).send(r);
       return { ok: true, call_id: r.call_id, contact_id: r.contact.gold_record_id };
     }

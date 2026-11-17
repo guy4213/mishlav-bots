@@ -17,6 +17,8 @@ export interface ToolRouteDeps extends Omit<ToolContext, "recipient"> {
   contacts?: ContactEvents;
   /** the phone line: who a scenario call is on (send_purchase_link's recipient) */
   phone?: PhoneHolder;
+  /** after each tool call (the dashboard's live log) */
+  onToolCall?: (callId: string | null, tool: ToolName, ok: boolean, error?: string) => void;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, 200) : null);
@@ -61,6 +63,7 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
 
       const params = logToolCall(deps, req, tool, body, response, performance.now() - started, recipient);
       const callId = callMeta(req).call_id;
+      deps.onToolCall?.(callId, tool, response.ok, response.ok ? undefined : String(response.error));
       // after the answer is ready, not before: the bot never waits for Supabase
       if (callId && deps.contacts) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
       return response;

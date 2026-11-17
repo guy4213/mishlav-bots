@@ -96,6 +96,8 @@ async function main() {
     classifyGender: googleKey ? geminiGenderClassifier({ apiKey: googleKey }) : undefined,
     // the contacts the bot calls and updates (none without SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)
     contacts,
+    // what the management dashboard reads (calls, rep tasks, the day's summary): the same Supabase
+    admin: contacts,
     // the automatic dialer: on/off in Supabase (starts off; the dashboard turns it on); its loop runs from now on
     dialer: contacts && { store: contacts, run: true },
   });

@@ -47,7 +47,10 @@ export interface DialerDeps {
   now?: () => Date;
   /** DIALER_ONLY_NUMBERS, normalised (parseOnlyNumbers). null = every number. */
   onlyNumbers?: Set<string> | null;
-  log?: (text: string) => void;
+  /** "error": a failure (the dashboard's log shows it as one) */
+  log?: (text: string, kind?: "error") => void;
+  /** logs/transcripts: each call's transcript is stored in Supabase at its end */
+  transcriptsDir?: string;
 }
 
 export const FAILURE_WAIT_MS = 60_000;
@@ -68,7 +71,7 @@ export function parseOnlyNumbers(raw: string | undefined, warn: (text: string) =
 
 export class Dialer {
   private readonly now: () => Date;
-  private readonly log: (text: string) => void;
+  private readonly log: (text: string, kind?: "error") => void;
   private control: DialerControl | null = null;
   private state: DialerState = "stopped";
   private current: DialerStatus["current_call"] = null;
@@ -200,7 +203,7 @@ export class Dialer {
     this.next = due;
 
     const only = this.deps.onlyNumbers;
-    const r = await dialContact({ contacts: this.deps.events, settings, line }, due.gold_record_id, {
+    const r = await dialContact({ contacts: this.deps.events, settings, line, transcriptsDir: this.deps.transcriptsDir }, due.gold_record_id, {
       origin: "dialer",
       allowNumber: only ? (n) => only.has(toE164(n) ?? n) : undefined,
     });
@@ -245,16 +248,16 @@ export class Dialer {
     this.failures++;
     this.state = "error";
     this.lastError = { message: err.message, at: this.now().toISOString() };
-    this.log(`failure ${this.failures}/${MAX_FAILURES}: ${err.message}`);
+    this.log(`failure ${this.failures}/${MAX_FAILURES}: ${err.message}`, "error");
     if (this.failures >= MAX_FAILURES) {
       const reason = `נעצר אוטומטית אחרי ${MAX_FAILURES} תקלות ברצף: ${err.message}`.slice(0, 500);
       try {
         this.control = await this.deps.store.setDialer(false, reason);
         this.state = "stopped";
         this.failures = 0;
-        this.log(reason);
+        this.log(reason, "error");
       } catch (e) {
-        this.log(`could not turn the dialer off: ${(e as Error).message}`);
+        this.log(`could not turn the dialer off: ${(e as Error).message}`, "error");
       }
     }
     return FAILURE_WAIT_MS;

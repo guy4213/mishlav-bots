@@ -103,6 +103,8 @@ M1 ──► M2 ──► M3 ──┐
 - [ ] **Tests** (7h) — unit (rules, hours, normalisation, dedup, idempotency, locks, block list, validation), integration (Importer → … → Export), load (20 concurrent, no double dial, no stuck record)
 - [ ] **Deploy** (2h) — Render Frankfurt (web + background worker), structured logs per `callId`, `/healthz`, alerts, kill switch
 
+- [x] **Management dashboard** — replaces the provider-testing lab: `apps/backend/dashboard/` (ES modules, no build), screens overview / contacts / calls / rep tasks / testing / results / logs / Gold, dialer stop/start in the top bar, light + dark, phone layout; routes `/api/admin/{env,summary,contacts,calls,rep-tasks,logs}`; transcripts stored in `calls.transcript` at the end of a contact's call (migration `20261118010000_dashboard`). Left: Mishlav management access (real login), tool actions also in the database (today from `tool-calls.jsonl`, lost on deploy), delete `apps/backend/test/hangup-rule.test.ts` (skips itself; the browser call is gone)
+
 ## Phase 5 — Winning branch (G) → M5
 
 ### Branch A — ElevenLabs Agents (15h)

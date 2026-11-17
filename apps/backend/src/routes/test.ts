@@ -24,6 +24,17 @@ export interface TestRouteDeps {
 
 const badRequest = (error: z.ZodError) => ({ ok: false, error: "invalid_params", details: z.prettifyError(error) });
 
+/** The tool calls in the tool log that `keep` accepts, as the dashboard shows them (oldest first). */
+export function toolCallsWhere(toolLog: JsonlFile, keep: (e: ToolCallLogEntry) => boolean) {
+  return toolLog
+    .readAll()
+    .map((l) => ToolCallLogEntry.safeParse(l))
+    .filter((r) => r.success)
+    .map((r) => r.data)
+    .filter(keep)
+    .map(({ ts, tool, params, ok, error, response, call_id, provider }) => ({ ts, tool, params, ok, error, response, call_id, provider }));
+}
+
 /** Test-session plumbing used during Part 3 calls. */
 export async function registerTestRoutes(app: FastifyInstance, deps: TestRouteDeps): Promise<void> {
   app.post("/test/session", async (req, reply) => {
@@ -53,22 +64,7 @@ export async function registerTestRoutes(app: FastifyInstance, deps: TestRouteDe
     const q = (req.query ?? {}) as Record<string, string | undefined>;
     const sessionId = q.session_id ?? deps.sessions.current()?.session_id ?? null;
     const byCall = q.call_id; // one phone call from the dashboard, with or without a test session
-    const calls = deps.toolLog
-      .readAll()
-      .map((l) => ToolCallLogEntry.safeParse(l))
-      .filter((r) => r.success)
-      .map((r) => r.data)
-      .filter((e) => (byCall ? e.call_id === byCall : e.session_id === sessionId))
-      .map(({ ts, tool, params, ok, error, response, call_id, provider }) => ({
-        ts,
-        tool,
-        params,
-        ok,
-        error,
-        response,
-        call_id,
-        provider,
-      }));
+    const calls = toolCallsWhere(deps.toolLog, (e) => (byCall ? e.call_id === byCall : e.session_id === sessionId));
     return { ok: true, session_id: sessionId, count: calls.length, calls };
   });
 

@@ -360,6 +360,21 @@ headers (`gold_import.columns` inverted; the record id under `gold_import.record
 Notifier: WhatsApp/email on `HOT_LEAD`/`COMPANY`. `MockProvider` implements `VoiceProvider` with
 scripted outcomes and delays.
 
+**Management dashboard** (`apps/backend/dashboard/`, no build step: `index.html`, `styles.css`, ES modules
+`app.js` / `api.js` / `live.js` / `ui.js` / `views/*.js`, served by `routes/dashboard.ts`; only these static files
+are public, all data is behind `TOOLS_SECRET`, same `#k=` → localStorage mechanism). Screens: overview (today's
+dialer-only KPIs, funnel, queue, rep tasks, dialer, live call), contacts, calls (transcript + tool actions in one
+timeline), rep tasks, testing (the old dial tab + "what to expect" per scenario), scenario results (provider C,
+from `/test/report`), live log, Gold. Top bar on every screen: environment (`RENDER` set → production), dialer
+state with stop/start, phone line, live call. Routes (`routes/admin.ts`): `GET /api/admin/env`, `/summary`
+(SQL `dashboard_summary(p_day_start)`, day start = midnight Asia/Jerusalem), `/contacts`, `/contacts/:id`,
+`/calls?limit=&origin=dialer|manual|all`, `/calls/:call_id` (transcript from `calls.transcript`, else this
+server's file; tool actions from `tool-calls.jsonl`), `/rep-tasks?open=1`, `POST /rep-tasks/:id/done`,
+`/logs?since=` (one in-memory stream, `serverlog.ts`: the line's `recent` + dialer / tool / Supabase error / SMS
+events, one sequence). Transcripts survive deploys: at the end of a contact's call `dial.ts` stores the file's
+user/assistant lines in `calls.transcript` (jsonb) with 13–19 digit runs redacted (`redact.ts`). Migration
+`20261118010000_dashboard`.
+
 **Branches.** A: `ElevenLabsAgentsProvider` (outbound API, post-call webhook with HMAC verification),
 agent-as-code via ElevenLabs CLI. B/C: `LiveKitProvider` (`CreateSIPParticipant` via Voice Center
 outbound trunk), production worker, post-call LLM extraction into `CallResult`.

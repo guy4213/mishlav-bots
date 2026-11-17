@@ -3,17 +3,18 @@ import { LOG_FILES } from "@mishlav/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
-import { ContactEvents, type ContactStore, type DialerStore } from "./contacts";
+import { type AdminStore, ContactEvents, type ContactStore, type DialerStore } from "./contacts";
 import { Dialer, parseOnlyNumbers } from "./dialer";
 import type { GenderClassifier } from "./gender";
 import { JsonlFile } from "./jsonl";
 import { loadKnowledge } from "./knowledge";
 import { registerAdminRoutes } from "./routes/admin";
-import { registerDashboardRoutes } from "./routes/dashboard";
+import { isDashboardFile, registerDashboardRoutes } from "./routes/dashboard";
 import { GOLD_CHANGES_PATH, registerGoldRoutes } from "./routes/gold";
 import { type PhoneHolder, registerPhoneRoutes } from "./routes/phone";
 import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
+import { ServerLog } from "./serverlog";
 import { SessionStore } from "./sessions";
 import { type SmsSender, smsSenderFromEnv } from "./sms";
 
@@ -28,6 +29,8 @@ export interface BuildOptions {
   phone?: PhoneHolder;
   /** Supabase contacts (main.ts: from SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY). None: scenario tests only. */
   contacts?: ContactStore;
+  /** What the management dashboard reads: calls, rep tasks, the summary (main.ts: the same Supabase store). */
+  admin?: AdminStore;
   /** Customer gender from the first name before a call (main.ts: Gemini). None: "unknown" (neutral wording). */
   classifyGender?: GenderClassifier;
   /**
@@ -43,14 +46,7 @@ export interface BuildOptions {
  * and the Gold API (its own key, routes/gold.ts). */
 function isPublic(url: string): boolean {
   const path = url.split("?")[0]!;
-  return (
-    path === "/healthz" ||
-    path === GOLD_CHANGES_PATH ||
-    path === "/dashboard" ||
-    path === "/dashboard/" ||
-    path === "/dashboard/livekit-client.js" ||
-    path === "/dashboard/elevenlabs-client.js"
-  );
+  return path === "/healthz" || path === GOLD_CHANGES_PATH || isDashboardFile(path);
 }
 
 export async function buildServer(config: AppConfig, opts: BuildOptions = {}): Promise<FastifyInstance> {
@@ -97,15 +93,20 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     }
   });
 
+  const phone = opts.phone ?? { line: null, reason: "not started" };
+  const env = opts.env ?? process.env;
+  // the dashboard's live log of this server: the phone line + the events below (GET /api/admin/logs)
+  const serverLog = new ServerLog(phone, now);
+  const transcriptsDir = join(config.logDir, "transcripts");
+
   // a failed Supabase update is logged next to the tool calls (the dashboard's call view and logs show it)
   const contacts = opts.contacts
     ? new ContactEvents(opts.contacts, (callId, what, err) => {
         toolLog.append({ type: "supabase_error", ts: now().toISOString(), call_id: callId, what, error: err.message });
+        serverLog.push("error", `Supabase (${what}): ${err.message}`, callId);
         app.log.error({ err, call_id: callId, what }, "supabase update failed");
       })
     : undefined;
-  const phone = opts.phone ?? { line: null, reason: "not started" };
-  const env = opts.env ?? process.env;
   const dialer =
     contacts && opts.dialer
       ? new Dialer({
@@ -115,15 +116,34 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
           settings: config.settings,
           now,
           onlyNumbers: parseOnlyNumbers(env.DIALER_ONLY_NUMBERS, (t) => app.log.warn(t)),
-          log: (text) => app.log.info(`[dialer] ${text}`),
+          log: (text, kind) => {
+            serverLog.push(kind ?? "dialer", `[dialer] ${text}`);
+            app.log.info(`[dialer] ${text}`);
+          },
+          transcriptsDir,
         })
       : undefined;
   if (dialer && opts.dialer?.run) {
     app.addHook("onReady", async () => dialer.run());
     app.addHook("onClose", async () => dialer.shutdown()); // the loop only: the switch in the database stays
   }
-  const sms = opts.sms ?? smsSenderFromEnv(env, (text) => app.log.info(`[sms] ${text}`));
-  await registerToolRoutes(app, { knowledge, settings: config.settings, now, toolLog, sessions, contacts, phone, sms });
+  const sms =
+    opts.sms ??
+    smsSenderFromEnv(env, (text) => {
+      serverLog.push("sms", `[sms] ${text}`); // numbers are masked by the sender
+      app.log.info(`[sms] ${text}`);
+    });
+  await registerToolRoutes(app, {
+    knowledge,
+    settings: config.settings,
+    now,
+    toolLog,
+    sessions,
+    contacts,
+    phone,
+    sms,
+    onToolCall: (callId, tool, ok, error) => serverLog.push(ok ? "tool" : "error", `🔧 ${tool} ${ok ? "✓" : `✗ ${error ?? ""}`}`, callId),
+  });
   await registerTestRoutes(app, {
     sessions,
     toolLog,
@@ -135,8 +155,20 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     classifyGender: opts.classifyGender,
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
-  await registerPhoneRoutes(app, phone, { contacts, settings: config.settings });
-  await registerAdminRoutes(app, { dialer });
+  await registerPhoneRoutes(app, phone, { contacts, settings: config.settings, transcriptsDir });
+  await registerAdminRoutes(app, {
+    dialer,
+    contacts: opts.contacts,
+    admin: opts.admin,
+    phone,
+    serverLog,
+    toolLog,
+    transcriptsDir,
+    settings: config.settings,
+    env,
+    sms,
+    now,
+  });
   await registerGoldRoutes(app, {
     contacts: opts.contacts,
     settings: config.settings,

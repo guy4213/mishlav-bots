@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { findRepoRoot } from "@mishlav/shared";
 import { describe, expect, it } from "vitest";
 
-// The rule lives in the dashboard page (provider A hangs up from the browser); test that exact code.
+// The rule lived in the old dashboard page (provider A hung up from the browser). The new dashboard has no browser
+// calls, so the rule is gone and this file skips itself. TODO: delete this file.
 const html = readFileSync(join(findRepoRoot(__dirname), "apps", "backend", "dashboard", "index.html"), "utf8");
 const src = /\/\/ hangup-rule:start([\s\S]*?)\/\/ hangup-rule:end/.exec(html)?.[1] ?? "";
 type Mode = "speaking" | "listening";
-const elHangupDue = new Function(`${src}; return elHangupDue;`)() as (a: {
+const elHangupDue = (src ? new Function(`${src}; return elHangupDue;`)() : () => false) as (a: {
   now: number; t0: number; spoke: boolean; mode: Mode; modeAt: number;
 }) => boolean;
 
@@ -21,7 +22,7 @@ function hangupAt(changes: [number, Mode][], startMode: Mode = "listening"): num
   return -1;
 }
 
-describe("provider A hang-up after end_call", () => {
+describe.skipIf(!src)("provider A hang-up after end_call", () => {
   it("R4: goodbye starts after end_call and pauses mid-sentence - waits for its real end", () => {
     // end_call at 0; "אין בעיה, אני מעבירה..." from 600 to 2600, a 400ms gap, "...יום נפלא!" to 4500
     const at = hangupAt([[600, "speaking"], [2600, "listening"], [3000, "speaking"], [4500, "listening"]]);
@@ -41,13 +42,13 @@ describe("provider A hang-up after end_call", () => {
   });
 });
 
-describe("provider A: goodbye said after the end_call result (tools first, then speech)", () => {
+describe.skipIf(!src)("provider A: goodbye said after the end_call result (tools first, then speech)", () => {
   it("R4 at 20:04: request_human + end_call with no words, goodbye ~5s later - it is heard in full", () => {
     expect(hangupAt([[5200, "speaking"], [8400, "listening"]])).toBe(10900);
   });
 });
 
-describe("provider A: a 2s pause between two parts of the closing", () => {
+describe.skipIf(!src)("provider A: a 2s pause between two parts of the closing", () => {
   it("18:17 call: sentence, ~2s while the model answers the end_call result, then more speech - none of it is cut", () => {
     // sentence 0-4500, pause 2000 (LLM round after end_call), "להתראות" 6500-7300
     expect(hangupAt([[4500, "listening"], [6500, "speaking"], [7300, "listening"]], "speaking")).toBe(9800);

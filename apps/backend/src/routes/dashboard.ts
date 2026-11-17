@@ -1,16 +1,17 @@
 /**
- * Provider-testing dashboard (Part 3): a local web page + the JSON endpoints it uses.
+ * The dashboard's static files and the testing endpoints it uses (scenarios, scoring, transcripts).
  *
- * - GET /dashboard (+ /dashboard/livekit-client.js) is public: static files, no data. The page sends
- *   TOOLS_SECRET on every API call (it receives it in the URL #hash from `npm run lab`).
- * - Everything under /test/* stays behind the shared secret like the rest of the server.
+ * - GET /dashboard and its files (apps/backend/dashboard: index.html, styles.css, ES modules) are public: static
+ *   files, no data. The page sends TOOLS_SECRET on every API call (it receives it in the URL #hash from
+ *   `npm run lab`, then keeps it in localStorage).
+ * - Everything under /test/* stays behind the shared secret like the rest of the server; the management data
+ *   is in routes/admin.ts.
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROVIDER_NAMES, Provider, type TestSession } from "@mishlav/shared";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { AccessToken, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
@@ -20,6 +21,7 @@ import { loadScenarios, type Scenario } from "../../../../scripts/lib/scenarios"
 import { EMPTY_MANUAL, ManualInputs, ManualSession, type SessionResult } from "../../../../scripts/lib/scoring";
 import type { AppConfig } from "../config";
 import type { SessionStore } from "../sessions";
+import { CALL_ID, parseTranscript } from "../transcripts";
 import { elevenStatus, registerElevenLabsRoutes } from "./elevenlabs";
 
 export interface DashboardDeps {
@@ -31,25 +33,15 @@ export interface DashboardDeps {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PAGE = join(here, "..", "..", "dashboard", "index.html");
+const DASHBOARD_DIR = join(here, "..", "..", "dashboard");
 
-function livekitClientPath(repoRoot: string): string {
-  const fallback = join(repoRoot, "node_modules", "livekit-client", "dist", "livekit-client.umd.js");
-  try {
-    const p = createRequire(import.meta.url).resolve("livekit-client");
-    return p.endsWith("livekit-client.umd.js") ? p : join(dirname(p), "livekit-client.umd.js");
-  } catch {
-    return fallback;
-  }
-}
+/** The dashboard's static files: its stylesheet and ES modules (views/ one level down). Nothing else is served. */
+const DASHBOARD_FILE = /^\/dashboard\/((?:views\/)?[a-z][a-z0-9-]*\.(?:js|css))$/;
+const CONTENT_TYPE = { js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8" } as const;
 
-function elevenClientPath(repoRoot: string): string {
-  try {
-    const pkg = createRequire(import.meta.url).resolve("@elevenlabs/client/package.json");
-    return join(dirname(pkg), "dist", "lib.iife.js");
-  } catch {
-    return join(repoRoot, "node_modules", "@elevenlabs", "client", "dist", "lib.iife.js");
-  }
+/** Public (no secret): the page and its static files (server.ts isPublic). */
+export function isDashboardFile(path: string): boolean {
+  return path === "/dashboard" || path === "/dashboard/" || DASHBOARD_FILE.test(path);
 }
 
 /** LiveKit agent name per provider (must match the worker's AGENT_NAME and the phone dispatch rule). */
@@ -144,7 +136,6 @@ const VoiceUpdate = z.strictObject({
   scores: z.record(z.string().regex(/^[A-Z]$/), z.array(z.number().min(1).max(5)).max(10)),
 });
 const TokenRequest = z.strictObject({ provider: Provider.default("C"), scenario: z.string().max(20).optional() });
-const CALL_ID = /^[\w+.\-]{1,150}$/;
 const TranscriptAppend = z.strictObject({
   call_id: z.string().regex(CALL_ID),
   role: z.enum(["user", "assistant", "event"]), // event: call timeline for debugging (logs/events/), not transcript
@@ -181,18 +172,19 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
       logDir: deps.config.logDir,
     });
 
-  // ---- static page (public)
-  app.get("/dashboard", async (_req, reply) => {
+  // ---- static files (public). Read per request: no build step, an edit shows on the next reload.
+  const page = async (_req: unknown, reply: FastifyReply) => {
     reply.header("cache-control", "no-store").type("text/html; charset=utf-8");
-    return readFileSync(PAGE, "utf8");
-  });
-  app.get("/dashboard/livekit-client.js", async (_req, reply) => {
-    reply.header("cache-control", "public, max-age=3600").type("application/javascript; charset=utf-8");
-    return readFileSync(livekitClientPath(root), "utf8");
-  });
-  app.get("/dashboard/elevenlabs-client.js", async (_req, reply) => {
-    reply.header("cache-control", "public, max-age=3600").type("application/javascript; charset=utf-8");
-    return readFileSync(elevenClientPath(root), "utf8");
+    return readFileSync(join(DASHBOARD_DIR, "index.html"), "utf8");
+  };
+  app.get("/dashboard", page);
+  app.get("/dashboard/", page);
+  app.get("/dashboard/*", async (req, reply) => {
+    const m = DASHBOARD_FILE.exec(req.url.split("?")[0]!);
+    const file = m ? join(DASHBOARD_DIR, m[1]!) : null;
+    if (!file || !existsSync(file)) return reply.code(404).send({ ok: false, error: "not_found" });
+    reply.header("cache-control", "no-store").type(CONTENT_TYPE[file.endsWith(".css") ? "css" : "js"]);
+    return readFileSync(file, "utf8");
   });
 
   await registerElevenLabsRoutes(app, { root, env });
@@ -293,16 +285,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
       file = newest?.f ?? null;
     }
     if (!file) return { ok: true, call_id: null, lines: [] };
-    const lines = readFileSync(file, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .flatMap((l) => {
-        try {
-          return [JSON.parse(l) as { ts: string; role: string; text: string }];
-        } catch {
-          return [];
-        }
-      });
+    const lines = parseTranscript(readFileSync(file, "utf8"));
     return { ok: true, call_id: file.split(/[\\/]/).pop()!.replace(/\.jsonl$/, ""), lines };
   });
 

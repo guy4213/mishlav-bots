@@ -15,6 +15,7 @@
  */
 import type { Settings } from "@mishlav/shared";
 import type { Gender } from "./gender";
+import type { TranscriptLine } from "./transcripts";
 
 /** Gold's columns, as in the export (settings.yaml gold_import.columns). */
 export interface Contact {
@@ -117,6 +118,70 @@ export interface ContactStore {
   goldChanges(since?: string): Promise<GoldChanges>;
   /** The phone a contact's call is on (as written in Gold; null: not a contact's call, or no phone). */
   callNumber(callId: string): Promise<string | null>;
+  /** Stores the call's transcript (calls.transcript) so it outlives the server's disk. Card numbers already removed. */
+  saveTranscript?(callId: string, lines: TranscriptLine[]): Promise<void>;
+}
+
+/** One row of calls (the list leaves the transcript out). */
+export interface CallRow {
+  call_id: string;
+  gold_record_id: string;
+  started_at: string;
+  duration_sec: number | null;
+  outcome: string | null;
+  reason: string | null;
+  summary: string | null;
+  answered: boolean;
+  origin: CallOrigin;
+  /** the contact's name (contacts.full_name) */
+  full_name: string | null;
+}
+
+/** A task the bot left for a rep (request_human, or unreachable after it answered once). */
+export interface RepTask {
+  id: string;
+  gold_record_id: string;
+  call_id: string | null;
+  reason: string;
+  callback_at: string | null;
+  note: string | null;
+  done: boolean;
+  created_at: string;
+}
+
+/** A rep task with who to call: the name, and the phone the bot used (bot_state.phone_index) as written in Gold. */
+export interface RepTaskRow extends RepTask {
+  full_name: string | null;
+  phone: string | null;
+}
+
+/** dashboard_summary(): today's dialer calls, the contacts' funnel and the queue (supabase/migrations). */
+export interface DashboardSummary {
+  day_start: string;
+  today: { total: number; answered: number; no_result: number; outcomes: Record<string, number>; manual_total: number };
+  funnel: { new: number; in_queue: number; handled: number; closed: number };
+  by_status: Record<string, number>;
+  contacts_total: number;
+  due_now: number;
+  open_rep_tasks: number;
+  next_due: { gold_record_id: string; full_name: string | null; bot_status: string; next_call_at: string | null }[];
+}
+
+/** What the management dashboard reads (routes/admin.ts), besides the contacts list. */
+export interface AdminStore {
+  /** dayStart: midnight in the business time zone */
+  summary(dayStart: Date): Promise<DashboardSummary>;
+  /** the contact's calls, newest first */
+  contactCalls(goldRecordId: string): Promise<CallRow[]>;
+  /** all the contact's rep tasks (done ones too), newest first */
+  contactRepTasks(goldRecordId: string): Promise<RepTask[]>;
+  /** calls newest first; origin null = both */
+  calls(limit: number, origin: CallOrigin | null): Promise<CallRow[]>;
+  call(callId: string): Promise<(CallRow & { transcript: TranscriptLine[] | null }) | null>;
+  /** open tasks (or all), by callback time (as soon as possible first) */
+  repTasks(openOnly: boolean): Promise<RepTaskRow[]>;
+  /** marks a task done; null when there is no such task */
+  repTaskDone(id: string): Promise<RepTask | null>;
 }
 
 /** Israeli number as dialed: 053-4271418 / 053 4271418 / 0534271418 / +972-53-... -> +972534271418. */
@@ -160,7 +225,18 @@ function normalise(c: ContactRecord): ContactRecord {
 }
 
 /** Supabase over its REST API (PostgREST), with the service role key - the only role the tables let in. */
-export class SupabaseContacts implements ContactStore, DialerStore {
+const CALL_FIELDS = "call_id,gold_record_id,started_at,duration_sec,outcome,reason,summary,answered,origin";
+const TASK_FIELDS = "id,gold_record_id,call_id,reason,callback_at,note,done,created_at";
+type Embedded<T> = T | T[] | null;
+const one = <T>(v: Embedded<T> | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
+
+/** A calls row with its contact embedded (PostgREST) -> CallRow. */
+function callRow(r: Omit<CallRow, "full_name"> & { contacts?: Embedded<{ full_name: string | null }> }): CallRow {
+  const { contacts, ...call } = r;
+  return { ...call, full_name: one(contacts)?.full_name ?? null };
+}
+
+export class SupabaseContacts implements ContactStore, DialerStore, AdminStore {
   private readonly base: string;
   constructor(
     url: string,
@@ -171,7 +247,7 @@ export class SupabaseContacts implements ContactStore, DialerStore {
     this.base = `${url.replace(/\/+$/, "")}/rest/v1`;
   }
 
-  private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async req<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
     const res = await this.fetchImpl(this.base + path, {
       method,
       headers: {
@@ -179,6 +255,7 @@ export class SupabaseContacts implements ContactStore, DialerStore {
         authorization: `Bearer ${this.serviceKey}`,
         "content-type": "application/json",
         accept: "application/json",
+        ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(this.timeoutMs),
@@ -222,6 +299,73 @@ export class SupabaseContacts implements ContactStore, DialerStore {
 
   callNumber(callId: string) {
     return this.req<string | null>("POST", "/rpc/bot_call_number", { p_call_id: callId });
+  }
+
+  async saveTranscript(callId: string, lines: TranscriptLine[]) {
+    await this.req("PATCH", `/calls?call_id=eq.${encodeURIComponent(callId)}`, { transcript: lines });
+  }
+
+  // ---- the management dashboard (AdminStore)
+  summary(dayStart: Date) {
+    return this.req<DashboardSummary>("POST", "/rpc/dashboard_summary", { p_day_start: dayStart.toISOString() });
+  }
+
+  async contactCalls(goldRecordId: string) {
+    const rows = await this.req<Omit<CallRow, "full_name">[]>(
+      "GET",
+      `/calls?select=${CALL_FIELDS}&gold_record_id=eq.${encodeURIComponent(goldRecordId)}&order=started_at.desc&limit=200`,
+    );
+    return rows.map((r) => ({ ...r, full_name: null }));
+  }
+
+  contactRepTasks(goldRecordId: string) {
+    return this.req<RepTask[]>(
+      "GET",
+      `/rep_tasks?select=${TASK_FIELDS}&gold_record_id=eq.${encodeURIComponent(goldRecordId)}&order=created_at.desc`,
+    );
+  }
+
+  async calls(limit: number, origin: CallOrigin | null) {
+    const rows = await this.req<Parameters<typeof callRow>[0][]>(
+      "GET",
+      `/calls?select=${CALL_FIELDS},contacts(full_name)${origin ? `&origin=eq.${origin}` : ""}&order=started_at.desc&limit=${limit}`,
+    );
+    return rows.map(callRow);
+  }
+
+  async call(callId: string) {
+    const rows = await this.req<(Parameters<typeof callRow>[0] & { transcript: TranscriptLine[] | null })[]>(
+      "GET",
+      `/calls?select=${CALL_FIELDS},transcript,contacts(full_name)&call_id=eq.${encodeURIComponent(callId)}`,
+    );
+    return rows[0] ? { ...callRow(rows[0]), transcript: rows[0].transcript ?? null } : null;
+  }
+
+  async repTasks(openOnly: boolean) {
+    type Row = RepTask & {
+      contacts: Embedded<Pick<Contact, "full_name" | "phone" | "phone2" | "phone3"> & { bot_state: Embedded<{ phone_index: number }> }>;
+    };
+    const rows = await this.req<Row[]>(
+      "GET",
+      `/rep_tasks?select=${TASK_FIELDS},contacts(full_name,phone,phone2,phone3,bot_state(phone_index))` +
+        `${openOnly ? "&done=eq.false" : ""}&order=callback_at.asc.nullsfirst,created_at.asc&limit=500`,
+    );
+    return rows.map(({ contacts, ...task }) => {
+      const c = one(contacts);
+      const phones = [c?.phone, c?.phone2, c?.phone3];
+      const used = phones[(one(c?.bot_state)?.phone_index ?? 1) - 1] ?? null;
+      return { ...task, full_name: c?.full_name ?? null, phone: used || c?.phone || null };
+    });
+  }
+
+  async repTaskDone(id: string) {
+    const rows = await this.req<RepTask[]>(
+      "PATCH",
+      `/rep_tasks?id=eq.${encodeURIComponent(id)}&select=${TASK_FIELDS}`,
+      { done: true },
+      { prefer: "return=representation" },
+    );
+    return rows[0] ?? null;
   }
 
   async dialerControl() {
