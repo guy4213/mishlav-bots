@@ -24,6 +24,17 @@ export interface Contact {
   next_call_at: string | null;
   callback_at: string | null;
   last_outcome: string | null;
+  // shown in the dashboard before a test call (who the tester plays)
+  company?: string | null;
+  email?: string | null;
+  city?: string | null;
+  requested_course?: string | null;
+  source?: string | null;
+  gold_status?: string | null;
+  gold_notes?: string | null;
+  bot_notes?: string | null;
+  last_call_at?: string | null;
+  rep_tasks?: { reason: string; callback_at: string | null; done: boolean; created_at: string }[];
 }
 
 export interface ContactStore {
@@ -35,7 +46,9 @@ export interface ContactStore {
 }
 
 const FIELDS =
-  "id,gold_record_id,full_name,first_name,phone,phone_e164,status,interested_day_id,customer_gender,attempts,next_call_at,callback_at,last_outcome";
+  "id,gold_record_id,full_name,first_name,phone,phone_e164,status,interested_day_id,customer_gender,attempts,next_call_at,callback_at,last_outcome," +
+  "company,email,city,requested_course,source,gold_status,gold_notes,bot_notes,last_call_at," +
+  "rep_tasks(reason,callback_at,done,created_at)";
 
 /** Supabase over its REST API (PostgREST), with the service role key - the only role the tables let in. */
 export class SupabaseContacts implements ContactStore {
