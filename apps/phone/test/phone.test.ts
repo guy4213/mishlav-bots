@@ -334,6 +334,44 @@ describe("call agent", () => {
     agent.end();
   });
 
+  it("warm-up while ringing: Gemini reads the instructions; its reply is never played or written", async () => {
+    const live = new FakeLive();
+    const calls: string[] = [];
+    const agent = new CallAgent({ live, tools: { callTool: async (n: string) => (calls.push(n), { ok: true }) }, openAfterSilenceMs: 2500 });
+    const warmed = agent.warmUp();
+    expect(live.sent).toEqual([CUES.warmUp]);
+    // its reply: audio, words and even a tool call - all dropped
+    live.emit("audio", Buffer.alloc(4800, 1));
+    live.emit("outputTranscript", "אוקיי");
+    live.emit("toolCall", [{ id: "w1", name: "get_day_info", args: { day_id: "x" } }]);
+    await wait(10);
+    expect(agent.queued).toBe(0);
+    expect(calls).toEqual([]); // the tools server never hears of it
+    expect(JSON.parse((live.toolResponses[0] as { response: { output: string } }).response.output)).toMatchObject({ ok: false, error: "not_started" });
+    live.emit("turnComplete");
+    expect(await warmed).toBeGreaterThanOrEqual(0);
+    expect(agent.turnText).toBe("");
+    expect(agent.answeredSinceLead).toBe(false);
+    // the call is up: the next answer plays as usual
+    agent.start(new FakeRtp());
+    live.emit("audio", Buffer.alloc(4800, 1));
+    expect(agent.queued).toBeGreaterThan(0);
+    agent.end();
+  });
+
+  it("warm-up: the callee answering and speaking ends it (interrupted)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 2500 });
+    const warmed = agent.warmUp();
+    agent.start(new FakeRtp());
+    live.emit("interrupted");
+    expect(await warmed).not.toBeNull();
+    live.emit("audio", Buffer.alloc(4800, 1)); // the answer to "הלו"
+    expect(agent.queued).toBeGreaterThan(0);
+    expect(await agent.warmUp()).toBeNull(); // the call is up: no second warm-up
+    agent.end();
+  });
+
   it("the bot opens after 2.5 s of silence by default (it was 4)", async () => {
     // @ts-expect-error plain JS module
     const { phoneEnv } = await import("../src/line.js");
