@@ -111,11 +111,19 @@ describe("mishlav prompt", () => {
     expect(text).not.toContain("\r");
   });
 
-  it("knowledge block matches the worker's format (Python-style values, day facts)", () => {
+  it("knowledge block: the general knowledge only, without our TODO notes (days come from get_day_info)", () => {
     const k = knowledgeAppendix(ROOT);
-    expect(k).toContain("## day_id `payroll-2026-12-22-hotel`");
-    expect(k).toMatch(/open_for_registration: True, פורמט: פרונטלי – במלון, series: /);
-    expect(k).toContain("price_ils: 790");
+    expect(k).toContain("מבנה ימי העיון");
+    expect(k).not.toContain("## day_id"); // every turn bills the whole prompt: no copy of what the tool returns
+    expect(k).not.toContain("TODO"); // notes for us, some with unconfirmed prices
+    expect(k).not.toMatch(/\n{3,}/);
+    // the day ids are still in the prompt: the closed catalogue
+    expect(buildInstructions(ROOT, VARS)).toContain("`payroll-2026-12-22-hotel`");
+  });
+
+  it("long calls: the context is trimmed before it grows (every turn is billed on all of it)", () => {
+    const setup = buildSetup({ instructions: "x", tools: [] });
+    expect(setup.contextWindowCompression).toEqual({ triggerTokens: 20000, slidingWindow: { targetTokens: 12000 } });
   });
 
   it("an unknown variable is an error", () => {
