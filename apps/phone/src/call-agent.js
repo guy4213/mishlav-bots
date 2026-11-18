@@ -3,6 +3,7 @@
 // real Zadarma calls: quiet-line fix, barge-in hold, silence check); opening and end_call as provider C's worker.
 import { EventEmitter } from 'node:events';
 import { Downsampler, FRAME_SAMPLES, PHONE_RATE, pcmBuffer, pcmView, rms } from './audio.js';
+import { UsageMeter } from './usage.js';
 
 const VOICE_RMS = 0.02; // above this level on the line, the caller is talking (for the silence count)
 // Silence on a real phone line is very faint noise (samples of ±8, about -72 dB) and Gemini's end-of-speech
@@ -62,6 +63,7 @@ export class CallAgent extends EventEmitter {
   constructor({ live, tools, openAfterSilenceMs = 4000, genderReminder = null }) {
     super();
     this.genderReminder = genderReminder; // added to every tool answer the bot gets (not logged by the server)
+    this.usage = new UsageMeter(); // Gemini tokens of this call (what it cost)
     this.live = live;
     this.tools = tools;
     this.openAfterSilenceMs = openAfterSilenceMs;
@@ -212,6 +214,7 @@ export class CallAgent extends EventEmitter {
       this._logAgent(false);
     });
     a.on('toolCall', (calls) => this._onToolCall(calls));
+    a.on('usage', (md) => this.usage.add(md));
     a.on('toolCancel', (ids) => ids.forEach((id) => this.cancelled.add(id)));
     a.on('goAway', (timeLeft) => this.emit('line', { who: 'note', text: `Gemini goAway (${timeLeft ?? '?'})` }));
     a.on('close', ({ code, reason }) => {

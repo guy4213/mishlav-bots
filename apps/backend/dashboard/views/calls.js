@@ -3,7 +3,7 @@
 import { get } from "../api.js";
 import { liveCall, subscribe } from "../live.js";
 import {
-  chip, conversationHtml, emptyState, errorState, esc, every, fmtDateTime, fmtDuration, fmtRel, icon, loadingState, ls,
+  chip, conversationHtml, emptyState, errorState, esc, every, fmtCost, fmtDateTime, fmtDuration, fmtRel, icon, loadingState, ls,
   openDrawer, originChip, outcomeChip, outcomeLabel, REASON_HE, setFollowing,
 } from "../ui.js";
 import { openContact } from "./contacts.js";
@@ -28,13 +28,14 @@ function liveBanner(c) {
 function table(calls) {
   if (!calls.length) return emptyState("אין שיחות עדיין", "שיחות של החיוג האוטומטי ושל הבדיקות יופיעו כאן.");
   return `<div class="table-wrap"><table class="data"><thead><tr>
-      <th>מתי</th><th>לקוח</th><th>משך</th><th>תוצאה</th><th>מקור</th><th>ענה</th>
+      <th>מתי</th><th>לקוח</th><th>משך</th><th>עלות AI</th><th>תוצאה</th><th>מקור</th><th>ענה</th>
     </tr></thead><tbody>${calls
       .map(
         (c) => `<tr class="click" data-open="${esc(c.call_id)}">
         <td class="nowrap"><div class="cell-main">${esc(fmtDateTime(c.started_at))}</div><div class="cell-sub">${esc(fmtRel(c.started_at))}</div></td>
         <td><div class="cell-main">${esc(c.full_name ?? "—")}</div><div class="cell-sub ltr">${esc(c.gold_record_id)}</div></td>
         <td class="num nowrap">${fmtDuration(c.duration_sec)}</td>
+        <td class="num nowrap">${c.ai_cost_usd === null || c.ai_cost_usd === undefined ? "—" : `$${Number(c.ai_cost_usd).toFixed(3)}`}</td>
         <td>${outcomeChip(c.outcome)}${c.reason && c.reason.toUpperCase() !== c.outcome ? ` <span class="cell-sub">${esc(REASON_HE[c.reason] ?? c.reason)}</span>` : ""}</td>
         <td>${originChip(c.origin)}</td>
         <td>${c.answered ? chip("ענה", "success") : chip("לא ענה", "muted")}</td>
@@ -117,6 +118,7 @@ export function openCall(callId) {
           <dt>מקור</dt><dd>${originChip(c.origin)}</dd>
           <dt>משך</dt><dd class="num">${r.live ? "בשיחה…" : fmtDuration(c.duration_sec)}</dd>
           <dt>ענה</dt><dd>${c.answered ? "כן" : "לא"}</dd>
+          <dt>עלות AI</dt><dd class="num">${fmtCost(c.ai_cost_usd, c.duration_sec)}</dd>
           <dt>תוצאה</dt><dd>${esc(outcomeLabel(c.outcome))}${c.reason ? ` · ${esc(REASON_HE[c.reason] ?? c.reason)}` : ""}</dd>
           ${c.summary ? `<dt>סיכום</dt><dd>${esc(c.summary)}</dd>` : ""}
         </dl>`

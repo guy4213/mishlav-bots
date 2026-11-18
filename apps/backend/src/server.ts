@@ -153,6 +153,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     scenariosDir: join(config.repoRoot, "tests", "scenarios"),
     botName: (opts.env ?? process.env).BOT_NAME,
     classifyGender: opts.classifyGender,
+    settings: config.settings,
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
   await registerPhoneRoutes(app, phone, { contacts, settings: config.settings, transcriptsDir });

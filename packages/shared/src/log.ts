@@ -56,6 +56,14 @@ export const SessionLogLine = z.discriminatedUnion("type", [
 ]);
 export type SessionLogLine = z.infer<typeof SessionLogLine>;
 
+/** Gemini tokens of one call by modality (TEXT / AUDIO ...), summed over its turns (the phone line reports them). */
+export const AiUsage = z.object({
+  model: z.string().max(100),
+  input: z.record(z.string(), z.number().nonnegative()),
+  output: z.record(z.string(), z.number().nonnegative()),
+});
+export type AiUsage = z.infer<typeof AiUsage>;
+
 export const MetricsInput = z.strictObject({
   session_id: z.string().optional(),
   call_id: z.string().optional(),
@@ -63,6 +71,7 @@ export const MetricsInput = z.strictObject({
   duration_sec: z.number().nonnegative().optional(),
   cost_usd: z.number().nonnegative().optional(),
   source: z.string().max(100).optional(),
+  ai_usage: AiUsage.optional(),
 });
 export type MetricsInput = z.infer<typeof MetricsInput>;
 
@@ -75,6 +84,7 @@ export const MetricsLogEntry = z.object({
   duration_sec: z.number().optional(),
   cost_usd: z.number().optional(),
   source: z.string().optional(),
+  ai_usage: AiUsage.optional(),
 });
 export type MetricsLogEntry = z.infer<typeof MetricsLogEntry>;
 

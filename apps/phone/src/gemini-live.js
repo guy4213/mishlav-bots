@@ -188,5 +188,6 @@ export class GeminiLive extends EventEmitter {
     }
     if (msg.voiceActivity) this.emit('voiceActivity', msg.voiceActivity);
     if (msg.goAway) this.emit('goAway', msg.goAway.timeLeft);
+    if (msg.usageMetadata) this.emit('usage', msg.usageMetadata); // per turn, on the whole context
   }
 }

@@ -111,3 +111,11 @@ gold_import:
     קורס מבוקש: requested_course   # trim: some end with a space
     מקור: source
     סטטוס: status             # the bot sets it (gold_status_text in supabase/migrations)
+
+# What a call's Gemini tokens cost: USD per 1M tokens (Gemini 3.1 Flash Live, paid tier, as published Nov 2026).
+# The Live API bills every turn on the whole session context, so a call costs more than its minutes x the audio rate.
+# Check https://ai.google.dev/gemini-api/docs/pricing when the model or the prices change.
+pricing:
+  gemini_live:
+    input:  { TEXT: 0.75, AUDIO: 3.00, IMAGE: 1.00, VIDEO: 1.00 }
+    output: { TEXT: 4.50, AUDIO: 12.00 }
