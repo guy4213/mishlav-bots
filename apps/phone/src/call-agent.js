@@ -43,8 +43,13 @@ const CLOSE_CANCEL_MS = 1500;
 // said it since the caller last spoke, the reply to end_call is not played (it repeated the goodbye).
 const GOODBYE_WORD = 'להתראות'; // a caller turn for the latency metric: at least 200 ms of voice
 
+// The warm-up turn sent while the phone rings: Gemini reads the instructions now, not on the first "הלו".
+// Its reply is never played; a turn that hasn't ended by then stops being a warm-up.
+const WARM_UP_MAX_MS = 15000;
+
 // Sent to the bot as text, never shown in the transcript.
 export const CUES = {
+  warmUp: '(הודעת מערכת: הטלפון מצלצל והלקוח עוד לא ענה. לא לומר כלום עכשיו ולא להפעיל כלים. כשהלקוח יענה – לפתוח לפי זרימת השיחה.)',
   open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, אבל עוד לא אמר כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
   hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
@@ -107,7 +112,35 @@ export class CallAgent extends EventEmitter {
     this.leadVoicedFrames = 0;
     this.ended = false;
     this.rec = null; // recording: { lead: [], agent: [] }
+    this.warming = null; // while the warm-up turn runs: { at, done }
+    this.firstAnswerNoted = false;
     this._wire();
+  }
+
+  /**
+   * While the phone rings: one text turn so Gemini reads the instructions before the callee answers. Its audio,
+   * words and tool calls are dropped. Resolves with how long it took (null: skipped, the call is already up).
+   */
+  warmUp() {
+    if (this.rtp || this.ended || this.warming) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const at = performance.now();
+      const timer = setTimeout(() => this._endWarmUp(), WARM_UP_MAX_MS);
+      this.warming = {
+        at,
+        done: () => {
+          clearTimeout(timer);
+          resolve(Math.round(performance.now() - at));
+        },
+      };
+      this.live.sendText(CUES.warmUp);
+    });
+  }
+
+  _endWarmUp() {
+    const w = this.warming;
+    this.warming = null;
+    w?.done();
   }
 
   /** Connects to Gemini (before the call is answered, so the bot is ready at once). */
@@ -161,6 +194,7 @@ export class CallAgent extends EventEmitter {
   _wire() {
     const a = this.live;
     a.on('audio', (buf) => {
+      if (this.warming) return; // the warm-up's reply is never played
       if (this.ended || this.ending?.voicemail || this.ending?.mute) return; // voicemail: the bot says nothing
       const now = performance.now();
       if (this.ending) this.ending.replyAudio = true;
@@ -178,6 +212,7 @@ export class CallAgent extends EventEmitter {
       this._play(this.down.push(pcmView(buf)));
     });
     a.on('outputTranscript', (text) => {
+      if (this.warming) return;
       this.turnText += text;
       this.saidSinceLead += text;
     });
@@ -195,6 +230,7 @@ export class CallAgent extends EventEmitter {
       }
     });
     a.on('interrupted', () => {
+      if (this.warming) return this._endWarmUp(); // the callee answered and spoke: the warm-up is over
       // The caller cut in: stop playing at once
       this._flush();
       this.agentTurnActive = false;
@@ -202,6 +238,7 @@ export class CallAgent extends EventEmitter {
       this._logAgent(true);
     });
     a.on('turnComplete', () => {
+      if (this.warming) return this._endWarmUp();
       this.agentTurnActive = false;
       if (this.turnHadAudio) this.answeredSinceLead = true;
       // The fixed goodbye was said without end_call (R2: it said it 4 times - the silence checks asked again):
@@ -227,6 +264,12 @@ export class CallAgent extends EventEmitter {
 
   /** The tools run on the tools server (validation, logging, answers); the result goes back to the model. */
   async _onToolCall(calls) {
+    if (this.warming) {
+      // nothing happens before the callee answers: the tools server never hears of it
+      const output = JSON.stringify({ ok: false, error: 'not_started', message_he: 'השיחה עוד לא התחילה – לא להפעיל כלים.' });
+      this.live.sendToolResponse(calls.map((fc) => ({ id: fc.id, name: fc.name, response: { output } })));
+      return;
+    }
     this.toolsPending++;
     this._logAgent(false); // the words before the tool call come first in the transcript
     const responses = [];
@@ -388,7 +431,16 @@ export class CallAgent extends EventEmitter {
 
   /** A caller turn ended and the bot's answer starts playing now: one latency sample. */
   _botStarts(now) {
-    if (this.leadVoicedFrames >= TURN_MIN_VOICED_FRAMES && this.lastVoice > this.botEndedAt) {
+    const answered = this.leadVoicedFrames >= TURN_MIN_VOICED_FRAMES && this.lastVoice > this.botEndedAt;
+    if (!this.firstAnswerNoted) {
+      // the start of the call: how long the callee waited for the bot's first words
+      this.firstAnswerNoted = true;
+      const text = answered
+        ? `first answer: ${Math.round(now - this.lastVoice)}ms after the caller stopped`
+        : `bot opened ${Math.round(now - this.startedAt)}ms after the call was answered (the caller said nothing)`;
+      this.emit('line', { who: 'note', text });
+    }
+    if (answered) {
       const ms = Math.round(now - this.lastVoice);
       if (ms < 15000) this.turns.push({ turn: this.turns.length + 1, latency_ms: ms });
     }
