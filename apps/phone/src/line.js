@@ -32,7 +32,8 @@ export function phoneEnv(env = process.env, root) {
     model: env.PHONE_GEMINI_MODEL || DEFAULT_PHONE_MODEL,
     voice: env.PHONE_VOICE || env.GEMINI_VOICE || DEFAULT_VOICE,
     temperature: Number(env.GEMINI_TEMPERATURE ?? 0.6),
-    openAfterSilenceMs: 1000 * Number(env.OPEN_AFTER_SILENCE_S ?? 4),
+    // the callee answered and said nothing: the bot opens after this (Guy: 2-3 s, not more)
+    openAfterSilenceMs: 1000 * Number(env.OPEN_AFTER_SILENCE_S ?? 2.5),
     baseUrl: env.TOOLS_BASE_URL || `http://127.0.0.1:${env.PORT || 8787}`,
     secret: env.TOOLS_SECRET,
     login: env.ZADARMA_SIP_LOGIN,
@@ -180,6 +181,7 @@ export class PhoneLine extends EventEmitter {
     await rtp.open();
     const ready = prep.agent.connect(); // connect to Gemini while the phone rings
     ready.catch(() => {});
+    this._warmUp(ready, prep); // and have it read the instructions before the callee answers
     this.log(`📞 calling ${maskNumber(number)}…`, prep.callId);
     // The callee sees the line's number (CallerID in Zadarma); a display name only if PHONE_DISPLAY_NAME is set
     const call = this.ua.invite(number, buildSdp({ ip: this.ua.publicIp, port: rtp.port }), { displayName: this.env.displayName });
@@ -243,7 +245,9 @@ export class PhoneLine extends EventEmitter {
     try {
       prep = await this._prepare(callId, this.incoming);
       this.call.scenario = prep.scenario;
-      await Promise.all([prep.agent.connect(), rtp.open()]); // connect to Gemini while the phone rings
+      const ready = prep.agent.connect();
+      this._warmUp(ready, prep);
+      await Promise.all([ready, rtp.open()]); // connect to Gemini while the phone rings
     } catch (err) {
       this.log(`❌ could not start the bot: ${err.message}`, callId);
       call.reject(503, 'Service Unavailable');
@@ -265,6 +269,16 @@ export class PhoneLine extends EventEmitter {
     const reason = await this._run({ call, rtp, prep });
     this._finish(callId, reason);
     this.log(`waiting for calls${this.env.number ? ` to ${this.env.number}` : ''}…`, null);
+  }
+
+  /** Once Gemini is connected: the warm-up turn (call-agent.js warmUp), logged with how long it took. */
+  _warmUp(ready, prep) {
+    ready
+      .then(() => prep.agent.warmUp())
+      .then((ms) => {
+        if (ms !== null) this.log(`🔥 bot read its instructions while ringing (${ms}ms)`, prep.callId);
+      })
+      .catch(() => {});
   }
 
   _finish(callId, reason) {
