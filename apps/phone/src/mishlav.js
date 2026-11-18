@@ -1,9 +1,8 @@
 // The Mishlav side of a phone call: prompt + knowledge (same text the LiveKit worker builds), the 5 tools
 // from config/tools.json, and the tools server (each tool POSTs there, like provider C's worker).
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml } from 'yaml';
 
 /** MISHLAV_ROOT, else the nearest parent holding config/settings.yaml (same rule as the TS and Python sides). */
 export function findRepoRoot(start = dirname(fileURLToPath(import.meta.url))) {
@@ -25,41 +24,28 @@ export function render(template, values) {
   });
 }
 
-/** A YAML value the way Python's f-string prints it (the worker's knowledge_appendix). */
-const pyStr = (v) => (v === true ? 'True' : v === false ? 'False' : v == null ? 'None' : String(v));
-
-// Same labels as the tools server (apps/backend/src/knowledge.ts FORMAT_HE).
-const FORMAT_HE = { hotel: 'פרונטלי – במלון', zoom: 'מקוון – בזום' };
-const FACT_KEYS = ['id', 'date', 'end_date', 'start', 'end', 'format', 'location', 'price_ils', 'open_for_registration'];
-
-function splitFrontMatter(text) {
-  const m = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/.exec(text);
-  if (!m) return [{}, text];
-  return [parseYaml(m[1]) ?? {}, m[2]];
-}
-
-/** general.md + every day file, one Hebrew block appended to the prompt. Port of context.py knowledge_appendix. */
+/**
+ * general.md, appended to the prompt. Port of context.py knowledge_appendix.
+ * Each day's details are not here: get_day_info returns them (the prompt says to call it before quoting any detail),
+ * and every turn of a Live call bills the whole prompt again, so a copy in the prompt only cost money.
+ * TODO lines are notes for us (some held unconfirmed prices): never sent to the bot.
+ */
 export function knowledgeAppendix(root) {
   const kdir = join(root, 'config', 'knowledge');
-  const parts = ['# מאגר ידע (מקור המידע היחיד – לא לענות על דבר שלא מופיע כאן או בכלי get_day_info)'];
+  const parts = ['# מאגר ידע כללי (פרטי כל יום עיון – תאריכים, שעות, מקום, תוכנית – רק מ-get_day_info)'];
   const general = join(kdir, 'general.md');
-  if (existsSync(general)) parts.push(readText(general).trim());
-  const days = existsSync(join(kdir, 'days'))
-    ? readdirSync(join(kdir, 'days')).filter((f) => f.endsWith('.md')).sort()
-    : [];
-  for (const file of days) {
-    const stem = basename(file, '.md');
-    const [meta, body] = splitFrontMatter(readText(join(kdir, 'days', file)));
-    let facts = FACT_KEYS.filter((k) => Object.hasOwn(meta, k))
-      .map((k) => `${k}: ${pyStr(meta[k])}`)
-      .join(', ');
-    if (Object.hasOwn(FORMAT_HE, meta.format)) facts += `, פורמט: ${FORMAT_HE[meta.format]}`;
-    const series = Object.hasOwn(meta, 'series') ? meta.series : Object.hasOwn(meta, 'id') ? meta.id : stem;
-    facts += `, series: ${pyStr(series)}`;
-    const id = Object.hasOwn(meta, 'id') ? pyStr(meta.id) : stem;
-    parts.push(`## day_id \`${id}\`\n${facts}\n\n${body.trim()}`);
-  }
+  if (existsSync(general)) parts.push(withoutTodo(readText(general)));
   return parts.join('\n\n');
+}
+
+/** Drops "TODO(...)" lines (ours, not the bot's) and the blank runs they leave. */
+export function withoutTodo(text) {
+  return text
+    .split('\n')
+    .filter((l) => !/TODO\(/.test(l))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**

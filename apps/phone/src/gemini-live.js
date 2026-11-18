@@ -9,6 +9,9 @@ export const DEFAULT_SILENCE_MS = 500;
 // The caller's speech is transcribed as Hebrew (not by automatic language detection). The reply language
 // comes from the prompt: the Live audio models take no speech language code.
 export const LANGUAGE = 'he-IL';
+// About 25 audio tokens per second each way: 20,000 tokens is a ~5-6 minute call on top of the instructions.
+export const CONTEXT_TRIGGER_TOKENS = 20000;
+export const CONTEXT_TARGET_TOKENS = 12000;
 
 const LIVE_URL =
   'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
@@ -63,8 +66,9 @@ export function buildSetup({
     }),
     inputAudioTranscription: { languageCodes: [LANGUAGE] },
     outputAudioTranscription: {},
-    // Long calls beyond the session's context limit
-    contextWindowCompression: { slidingWindow: {} },
+    // Every turn is billed on the whole context: once it passes CONTEXT_TRIGGER_TOKENS, the oldest turns are dropped
+    // down to CONTEXT_TARGET_TOKENS (the system instructions always stay). A 2-3 minute call never gets there.
+    contextWindowCompression: { triggerTokens: CONTEXT_TRIGGER_TOKENS, slidingWindow: { targetTokens: CONTEXT_TARGET_TOKENS } },
   };
 }
 

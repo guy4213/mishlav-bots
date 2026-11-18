@@ -73,35 +73,18 @@ def render(template: str, values: dict[str, str]) -> str:
     return _VAR.sub(sub, template)
 
 
-def _split_front_matter(text: str) -> tuple[dict[str, Any], str]:
-    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", text, re.S)
-    if not m:
-        return {}, text
-    return yaml.safe_load(m.group(1)) or {}, m.group(2)
-
-
-# Same labels as the tools server (apps/backend/src/knowledge.ts FORMAT_HE).
-FORMAT_HE = {"hotel": "פרונטלי – במלון", "zoom": "מקוון – בזום"}
-
-
 def knowledge_appendix(root: Path) -> str:
-    """general.md + every day file, as one Hebrew block appended to the prompt (spec: B/C append knowledge)."""
+    """general.md, appended to the prompt (same as the phone line's knowledgeAppendix).
+
+    Each day's details come from get_day_info, not from a copy here: every turn of a Live call bills the whole
+    prompt again. TODO lines are notes for us (some held unconfirmed prices) and never reach the bot.
+    """
     kdir = root / "config" / "knowledge"
-    parts = ["# מאגר ידע (מקור המידע היחיד – לא לענות על דבר שלא מופיע כאן או בכלי get_day_info)"]
+    parts = ["# מאגר ידע כללי (פרטי כל יום עיון – תאריכים, שעות, מקום, תוכנית – רק מ-get_day_info)"]
     general = kdir / "general.md"
     if general.is_file():
-        parts.append(general.read_text(encoding="utf-8").strip())
-    for f in sorted((kdir / "days").glob("*.md")):
-        meta, body = _split_front_matter(f.read_text(encoding="utf-8"))
-        facts = ", ".join(
-            f"{k}: {meta[k]}"
-            for k in ("id", "date", "end_date", "start", "end", "format", "location", "price_ils", "open_for_registration")
-            if k in meta
-        )
-        if meta.get("format") in FORMAT_HE:
-            facts += f", פורמט: {FORMAT_HE[meta['format']]}"
-        facts += f", series: {meta.get('series', meta.get('id', f.stem))}"
-        parts.append(f"## day_id `{meta.get('id', f.stem)}`\n{facts}\n\n{body.strip()}")
+        lines = [l for l in general.read_text(encoding="utf-8").splitlines() if "TODO(" not in l]
+        parts.append(re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip())
     return "\n\n".join(parts)
 
 
