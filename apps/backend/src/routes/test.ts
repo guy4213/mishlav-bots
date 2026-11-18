@@ -1,7 +1,8 @@
-import { MetricsInput, SessionStartInput, ToolCallLogEntry, type MetricsLogEntry } from "@mishlav/shared";
+import { MetricsInput, SessionStartInput, ToolCallLogEntry, type MetricsLogEntry, type Settings } from "@mishlav/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { loadScenarios } from "../../../../scripts/lib/scenarios";
+import { aiCostUsd } from "../ai-cost";
 import { buildCallVariables } from "../context";
 import { GENDERS, type Gender, type GenderClassifier } from "../gender";
 import type { JsonlFile } from "../jsonl";
@@ -9,6 +10,8 @@ import type { KnowledgeBase } from "../knowledge";
 import type { SessionStore } from "../sessions";
 
 export interface TestRouteDeps {
+  /** pricing: a call's Gemini tokens -> cost_usd in the metrics log */
+  settings?: Settings;
   sessions: SessionStore;
   toolLog: JsonlFile;
   metricsLog: JsonlFile;
@@ -50,10 +53,15 @@ export async function registerTestRoutes(app: FastifyInstance, deps: TestRouteDe
   app.post("/test/metrics", async (req, reply) => {
     const parsed = MetricsInput.safeParse(req.body ?? {});
     if (!parsed.success) return reply.code(400).send(badRequest(parsed.error));
+    const { ai_usage, ...metrics } = parsed.data;
+    // the phone line reports Gemini tokens; the cost is ours to compute (the price table is in settings.yaml)
+    const cost = metrics.cost_usd ?? (ai_usage && deps.settings ? aiCostUsd(ai_usage, deps.settings) : null);
     const entry: MetricsLogEntry = {
       type: "metrics",
       ts: deps.now().toISOString(),
-      ...parsed.data,
+      ...metrics,
+      ...(cost !== null && cost !== undefined && { cost_usd: cost }),
+      ...(ai_usage && { ai_usage }),
       session_id: parsed.data.session_id ?? deps.sessions.current()?.session_id ?? null,
     };
     deps.metricsLog.append(entry);

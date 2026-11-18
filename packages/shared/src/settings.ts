@@ -80,6 +80,15 @@ export const Settings = z.object({
       columns: z.record(z.string(), z.string()),
     })
     .default({ record_id_key: "מזהה", columns: {} }),
+  /** USD per 1M tokens, by modality (TEXT / AUDIO ...): what a call's Gemini tokens cost (calls.ai_cost_usd) */
+  pricing: z
+    .object({
+      gemini_live: z.object({
+        input: z.record(z.string(), z.number().nonnegative()),
+        output: z.record(z.string(), z.number().nonnegative()),
+      }),
+    })
+    .optional(),
 });
 export type Settings = z.infer<typeof Settings>;
 

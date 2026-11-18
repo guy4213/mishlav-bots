@@ -93,6 +93,13 @@ export function fmtRel(iso, now = Date.now()) {
   if (a < 86400) return REL.format(Math.round(s / 3600), "hour");
   return REL.format(Math.round(s / 86400), "day");
 }
+/** Gemini cost of a call: "$0.124 · $0.062/דקה" (per minute when the duration is known), or — */
+export function fmtCost(usd, sec) {
+  if (usd === null || usd === undefined || Number.isNaN(Number(usd))) return "—";
+  const v = Number(usd);
+  const perMin = sec > 0 ? ` · $${((v / sec) * 60).toFixed(3)}/דקה` : "";
+  return `$${v.toFixed(3)}${perMin}`;
+}
 export function fmtDuration(sec) {
   if (sec === null || sec === undefined || Number.isNaN(Number(sec))) return "—";
   const s = Math.max(0, Math.round(Number(sec)));

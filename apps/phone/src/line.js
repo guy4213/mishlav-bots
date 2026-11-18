@@ -10,6 +10,7 @@ import { CallAgent } from './call-agent.js';
 import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive } from './gemini-live.js';
 import { buildInstructions, loadToolDefinitions, ToolsClient } from './mishlav.js';
 import { dialable, maskNumber } from './numbers.js';
+import { usageLine } from './usage.js';
 
 // The customer's gender, decided before the call (GET /test/context): shown in the call log, and repeated in
 // every tool answer so the bot doesn't drift mid-call (it switched between "לְךָ" and "לָךְ" with "רועי").
@@ -73,6 +74,7 @@ export class PhoneLine extends EventEmitter {
     this.error = null;
     this.call = null; // the running call: { id, direction, number, scenario, started_at, sip }
     this.recent = [];
+    this.usage = new Map(); // call_id -> Gemini tokens, until the call's 'ended'
     this.seq = 0;
     this.toolDefs = loadToolDefinitions(root);
     mkdirSync(env.logDir, { recursive: true });
@@ -266,8 +268,10 @@ export class PhoneLine extends EventEmitter {
   }
 
   _finish(callId, reason) {
+    const usage = this.usage.get(callId);
+    this.usage.delete(callId);
     if (this.call?.id === callId) this.call = null;
-    this.emit('ended', { call_id: callId, reason });
+    this.emit('ended', { call_id: callId, reason, ...(usage?.messages && { usage: { model: this.env.model, input: usage.input, output: usage.output } }) });
   }
 
   /** One call's bot: prompt variables, Gemini session and tools client. */
@@ -321,12 +325,16 @@ export class PhoneLine extends EventEmitter {
         const secs = Math.round((Date.now() - startedAt) / 1000);
         const who = reason === 'bye' ? 'the caller hung up' : reason === 'local' ? 'the bot hung up' : reason;
         this.log(`call ended (${who}) · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · audio: sent ${rtp.sent}, received ${rtp.received} (lost ${rtp.lost}, late ${rtp.late})`, callId);
+        const usage = agent.usage.snapshot();
+        this.usage.set(callId, usage); // goes out with 'ended' (the contact's call row keeps it)
+        if (usage.messages) this.log(`AI tokens: ${usageLine(usage)}`, callId);
         const posted = await tools.postMetrics({
           ...(session?.session_id && { session_id: session.session_id }),
           call_id: callId,
           turns: agent.turns,
           duration_sec: secs,
           source: `zadarma-phone/${this.env.model}`,
+          ...(usage.messages && { ai_usage: { model: this.env.model, input: usage.input, output: usage.output } }),
         });
         const lat = agent.turns.map((t) => t.latency_ms);
         this.log(`latency: ${lat.length ? `${lat.length} turns, median ${lat.sort((a, b) => a - b)[Math.floor(lat.length / 2)]}ms` : 'no turns'}${posted ? '' : ' (metrics not posted)'}`, callId);

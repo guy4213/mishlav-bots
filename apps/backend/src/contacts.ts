@@ -13,7 +13,7 @@
  * that is not a contact's (a scenario test) has no calls row, so it changes nothing.
  * Gold pulls what the bot changed with goldChanges() (GET /api/gold/changes).
  */
-import type { Settings } from "@mishlav/shared";
+import type { AiUsage, Settings } from "@mishlav/shared";
 import type { Gender } from "./gender";
 import type { TranscriptLine } from "./transcripts";
 
@@ -120,6 +120,8 @@ export interface ContactStore {
   callNumber(callId: string): Promise<string | null>;
   /** Stores the call's transcript (calls.transcript) so it outlives the server's disk. Card numbers already removed. */
   saveTranscript?(callId: string, lines: TranscriptLine[]): Promise<void>;
+  /** Stores the call's Gemini tokens and their cost (calls.ai_usage / ai_cost_usd). */
+  saveUsage?(callId: string, usage: AiUsage, costUsd: number | null): Promise<void>;
 }
 
 /** One row of calls (the list leaves the transcript out). */
@@ -133,6 +135,8 @@ export interface CallRow {
   summary: string | null;
   answered: boolean;
   origin: CallOrigin;
+  /** what the call's Gemini tokens cost (USD), when the bot ran */
+  ai_cost_usd?: number | null;
   /** the contact's name (contacts.full_name) */
   full_name: string | null;
 }
@@ -225,7 +229,7 @@ function normalise(c: ContactRecord): ContactRecord {
 }
 
 /** Supabase over its REST API (PostgREST), with the service role key - the only role the tables let in. */
-const CALL_FIELDS = "call_id,gold_record_id,started_at,duration_sec,outcome,reason,summary,answered,origin";
+const CALL_FIELDS = "call_id,gold_record_id,started_at,duration_sec,outcome,reason,summary,answered,origin,ai_cost_usd";
 const TASK_FIELDS = "id,gold_record_id,call_id,reason,callback_at,note,done,created_at";
 type Embedded<T> = T | T[] | null;
 const one = <T>(v: Embedded<T> | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
@@ -299,6 +303,10 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore {
 
   callNumber(callId: string) {
     return this.req<string | null>("POST", "/rpc/bot_call_number", { p_call_id: callId });
+  }
+
+  async saveUsage(callId: string, usage: AiUsage, costUsd: number | null) {
+    await this.req("PATCH", `/calls?call_id=eq.${encodeURIComponent(callId)}`, { ai_usage: usage, ai_cost_usd: costUsd });
   }
 
   async saveTranscript(callId: string, lines: TranscriptLine[]) {

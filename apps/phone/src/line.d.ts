@@ -49,6 +49,20 @@ export interface CallOptions {
 export function phoneEnv(env: NodeJS.ProcessEnv, root: string): PhoneEnv;
 export function missingPhoneEnv(env: PhoneEnv): string[];
 
+/** Gemini tokens of one call, by modality (TEXT / AUDIO ...), summed over its turns. */
+export interface AiUsage {
+  model: string;
+  input: Record<string, number>;
+  output: Record<string, number>;
+}
+
+/** 'ended' event: the call is over (answered or not); usage when the bot ran. */
+export interface CallEnded {
+  call_id: string;
+  reason: string;
+  usage?: AiUsage;
+}
+
 export class PhoneLine extends EventEmitter {
   constructor(opts: { root: string; env: PhoneEnv; answer?: boolean; record?: boolean; incoming?: CallOptions });
   recent: PhoneLogLine[];

@@ -5,9 +5,13 @@
  * stored in calls.transcript, so the dashboard's history survives a deploy).
  */
 import { noAnswerRetryTimes, type Settings } from "@mishlav/shared";
-import type { CallOptions, PhoneLine } from "../../phone/src/line.js";
+import type { CallEnded, CallOptions, PhoneLine } from "../../phone/src/line.js";
+import { aiCostUsd } from "./ai-cost";
 import { type CallOrigin, type ContactEvents, type ContactRecord, dialNumber, firstName } from "./contacts";
 import { readTranscript, transcriptForDb } from "./transcripts";
+
+/** when the line said the call ended, and its Gemini tokens */
+type Ended = { at: number; usage?: CallEnded["usage"] };
 
 export interface DialDeps {
   contacts: ContactEvents;
@@ -54,8 +58,8 @@ export async function dialContact(deps: DialDeps, goldRecordId: string, opts: Di
   }
   const { line } = deps;
   // the line's 'ended' can come right after dial() returns: catch it from now on
-  const ended = new Map<string, number>();
-  const onEnded = (e: { call_id: string }) => ended.set(e.call_id, Date.now());
+  const ended = new Map<string, Ended>();
+  const onEnded = (e: CallEnded) => ended.set(e.call_id, { at: Date.now(), usage: e.usage });
   line.on("ended", onEnded);
   let callId: string;
   try {
@@ -84,15 +88,15 @@ function trackContactCall(
   callId: string,
   goldRecordId: string,
   origin: CallOrigin,
-  ended: Map<string, number>,
-  onEnded: (e: { call_id: string }) => void,
+  ended: Map<string, Ended>,
+  onEnded: (e: CallEnded) => void,
 ): Promise<void> {
   const { line, contacts: events } = deps;
   const startedAt = Date.now();
   const { dialing, business_hours } = deps.settings;
   const limits = { noAnswerStreakMax: dialing.no_answer_streak_max, maxTotalCalls: dialing.max_total_calls };
   return new Promise((resolve) => {
-    const finish = (at: number) => {
+    const finish = ({ at, usage }: Ended) => {
       line.off("ended", onEnded);
       line.off("ended", waitEnd);
       // the next call for each streak this call can make; SQL picks by the contact's new streak
@@ -101,10 +105,12 @@ function trackContactCall(
       // the line has written the whole transcript by now (it says 'ended' last); none when nobody answered
       const lines = deps.transcriptsDir ? transcriptForDb(readTranscript(deps.transcriptsDir, callId)) : [];
       if (lines.length) void events.run(callId, "transcript", async (s) => s.saveTranscript?.(callId, lines));
+      // what the call cost in Gemini tokens (the price table is in settings.yaml)
+      if (usage) void events.run(callId, "ai usage", async (s) => s.saveUsage?.(callId, usage, aiCostUsd(usage, deps.settings)));
       void closed.then(resolve);
     };
-    const waitEnd = (e: { call_id: string }) => {
-      if (e.call_id === callId) finish(Date.now());
+    const waitEnd = (e: CallEnded) => {
+      if (e.call_id === callId) finish({ at: Date.now(), usage: e.usage });
     };
     void events.run(callId, "call started", (s) => s.callStarted(callId, goldRecordId, origin));
     const already = ended.get(callId);
