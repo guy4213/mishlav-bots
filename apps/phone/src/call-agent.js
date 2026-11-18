@@ -49,7 +49,10 @@ const WARM_UP_MAX_MS = 15000;
 
 // Sent to the bot as text, never shown in the transcript.
 export const CUES = {
-  warmUp: '(הודעת מערכת: הטלפון מצלצל והלקוח עוד לא ענה. לא לומר כלום עכשיו ולא להפעיל כלים. כשהלקוח יענה – לפתוח לפי זרימת השיחה.)',
+  // Gemini Live picks the reply language itself, and the warm-up's reply stays in the session as the bot's own
+  // turn: a first try ("say nothing") was answered in English and the call went on in English. So it is told the
+  // exact Hebrew word to say, and that the call starts from the opening when the callee answers.
+  warmUp: '(הודעת מערכת: הטלפון מצלצל והלקוח עוד לא ענה. השיחה כולה בעברית. לענות עכשיו רק במילה אחת בעברית: "בסדר". לא להפעיל כלים. כשהלקוח יענה – זו תחילת השיחה: לפתוח במשפט הפתיחה המלא מהשלב הראשון בזרימת השיחה.)',
   open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, אבל עוד לא אמר כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
   hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
@@ -119,7 +122,7 @@ export class CallAgent extends EventEmitter {
 
   /**
    * While the phone rings: one text turn so Gemini reads the instructions before the callee answers. Its audio,
-   * words and tool calls are dropped. Resolves with how long it took (null: skipped, the call is already up).
+   * words and tool calls are dropped. Resolves with { ms, said } (null: skipped, the call is already up).
    */
   warmUp() {
     if (this.rtp || this.ended || this.warming) return Promise.resolve(null);
@@ -128,9 +131,10 @@ export class CallAgent extends EventEmitter {
       const timer = setTimeout(() => this._endWarmUp(), WARM_UP_MAX_MS);
       this.warming = {
         at,
+        said: '', // what Gemini answered (never played): logged, to see its language
         done: () => {
           clearTimeout(timer);
-          resolve(Math.round(performance.now() - at));
+          resolve({ ms: Math.round(performance.now() - at), said: this._warmSaid.trim() });
         },
       };
       this.live.sendText(CUES.warmUp);
@@ -139,6 +143,7 @@ export class CallAgent extends EventEmitter {
 
   _endWarmUp() {
     const w = this.warming;
+    this._warmSaid = w?.said ?? '';
     this.warming = null;
     w?.done();
   }
@@ -212,7 +217,10 @@ export class CallAgent extends EventEmitter {
       this._play(this.down.push(pcmView(buf)));
     });
     a.on('outputTranscript', (text) => {
-      if (this.warming) return;
+      if (this.warming) {
+        this.warming.said += text; // not the transcript: only the call log, to check its language
+        return;
+      }
       this.turnText += text;
       this.saidSinceLead += text;
     });

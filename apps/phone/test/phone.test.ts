@@ -349,7 +349,8 @@ describe("call agent", () => {
     expect(calls).toEqual([]); // the tools server never hears of it
     expect(JSON.parse((live.toolResponses[0] as { response: { output: string } }).response.output)).toMatchObject({ ok: false, error: "not_started" });
     live.emit("turnComplete");
-    expect(await warmed).toBeGreaterThanOrEqual(0);
+    expect(await warmed).toMatchObject({ said: "אוקיי" }); // logged, to check its language
+    expect(CUES.warmUp).toContain("בעברית");
     expect(agent.turnText).toBe("");
     expect(agent.answeredSinceLead).toBe(false);
     // the call is up: the next answer plays as usual
@@ -365,7 +366,7 @@ describe("call agent", () => {
     const warmed = agent.warmUp();
     agent.start(new FakeRtp());
     live.emit("interrupted");
-    expect(await warmed).not.toBeNull();
+    expect(await warmed).toMatchObject({ said: "" });
     live.emit("audio", Buffer.alloc(4800, 1)); // the answer to "הלו"
     expect(agent.queued).toBeGreaterThan(0);
     expect(await agent.warmUp()).toBeNull(); // the call is up: no second warm-up
