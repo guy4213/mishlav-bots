@@ -380,6 +380,55 @@ describe("call agent", () => {
     expect(phoneEnv({ OPEN_AFTER_SILENCE_S: "3" }, ROOT).openAfterSilenceMs).toBe(3000);
   });
 
+  describe("a \"הלו\" right at pick-up", () => {
+    const hello = (rtp: FakeRtp) => {
+      const voice = new Int16Array(160).fill(3000);
+      for (let i = 0; i < 20; i++) rtp.emit("audio", voice); // 0.4 s of "הלו"
+    };
+
+    it("Gemini missed it (no transcript, no answer): the opening cue 1.5 s after the caller stopped", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 2500 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      hello(rtp);
+      await wait(1000);
+      expect(live.sent).toEqual([]);
+      await wait(800);
+      expect(live.sent).toEqual([CUES.open]);
+      await wait(300);
+      expect(live.sent).toEqual([CUES.open]); // once
+      agent.end();
+    });
+
+    it("Gemini heard it: no cue, it answers by itself", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 2500 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      hello(rtp);
+      live.emit("inputTranscript", "הלו");
+      await wait(2000); // even a slow answer
+      expect(live.sent).toEqual([]);
+      agent.end();
+    });
+
+    it("mid-call the opening is never cued, even when the bot doesn't answer", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 2500 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", Buffer.alloc(4800, 1)); // the bot already spoke (the opening)
+      live.emit("turnComplete");
+      while (rtp.nextFrame());
+      await wait(100);
+      hello(rtp); // the caller answers, Gemini misses it
+      await wait(2000);
+      expect(live.sent).not.toContain(CUES.open);
+      agent.end();
+    });
+  });
+
   it("voicemail: hangs up at once and plays nothing", async () => {
     const live = new FakeLive();
     const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "ending" }) }, openAfterSilenceMs: 0 });

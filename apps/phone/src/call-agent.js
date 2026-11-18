@@ -25,6 +25,9 @@ const START_BUFFER = 3 * FRAME_SAMPLES; // 60 ms of audio before playback starts
 
 const CALLER_SPOKE_FRAMES = 5; // 100 ms of voice = the callee said something ("הלו")
 const SILENCE_CHECK_MS = 6000; // quiet line this long -> the bot checks the line; the second time it says goodbye
+// The callee said "הלו" and the bot hasn't said a word this long after: Gemini missed it (a "הלו" right at pick-up
+// is often clipped), so it gets the opening cue. Only before the bot's first word: mid-call it never comes again.
+const OPEN_AFTER_CALLER_MS = 1500;
 const SILENCE_GOODBYE_MAX_MS = 9000; // the no-answer goodbye can't run longer than this
 // end_call (as the worker's tools.py): the words before it play out; then the reply to its result (the goodbye,
 // only if none was said yet) plays, and the line drops.
@@ -117,6 +120,7 @@ export class CallAgent extends EventEmitter {
     this.rec = null; // recording: { lead: [], agent: [] }
     this.warming = null; // while the warm-up turn runs: { at, done }
     this.firstAnswerNoted = false;
+    this.geminiHeard = false; // Gemini heard the caller (its transcript or its voice detection)
     this._wire();
   }
 
@@ -227,12 +231,14 @@ export class CallAgent extends EventEmitter {
     a.on('inputTranscript', (text) => {
       this.leadText += text;
       if (text.trim()) {
+        this.geminiHeard = true; // it has the caller's words: it answers them (no opening cue)
         this.callerSpoke = true;
         this._leadSpoke();
       }
     });
     a.on('voiceActivity', (va) => {
       if (va?.type === 'ACTIVITY_START') {
+        this.geminiHeard = true;
         this.callerSpoke = true;
         this._leadSpoke();
       }
@@ -518,8 +524,17 @@ export class CallAgent extends EventEmitter {
     }
 
     if (!this.opened) {
-      if (this.callerSpoke || this.agentSpoke) this.opened = true; // Gemini answers the "הלו" by itself
-      else if (now >= this.openAt) this._open();
+      // Gemini answers the "הלו" by itself; if it missed it (no word from the bot 1.5 s after the caller stopped), or
+      // the callee says nothing (openAt), the opening cue. Once the bot spoke, the opening is never cued again.
+      // Gemini heard the caller: it answers by itself (a cue now could make it open twice).
+      const geminiBusy = this.agentTurnActive || this.queued > 0 || this.toolsPending > 0;
+      if (this.agentSpoke || this.geminiHeard) this.opened = true;
+      else if (this.callerSpoke) {
+        if (!geminiBusy && now - this.lastVoice >= OPEN_AFTER_CALLER_MS) {
+          this.emit('line', { who: 'note', text: 'the caller spoke and the bot stayed silent: opening cue' });
+          this._open();
+        }
+      } else if (now >= this.openAt) this._open();
     }
 
     const speaking = this.queued > 0 || this.agentTurnActive;
