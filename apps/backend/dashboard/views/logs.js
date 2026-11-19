@@ -3,10 +3,11 @@ import { get } from "../api.js";
 import { live } from "../live.js";
 import { esc, fmtTimeSec, icon } from "../ui.js";
 
-const KINDS = [["line", "קו"], ["dialer", "חיוג"], ["tool", "כלים"], ["error", "שגיאות"], ["sms", "SMS"]];
+const KINDS = [["line", "קו"], ["dialer", "חיוג"], ["tool", "כלים"], ["error", "שגיאות"], ["sms", "SMS"], ["server", "שרת"]];
 const KEEP = 3000;
 // kept across screens: coming back shows what was already read
-const S = { since: 0, lines: [], kinds: new Set(KINDS.map(([k]) => k)), call: "", follow: true, paused: false };
+// boot: the server start the live lines belong to; older starts are read from the database (history)
+const S = { since: 0, lines: [], kinds: new Set(KINDS.map(([k]) => k)), call: "", follow: true, paused: false, boot: null, history: false };
 let timer = null;
 
 // a line of the phone line -> its look (same as the old dashboard)
@@ -20,7 +21,7 @@ function sub(text) {
 }
 const visible = (l) => S.kinds.has(l.kind) && (!S.call || l.call_id === S.call);
 const lineHtml = (l) =>
-  `<div class="logline k-${l.kind} ${l.kind === "line" ? sub(l.text) : ""}"><span class="t">${esc(fmtTimeSec(l.ts))}</span><span class="k">${esc(l.kind)}</span><span class="x">${esc(l.text.trim())}</span></div>`;
+  `<div class="logline k-${l.kind} ${l.kind === "line" ? sub(l.text) : ""}${l.old ? " faint" : ""}"><span class="t">${esc(fmtTimeSec(l.ts))}</span><span class="k">${esc(l.kind)}</span><span class="x">${esc(l.text.trim())}</span></div>`;
 
 export default {
   id: "logs",
@@ -29,7 +30,7 @@ export default {
   mount(root) {
     const where = live.env?.env === "production" ? "שרת הפרודקשן (Render)" : "השרת המקומי";
     root.innerHTML = `
-      <div class="banner info" style="margin-bottom:16px">זה הלוג החי של ${where} שהדף מחובר אליו. הוא נשמר בזיכרון בלבד ומתאפס בכל הפעלה מחדש או פריסה.</div>
+      <div class="banner info" style="margin-bottom:16px">זה הלוג החי של ${where} שהדף מחובר אליו. כל שורה נשמרת גם במסד הנתונים ל-14 יום, כך שאחרי פריסה או הפעלה מחדש מה שהיה לפני מופיע למעלה (באפור).</div>
       <div class="card">
         <div class="card-head">
           <div class="kind-toggle" id="lKinds">${KINDS.map(([k, l]) => `<button data-k="${k}" class="${S.kinds.has(k) ? "on" : ""}">${l}</button>`).join("")}</div>
@@ -59,11 +60,25 @@ export default {
       box.innerHTML = shown.length ? shown.map(lineHtml).join("") : `<p class="small faint" style="padding:12px 16px">עוד אין שורות בלוג</p>`;
       if (S.follow) box.scrollTop = box.scrollHeight;
     };
+    // the lines of earlier server starts (a deploy / restart), from the database, before the live ones
+    const loadHistory = async () => {
+      S.history = true;
+      try {
+        const h = await get(`/api/admin/logs/history?limit=1000`);
+        const old = (h.lines ?? []).map((l) => ({ ...l, old: true }));
+        S.lines = [...old, ...S.lines.filter((l) => !l.old)];
+        renderAll();
+        renderCalls();
+      } catch { /* no database: the live log only */ }
+    };
     const poll = async () => {
       if (S.paused) return;
       try {
         const r = await get(`/api/admin/logs?since=${S.since}`);
-        if (r.seq < S.since) { S.since = 0; S.lines = []; return renderAll(); } // the server restarted
+        // the server restarted (a new boot): what it logged before is in the database now
+        if (r.seq < S.since || (S.boot && r.boot && r.boot !== S.boot)) { S.since = 0; S.lines = []; S.boot = r.boot; S.history = false; renderAll(); return loadHistory(); }
+        S.boot = r.boot;
+        if (!S.history) await loadHistory();
         if (!r.lines.length) return;
         S.since = r.lines[r.lines.length - 1].seq;
         S.lines.push(...r.lines);

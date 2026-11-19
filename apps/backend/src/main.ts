@@ -100,6 +100,9 @@ async function main() {
     admin: contacts,
     // the automatic dialer: on/off in Supabase (starts off; the dashboard turns it on); its loop runs from now on
     dialer: contacts && { store: contacts, run: true },
+    // the dashboard's log: kept in Supabase (14 days) and fed by the server's own output too
+    logStore: contacts,
+    tapConsole: true,
   });
   await app.listen({ port: config.port, host: config.host });
   // in the background: registration takes a few seconds and must not hold the server (or Render's port check)

@@ -15,6 +15,7 @@
  */
 import type { AiUsage, Settings } from "@mishlav/shared";
 import type { Gender } from "./gender";
+import type { LogStore, StoredLogLine } from "./serverlog";
 import type { TranscriptLine } from "./transcripts";
 
 /** Gold's columns, as in the export (settings.yaml gold_import.columns). */
@@ -240,7 +241,7 @@ function callRow(r: Omit<CallRow, "full_name"> & { contacts?: Embedded<{ full_na
   return { ...call, full_name: one(contacts)?.full_name ?? null };
 }
 
-export class SupabaseContacts implements ContactStore, DialerStore, AdminStore {
+export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, LogStore {
   private readonly base: string;
   constructor(
     url: string,
@@ -267,6 +268,27 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore {
     const text = await res.text();
     if (!res.ok) throw new Error(`Supabase ${method} ${path.split("?")[0]}: HTTP ${res.status} ${text.slice(0, 200)}`);
     return (text ? JSON.parse(text) : null) as T;
+  }
+
+  // ---- the server log (serverlog.ts): kept 14 days so a deploy doesn't wipe it
+
+  async appendLogs(lines: StoredLogLine[]) {
+    await this.req("POST", "/server_logs", lines, { prefer: "return=minimal" });
+  }
+
+  logHistory({ excludeBoot, callId, limit }: { excludeBoot: string; callId?: string; limit: number }) {
+    const q = [
+      "select=boot,seq,ts,kind,call_id,text",
+      `boot=neq.${encodeURIComponent(excludeBoot)}`,
+      ...(callId ? [`call_id=eq.${encodeURIComponent(callId)}`] : []),
+      "order=ts.desc,id.desc",
+      `limit=${Math.max(1, Math.min(limit, 5000))}`,
+    ];
+    return this.req<StoredLogLine[]>("GET", `/server_logs?${q.join("&")}`);
+  }
+
+  async pruneLogs(before: Date) {
+    await this.req("DELETE", `/server_logs?ts=lt.${encodeURIComponent(before.toISOString())}`, undefined, { prefer: "return=minimal" });
   }
 
   async list() {
