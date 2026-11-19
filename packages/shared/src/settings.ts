@@ -54,9 +54,9 @@ export const Settings = z.object({
     /** {day} = the study day in Hebrew (title + dates), {url} = its purchase_url (config/knowledge/days). */
     link_template: z.string().refine((t) => t.includes("{url}"), { message: "link_template needs {url}" }),
     /**
-     * TEMPORARY, for tests only: when set, sent instead of link_template, without the link ({day} only). Zadarma
-     * refuses links in SMS to Israel ("Links in SMS to this direction are prohibited"); remove it once Mishlav's
-     * own SMS provider is connected.
+     * TEMPORARY, for tests only: when set, sent instead of link_template, without the link ({day} optional). Zadarma
+     * refuses links in SMS to Israel and commercial-looking texts with no approved template; remove it once
+     * Mishlav's own SMS provider is connected.
      */
     test_without_link: z.string().optional(),
   }),
