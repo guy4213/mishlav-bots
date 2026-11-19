@@ -53,6 +53,12 @@ export const Settings = z.object({
   sms: z.object({
     /** {day} = the study day in Hebrew (title + dates), {url} = its purchase_url (config/knowledge/days). */
     link_template: z.string().refine((t) => t.includes("{url}"), { message: "link_template needs {url}" }),
+    /**
+     * TEMPORARY, for tests only: when set, sent instead of link_template, without the link ({day} only). Zadarma
+     * refuses links in SMS to Israel ("Links in SMS to this direction are prohibited"); remove it once Mishlav's
+     * own SMS provider is connected.
+     */
+    test_without_link: z.string().optional(),
   }),
   outcome_mapping: z.object({
     request_human: z.record(z.enum(REQUEST_HUMAN_REASONS), Outcome),

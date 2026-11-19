@@ -18,7 +18,7 @@
 import { fromLocal, type Settings, toLocalParts } from "@mishlav/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import type { AdminStore, CallOrigin, ContactStore } from "../contacts";
+import { type AdminStore, type CallOrigin, type ContactStore, toE164 } from "../contacts";
 import type { Dialer } from "../dialer";
 import type { JsonlFile } from "../jsonl";
 import type { ServerLog } from "../serverlog";
@@ -76,6 +76,18 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
       dialer_only_numbers: !!env.DIALER_ONLY_NUMBERS?.trim(),
       timezone: deps.settings?.business_hours.timezone ?? "Asia/Jerusalem",
     };
+  });
+
+  // ---- a test SMS, without a call: checks the provider (Zadarma keys, sender, balance) end to end
+  app.post("/api/admin/sms/test", async (req, reply) => {
+    const body = (req.body ?? {}) as { number?: unknown };
+    const to = typeof body.number === "string" ? toE164(body.number) : null;
+    if (!to) return reply.code(400).send({ ok: false, error: "invalid_number", message_he: "מספר טלפון לא תקין" });
+    if (!deps.sms) return reply.code(409).send({ ok: false, error: "no_sms", message_he: "אין שליחת SMS בשרת הזה" });
+    const r = await deps.sms.send(to, "משלב: הודעת בדיקה מהבוט. אין צורך להשיב.");
+    return r.ok
+      ? { ok: true, provider: r.provider, sent: r.sent }
+      : reply.code(502).send({ ok: false, provider: r.provider, error: "sms_failed", message_he: r.error });
   });
 
   // ---- the automatic dialer

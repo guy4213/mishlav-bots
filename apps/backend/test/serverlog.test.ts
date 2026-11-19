@@ -107,3 +107,39 @@ describe("the dashboard's log, kept", () => {
     await app.close();
   });
 });
+
+describe("test SMS from the dashboard", () => {
+  const sender = (result: { ok: boolean; error?: string }) => {
+    const sent: [string | null, string][] = [];
+    return {
+      sent,
+      sms: {
+        provider: "zadarma",
+        live: true,
+        send: async (to: string | null, text: string) => {
+          sent.push([to, text]);
+          return result.ok ? { ok: true as const, provider: "zadarma", sent: true } : { ok: false as const, provider: "zadarma", error: result.error ?? "x" };
+        },
+      },
+    };
+  };
+
+  it("sends a fixed test text to the number, in international format", async () => {
+    const s = sender({ ok: true });
+    const app = await buildServer(testConfig(), { logger: false, sms: s.sms });
+    const r = await app.inject({ method: "POST", url: "/api/admin/sms/test", headers: AUTH, payload: { number: "053-4271418" } });
+    expect(r.json()).toEqual({ ok: true, provider: "zadarma", sent: true });
+    expect(s.sent).toEqual([["+972534271418", "משלב: הודעת בדיקה מהבוט. אין צורך להשיב."]]);
+  });
+
+  it("a refusal from the provider comes back with its reason; a bad number is refused before sending", async () => {
+    const s = sender({ ok: false, error: "insufficient balance" });
+    const app = await buildServer(testConfig(), { logger: false, sms: s.sms });
+    const r = await app.inject({ method: "POST", url: "/api/admin/sms/test", headers: AUTH, payload: { number: "053-4271418" } });
+    expect(r.statusCode).toBe(502);
+    expect(r.json().message_he).toBe("insufficient balance");
+    const bad = await app.inject({ method: "POST", url: "/api/admin/sms/test", headers: AUTH, payload: { number: "abc" } });
+    expect(bad.statusCode).toBe(400);
+    expect(s.sent).toHaveLength(1);
+  });
+});
