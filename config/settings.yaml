@@ -58,6 +58,9 @@ dialing:
 # (config/knowledge/days/*.md). TODO(mishlav): the final wording and the sender name.
 sms:
   link_template: "משלב: קישור לרכישת {day}: {url}"
+  # TEMPORARY, tests only: sent instead of link_template, with no link - Zadarma refuses links in SMS to Israel
+  # ("Links in SMS to this direction are prohibited"). DELETE this line once Mishlav's SMS provider is connected.
+  test_without_link: "משלב: בדיקה – כאן יגיע הקישור לרכישת {day}"
 
 # Field/outcome mapping: how tool calls translate into outcomes (model proposes, backend decides).
 outcome_mapping:

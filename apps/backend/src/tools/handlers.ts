@@ -111,7 +111,10 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       return { ok: false, error: "no_phone", message_he: `אין מספר טלפון לשליחת המסרון. ${LINK_BY_REP}` };
     }
     const dayHe = `${day.title} – ${datesHe(day)}`; // the title already says hotel/zoom
-    const text = settings.sms.link_template.replaceAll("{day}", dayHe).replaceAll("{url}", day.purchase_url);
+    // sms.test_without_link (temporary): the same flow, without the link Zadarma refuses to send to Israel
+    const text = settings.sms.test_without_link
+      ? settings.sms.test_without_link.replaceAll("{day}", dayHe)
+      : settings.sms.link_template.replaceAll("{day}", dayHe).replaceAll("{url}", day.purchase_url);
     const sent = await sms.send(recipient ?? null, text);
     if (!sent.ok) {
       // ok:false: the contact's record doesn't get "link sent" (bot_tool_event ignores failed tools)

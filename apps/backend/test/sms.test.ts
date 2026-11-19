@@ -124,9 +124,10 @@ class FakeLine extends EventEmitter {
   }
 }
 
-async function setup(sms: SmsSender = new FakeSms()) {
+async function setup(sms: SmsSender = new FakeSms(), tweak?: (c: ReturnType<typeof testConfig>) => void) {
   const store = new FakeStore();
   const config = testConfig();
+  tweak?.(config);
   const app = await buildServer(config, {
     now: () => FIXED_NOW,
     logger: false,
@@ -159,12 +160,22 @@ describe("send_purchase_link sends the SMS to the number on the call", () => {
     expect(r.test_mode).toBeUndefined();
     const [to, text] = (sms as FakeSms).sent[0]!;
     expect(to).toBe("+972534271418");
-    expect(text).toBe(`משלב: קישור לרכישת ${r.day_he}: https://example.com/mishlav/purchase/${DAY}`);
+    // settings.yaml has the temporary test text (no link: Zadarma refuses links to Israel)
+    expect(text).toBe(`משלב: בדיקה – כאן יגיע הקישור לרכישת ${r.day_he}`);
     await settle();
     expect(store.tools).toEqual([["call-1", "send_purchase_link", true]]); // Gold: "נשלח קישור"
     const log = rawLog();
     expect(log).toContain('"recipient":"+97253***1418"');
     expect(log).not.toMatch(/534271418|4271418/);
+  });
+
+  it("without the temporary test text: the link template, with the day's link", async () => {
+    const { store, sms, send } = await setup(new FakeSms(), (c) => {
+      c.settings.sms.test_without_link = undefined;
+    });
+    store.numbers.set("call-1", "053-4271418");
+    const r = await send("call-1");
+    expect((sms as FakeSms).sent[0]![1]).toBe(`משלב: קישור לרכישת ${r.day_he}: https://example.com/mishlav/purchase/${DAY}`);
   });
 
   it("a scenario call (no contact): the number the line dialed", async () => {
