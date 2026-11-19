@@ -161,7 +161,7 @@ describe("send_purchase_link sends the SMS to the number on the call", () => {
     const [to, text] = (sms as FakeSms).sent[0]!;
     expect(to).toBe("+972534271418");
     // settings.yaml has the temporary test text (no link: Zadarma refuses links to Israel)
-    expect(text).toBe(`משלב: בדיקה – כאן יגיע הקישור לרכישת ${r.day_he}`);
+    expect(text).toBe("משלב: תודה על השיחה, הפרטים יישלחו אליך בהמשך.");
     await settle();
     expect(store.tools).toEqual([["call-1", "send_purchase_link", true]]); // Gold: "נשלח קישור"
     const log = rawLog();
