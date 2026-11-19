@@ -41,6 +41,17 @@ export default {
             </div>
           </div>
           <div class="card" id="phExpect" hidden></div>
+          <div class="card">
+            <div class="card-head"><h2>✉️ בדיקת SMS</h2></div>
+            <div class="card-body stack">
+              <div class="row">
+                <input type="text" id="smsNumber" class="ltr" inputmode="tel" placeholder="0501234567" style="max-width:200px">
+                <button class="btn" id="smsSend">שלח SMS בדיקה</button>
+              </div>
+              <span class="small" id="smsNote"></span>
+              <p class="small muted" style="margin:0">שולח "משלב: הודעת בדיקה מהבוט" דרך הספק שמוגדר בשרת – בלי שיחה. בודק שהמפתחות של Zadarma, שם השולח והיתרה תקינים.</p>
+            </div>
+          </div>
         </div>
         <div class="stack">
           <div class="card"><div class="card-head"><h2>📝 מה נאמר</h2></div><div class="card-body"><div class="convo scroll" id="phTranscript"><p class="muted small">התמלול יופיע כאן בזמן השיחה</p></div></div></div>
@@ -50,6 +61,22 @@ export default {
       <div class="card" id="phGold" style="margin-top:16px"></div>`;
     const $ = (id) => root.querySelector(`#${id}`);
     const reloadGold = mountGoldCard($("phGold"));
+    // a test SMS, without a call
+    $("smsNumber").value = $("smsNumber").value || (() => { try { return localStorage.getItem("mishlav_phone") ?? ""; } catch { return ""; } })();
+    $("smsSend").onclick = async () => {
+      const number = $("smsNumber").value.trim();
+      if (!number) { $("smsNote").textContent = "הכנס מספר"; return; }
+      $("smsSend").disabled = true;
+      $("smsNote").textContent = "שולח…";
+      try {
+        const r = await post("/api/admin/sms/test", { number });
+        $("smsNote").innerHTML = r.sent
+          ? `<span style="color:var(--success)">✓ נשלח דרך ${esc(r.provider)} – בדוק את הטלפון</span>`
+          : `<span class="muted">לא נשלח באמת: אין מפתחות Zadarma בשרת (לוג בלבד)</span>`;
+      } catch (e) {
+        $("smsNote").innerHTML = `<span style="color:var(--danger)">לא נשלח: ${esc(e.message)}</span>`;
+      } finally { $("smsSend").disabled = false; }
+    };
 
     // ---- contacts (as before)
     const loadContacts = async () => {
