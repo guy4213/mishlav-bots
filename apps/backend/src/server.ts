@@ -14,7 +14,7 @@ import { GOLD_CHANGES_PATH, registerGoldRoutes } from "./routes/gold";
 import { type PhoneHolder, registerPhoneRoutes } from "./routes/phone";
 import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
-import { ServerLog } from "./serverlog";
+import { type LogStore, pinoText, ServerLog, tapConsole } from "./serverlog";
 import { SessionStore } from "./sessions";
 import { type SmsSender, smsSenderFromEnv } from "./sms";
 
@@ -40,6 +40,10 @@ export interface BuildOptions {
   dialer?: { store: DialerStore; run?: boolean };
   /** The purchase-link SMS. Default: from the env (ZADARMA_API_KEY + ZADARMA_API_SECRET), else log only. */
   sms?: SmsSender;
+  /** Where the dashboard's log is kept, so a deploy doesn't wipe it (main.ts: Supabase server_logs). */
+  logStore?: LogStore;
+  /** main.ts only: the process's console output goes into the dashboard's log too */
+  tapConsole?: boolean;
 }
 
 /** Paths without TOOLS_SECRET: health check, the dashboard's static files (no data; the page sends the secret),
@@ -56,8 +60,27 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   const metricsLog = new JsonlFile(join(config.logDir, LOG_FILES.metrics));
   const sessions = new SessionStore(new JsonlFile(join(config.logDir, LOG_FILES.sessions)), now);
 
+  // the server's own warnings and errors (Fastify / pino, every request's logger included) go into the dashboard's
+  // log as well; serverLog is created below, after the app
+  const tap: { log: ServerLog | null } = { log: null };
+  const baseLogger = opts.logger ?? { level: "info" };
+  const logger =
+    baseLogger && typeof baseLogger === "object"
+      ? {
+          ...baseLogger,
+          hooks: {
+            logMethod(this: unknown, args: unknown[], method: (...a: unknown[]) => void, level: number) {
+              const first = args[0] as { inLog?: boolean } | undefined;
+              if (level >= 40 && tap.log && !(first && typeof first === "object" && first.inLog)) {
+                tap.log.push(level >= 50 ? "error" : "server", pinoText(args));
+              }
+              return method.apply(this, args);
+            },
+          },
+        }
+      : baseLogger;
   const app = Fastify({
-    logger: opts.logger ?? { level: "info" },
+    logger,
     bodyLimit: 64 * 1024,
     trustProxy: true, // behind ngrok
   });
@@ -96,7 +119,14 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   const phone = opts.phone ?? { line: null, reason: "not started" };
   const env = opts.env ?? process.env;
   // the dashboard's live log of this server: the phone line + the events below (GET /api/admin/logs)
-  const serverLog = new ServerLog(phone, now);
+  const serverLog = new ServerLog(phone, now, undefined, opts.logStore);
+  tap.log = serverLog;
+  if (opts.tapConsole) {
+    const untap = tapConsole(serverLog);
+    app.addHook("onClose", async () => untap());
+  }
+  serverLog.start();
+  app.addHook("onClose", async () => serverLog.stop()); // what is left goes to the store
   const transcriptsDir = join(config.logDir, "transcripts");
 
   // a failed Supabase update is logged next to the tool calls (the dashboard's call view and logs show it)
@@ -104,7 +134,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     ? new ContactEvents(opts.contacts, (callId, what, err) => {
         toolLog.append({ type: "supabase_error", ts: now().toISOString(), call_id: callId, what, error: err.message });
         serverLog.push("error", `Supabase (${what}): ${err.message}`, callId);
-        app.log.error({ err, call_id: callId, what }, "supabase update failed");
+        app.log.error({ err, call_id: callId, what, inLog: true }, "supabase update failed"); // already in the log above
       })
     : undefined;
   const dialer =

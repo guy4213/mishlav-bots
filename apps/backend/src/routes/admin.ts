@@ -11,7 +11,8 @@
  *   GET  /api/admin/calls/:call_id      -> the call + its transcript (database, else this server's disk) + tool actions
  *   GET  /api/admin/rep-tasks?open=1    -> rep tasks by callback time, with the contact's name and phone
  *   POST /api/admin/rep-tasks/:id/done  -> { ok, task }
- *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / SMS)
+ *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / SMS / server)
+ *   GET  /api/admin/logs/history?call_id=&limit= -> the log of earlier server starts (Supabase server_logs, 14 days)
  * Without Supabase the data routes answer 409 no_supabase; a Supabase failure is 502 supabase_error.
  */
 import { fromLocal, type Settings, toLocalParts } from "@mishlav/shared";
@@ -212,6 +213,18 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
   app.get("/api/admin/logs", async (req) => {
     const since = Number(query(req.query).since) || 0;
     const r = deps.serverLog?.since(since) ?? { seq: 0, lines: [] };
-    return { ok: true, env: env.RENDER ? "production" : "local", seq: r.seq, lines: r.lines };
+    return { ok: true, env: env.RENDER ? "production" : "local", boot: deps.serverLog?.boot ?? null, seq: r.seq, lines: r.lines };
+  });
+
+  // ---- the log before this server started (a deploy / restart): kept in Supabase
+  app.get("/api/admin/logs/history", async (req, reply) => {
+    const q = query(req.query);
+    const limit = Math.min(Math.max(Number(q.limit) || 1000, 1), 5000);
+    try {
+      const lines = (await deps.serverLog?.history({ callId: q.call_id || undefined, limit })) ?? [];
+      return { ok: true, lines };
+    } catch (err) {
+      return supabaseError(reply, err);
+    }
   });
 }
