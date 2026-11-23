@@ -17,6 +17,10 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
   const reason = RequestHumanReason.describe("Why a human rep is needed");
   // when the customer wants the rep to call (same two fields as schedule_callback); none = as soon as possible
   const when = {
+    // the study day the customer chose, if one was discussed: the rep's note names it (course number, dates)
+    day_id: dayId()
+      .optional()
+      .describe("The study day the customer chose or talked about, if any (from the catalogue). Omit when none"),
     requested_time: requestedTime().describe(
       "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time), exactly the hour and minutes they said - never rounded",
     ),

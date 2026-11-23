@@ -22,9 +22,9 @@ export interface CallVariables {
   customer_gender: Gender;
 }
 
-/** "יום פרונטלי במלון" / "יומיים מקוונים בזום" (a Zoom study day is a pair of days) */
+/** "יום פרונטלי במלון" / "יום עיון אחד בשני מפגשים בזום" (a Zoom study day: one study day on two dates) */
 const dayFormatHe = (d: StudyDay) =>
-  d.format === "hotel" ? "יום פרונטלי במלון" : d.end_date ? "יומיים מקוונים בזום" : "יום מקוון בזום";
+  d.format === "hotel" ? "יום פרונטלי במלון" : d.end_date ? "יום עיון אחד בשני מפגשים בזום" : "יום מקוון בזום";
 const IN_FORMAT_HE: Record<StudyDay["format"], string> = { hotel: "במלון", zoom: "בזום" };
 
 /** 2026-12-22 -> 22.12.2026 */

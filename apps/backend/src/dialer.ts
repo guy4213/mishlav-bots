@@ -190,7 +190,7 @@ export class Dialer {
 
     let due: QueuedContact | null;
     try {
-      due = await store.nextDue(now, [...this.skipped]);
+      due = await store.nextDue(now, [...this.skipped], this.deps.settings.dialing.requested_courses);
     } catch (err) {
       return this.failure(err as Error);
     }
@@ -266,7 +266,8 @@ export class Dialer {
   /** The next contact for the dashboard when nothing is due now (best effort: not a failure). */
   private async peekNext(now: Date) {
     try {
-      this.next = (await this.deps.store.nextDue(now, [...this.skipped])) ?? (await this.deps.store.nextScheduled(now));
+      const courses = this.deps.settings.dialing.requested_courses;
+      this.next = (await this.deps.store.nextDue(now, [...this.skipped], courses)) ?? (await this.deps.store.nextScheduled(now, courses));
     } catch {
       // shown again on the next tick
     }

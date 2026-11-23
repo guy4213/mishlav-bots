@@ -44,6 +44,8 @@ export const Settings = z.object({
       pause_between_calls_s: z.number().nonnegative().default(5),
       /** The dialer looks for work this often (on/off in the database, hours, line, queue). */
       tick_s: z.number().positive().default(10),
+      /** The dialer calls only contacts whose "קורס מבוקש" (Gold) is one of these; empty = everyone. */
+      requested_courses: z.array(z.string().trim().min(1)).default([]),
     })
     .refine((d) => d.no_answer_retry.length >= d.no_answer_streak_max - 1, {
       message: "no_answer_retry needs an entry for every streak below no_answer_streak_max",
