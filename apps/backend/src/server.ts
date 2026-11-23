@@ -126,9 +126,9 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     app.addHook("onClose", async () => untap());
   }
   serverLog.start();
-  // recordings older than settings.recordings.retention_days are deleted: at start, then every 12 h
+  // recordings older than settings.recordings.retention_days are deleted: at start, then every 12 h (0: kept for good)
   const admin = opts.admin;
-  if (admin?.pruneRecordings) {
+  if (admin?.pruneRecordings && config.settings.recordings.retention_days > 0) {
     const prune = () => {
       const before = new Date(now().getTime() - config.settings.recordings.retention_days * 86400000);
       admin.pruneRecordings!(before)

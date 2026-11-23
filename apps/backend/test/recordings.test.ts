@@ -38,6 +38,21 @@ describe("call recordings", () => {
     expect(await s.recordingUrl("call-1")).toBe("https://x.supabase.co/storage/v1/object/sign/recordings/call-1.wav?token=t");
   });
 
+  it("kept for good by default (retention_days 0); a number deletes older ones", async () => {
+    const calls: Date[] = [];
+    const admin = { pruneRecordings: async (before: Date) => (calls.push(before), 0) };
+    const keep = await buildServer(testConfig(), { logger: false, admin: admin as never });
+    await keep.ready();
+    expect(calls).toEqual([]);
+    await keep.close();
+    const config = testConfig();
+    config.settings.recordings.retention_days = 30;
+    const prune = await buildServer(config, { logger: false, admin: admin as never });
+    await prune.ready();
+    expect(calls).toHaveLength(1);
+    await prune.close();
+  });
+
   it("the dashboard route: the link, or 404 when the call wasn't recorded", async () => {
     const admin = { recordingUrl: async (id: string) => (id === "call-1" ? "https://x/signed" : null) };
     const app = await buildServer(testConfig(), { logger: false, admin: admin as never });
