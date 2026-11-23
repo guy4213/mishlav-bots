@@ -17,7 +17,10 @@ export function geminiGenderClassifier(opts: {
   model?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /** why a name came back "unknown" because of a failure (default: console.warn, i.e. the dashboard's log) */
+  onError?: (text: string) => void;
 }): GenderClassifier {
+  const onError = opts.onError ?? ((text: string) => console.warn(text));
   const cache = new Map<string, Gender>();
   const doFetch = opts.fetchImpl ?? fetch;
   return async (firstName) => {
@@ -51,14 +54,16 @@ export function geminiGenderClassifier(opts: {
         }),
         signal: AbortSignal.timeout(opts.timeoutMs ?? 2500),
       });
-      if (res.ok) {
+      if (!res.ok) onError(`gender of "${name}" unknown: Gemini answered HTTP ${res.status}`);
+      else {
         const body = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
         const text = body.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
         const g = (JSON.parse(text) as { gender?: string }).gender;
         if (GENDERS.includes(g as Gender)) gender = g as Gender;
       }
-    } catch {
+    } catch (err) {
       // network / timeout / bad JSON: speak gender-neutral
+      onError(`gender of "${name}" unknown: ${(err as Error).message}`);
     }
     if (gender !== "unknown") cache.set(name, gender); // an error is not cached: the next call asks again
     return gender;

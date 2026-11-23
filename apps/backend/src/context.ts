@@ -27,26 +27,36 @@ export interface CallVariables {
 export const todayIso = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(now); // YYYY-MM-DD
 
 /**
- * The prompt's catalogue: one line per upcoming day, by date -
- * "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · זום (שני מפגשים) · 21–22.2.2027 · 10:00–13:15".
+ * The prompt's catalogue: the upcoming days in two groups, Zoom then the hotel, each by date (so "the nearest Zoom
+ * day" is the group's first line), e.g.
+ *   בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):
+ *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15
+ *   במלון – יום מלא (הקרוב ראשון):
+ *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב
  * Past days are left out; a day with registration closed is marked.
  */
 export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
   const today = todayIso(now);
   const days = [...kb.days.values()].filter((d) => d.date >= today).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   if (!days.length) return "אין כרגע ימי עיון בקטלוג.";
-  return days
-    .map((d) =>
-      [
-        `- \`${d.id}\` – ${d.title}`,
-        d.format === "zoom" ? "זום (שני מפגשים)" : "מלון",
-        datesHe(d),
-        `${d.start}–${d.end}`,
-        ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),
-      ].join(" · "),
-    )
-    .join("\n");
+  const line = (d: StudyDay) =>
+    [
+      `- \`${d.id}\` – ${d.title}`,
+      datesHe(d),
+      `${d.start}–${d.end}`,
+      ...(d.format === "hotel" && d.location ? [d.location] : []),
+      ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),
+    ].join(" · ");
+  return CATALOG_GROUPS.flatMap(({ format, heading }) => {
+    const group = days.filter((d) => d.format === format);
+    return group.length ? [heading, ...group.map(line)] : [];
+  }).join("\n");
 }
+
+const CATALOG_GROUPS: { format: StudyDay["format"]; heading: string }[] = [
+  { format: "zoom", heading: "בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):" },
+  { format: "hotel", heading: "במלון – יום מלא (הקרוב ראשון):" },
+];
 
 /** "יום פרונטלי במלון" / "יום עיון אחד בשני מפגשים בזום" (a Zoom study day: one study day on two dates) */
 const dayFormatHe = (d: StudyDay) =>

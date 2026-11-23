@@ -131,7 +131,7 @@ describe("study days in Supabase: what the bot sees", () => {
     const created = (await post("/api/admin/study-days", FORM)).json();
     expect(created).toMatchObject({ ok: true, day: { id: "2027-04-12-zoom", offered_to_bot: true } });
     const vars = (await get("/test/context")).json().variables;
-    expect(vars.day_catalog).toContain("`2027-04-12-zoom` – ביטוח לאומי · זום (שני מפגשים) · 12–13.4.2027");
+    expect(vars.day_catalog).toContain("`2027-04-12-zoom` – ביטוח לאומי · 12–13.4.2027");
 
     expect((await post("/api/admin/study-days/2027-04-12-zoom/archive")).json()).toMatchObject({ ok: true, day: { archived: true } });
     expect((await get("/test/context")).json().variables.day_catalog).not.toContain("2027-04-12-zoom");
@@ -160,7 +160,7 @@ describe("/api/admin/study-days", () => {
       ["2027-03-17-zoom", true, false],
     ]);
     expect(r.days[0]).toMatchObject({ dates_he: "21–22.2.2027", note_he: "דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום · מספר קורס 4512", error: null });
-    expect(r.catalog_he.split("\n")).toHaveLength(1);
+    expect(r.catalog_he.split("\n")).toEqual(["בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):", "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15"]);
     await app.close();
   });
 

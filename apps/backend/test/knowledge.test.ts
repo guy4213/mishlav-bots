@@ -77,11 +77,15 @@ describe("knowledge base", () => {
     expect(datesHe({ date: "2026-12-31", end_date: "2027-01-01" })).toBe("31.12.2026–1.1.2027");
   });
 
-  it("the prompt's catalogue is built from the days: upcoming only, by date, closed ones marked", () => {
+  it("the prompt's catalogue is built from the days: upcoming only, Zoom then the hotel, each by date, closed ones marked", () => {
     const catalog = buildDayCatalog(kb, FIXED_NOW).split("\n");
-    expect(catalog).toHaveLength(8);
-    expect(catalog[0]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · זום (שני מפגשים) · 21–22.2.2027 · 10:00–13:15");
-    expect(catalog[2]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · מלון · 17.5.2027 · 09:00–16:00");
+    expect(catalog).toHaveLength(10); // 2 headings + 8 days
+    expect(catalog[0]).toBe("בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):");
+    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15");
+    expect(catalog[2]).toContain("`2027-03-17-zoom`");
+    expect(catalog[7]).toBe("במלון – יום מלא (הקרוב ראשון):");
+    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב");
+    expect(catalog[9]).toContain("`2027-11-21-hotel`");
 
     const first = kb.days.get("2027-02-21-zoom")!;
     const k: KnowledgeBase = {
@@ -92,7 +96,8 @@ describe("knowledge base", () => {
       general: "",
     };
     expect(buildDayCatalog(k, FIXED_NOW)).toBe(
-      "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · זום (שני מפגשים) · 21–22.2.2027 · 10:00–13:15 · ההרשמה סגורה",
+      "בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):\n" +
+        "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · ההרשמה סגורה",
     );
     expect(buildDayCatalog({ days: new Map(), general: "" }, FIXED_NOW)).toBe("אין כרגע ימי עיון בקטלוג.");
   });

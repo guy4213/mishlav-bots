@@ -20,12 +20,18 @@ describe("customer gender before the call", () => {
 
   it("any failure is 'unknown' (neutral wording), and is asked again next time", async () => {
     let calls = 0;
-    const fail = geminiGenderClassifier({ apiKey: "k", fetchImpl: async () => { calls++; throw new Error("down"); } });
+    const errors: string[] = [];
+    const onError = (t: string) => errors.push(t);
+    const fail = geminiGenderClassifier({ apiKey: "k", onError, fetchImpl: async () => { calls++; throw new Error("down"); } });
     expect(await fail("רועי")).toBe("unknown");
     expect(await fail("רועי")).toBe("unknown");
     expect(calls).toBe(2);
-    const odd = geminiGenderClassifier({ apiKey: "k", fetchImpl: async () => answer("robot") });
+    const odd = geminiGenderClassifier({ apiKey: "k", onError, fetchImpl: async () => answer("robot") });
     expect(await odd("רועי")).toBe("unknown");
+    // a failure says why in the log (quota, timeout...); a real "unknown" answer is not a failure
+    const quota = geminiGenderClassifier({ apiKey: "k", onError, fetchImpl: async () => new Response("{}", { status: 429 }) });
+    expect(await quota("גיא")).toBe("unknown");
+    expect(errors).toEqual(['gender of "רועי" unknown: down', 'gender of "רועי" unknown: down', 'gender of "גיא" unknown: Gemini answered HTTP 429']);
   });
 
   it("the fact opens customer_context", () => {
