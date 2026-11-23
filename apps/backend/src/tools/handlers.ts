@@ -45,8 +45,10 @@ const publicDay = (d: StudyDay) => ({
   title: d.title,
   topic: d.topic,
   date: d.date,
-  end_date: d.end_date, // zoom = 2 days
+  end_date: d.end_date, // zoom: the second meeting of the same study day
   dates_he: datesHe(d),
+  structure_he: structureHe(d),
+  course_number: d.course_number,
   start: d.start,
   end: d.end,
   format: d.format,
@@ -57,6 +59,21 @@ const publicDay = (d: StudyDay) => ({
   open_for_registration: d.open_for_registration,
   description: d.description,
 });
+
+/**
+ * A Zoom study day is ONE study day held on two dates (Mishlav: "יומיים" confused customers into thinking it is two
+ * study days). Said on every answer that carries the day, so the bot describes it right.
+ */
+const structureHe = (d: StudyDay) =>
+  d.end_date
+    ? `יום עיון אחד שמתקיים בשני מפגשים (${datesHe(d)}), ${d.start}–${d.end} בכל מפגש. המחיר וההרשמה הם ליום העיון כולו.`
+    : `יום עיון אחד (${datesHe(d)}), ${d.start}–${d.end}.`;
+
+/** The study day in the bot's note in Gold: what the reps register (course number), when, Zoom or in person. */
+export const dayNoteHe = (d: StudyDay) =>
+  [`${d.title} – ${datesHe(d)}`, d.format === "zoom" ? "בזום" : "פרונטלי", d.course_number && `מספר קורס ${d.course_number}`]
+    .filter(Boolean)
+    .join(" · ");
 
 const brief = (d: StudyDay) => ({
   day_id: d.id,
@@ -124,7 +141,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       ok: true,
       status: "sent",
       day_id: day.id,
-      day_he: dayHe, // for the note on the lead (Gold)
+      day_he: dayNoteHe(day), // for the note on the lead (Gold): course number, dates, Zoom or in person
       sms: { sent: sent.sent, provider: sent.provider },
       ...closing(SAY_LINK_SENT),
     };
@@ -139,15 +156,19 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
   // The rep calls back the number on file, at the time the customer chose (none = as soon as possible).
   // Nothing else to ask (the bot once invented a "which department?" question). Part 4: a note on the lead.
   request_human(input, ctx) {
+    // the study day the customer chose goes into the rep's note (bot_tool_event); an unknown id is just left out
+    const chosen = input.day_id ? ctx.knowledge.days.get(input.day_id) : undefined;
+    const dayNote = chosen ? { day_he: dayNoteHe(chosen) } : {};
     if (input.reason === "other") {
       // an open question: the rep answers it later, the call itself goes on (flow step 4)
       return {
         ok: true,
         status: "handed_to_rep",
+        ...dayNote,
         message_he: "נרשם שנציג יחזור ללקוח עם תשובה לשאלה הזו. לומר לו את זה ולהמשיך בשיחה – השאלה לא סוגרת את השיחה.",
       };
     }
-    if (input.asap) return { ok: true, status: "handed_to_rep", ...closing(SAY_HANDED_TO_REP) };
+    if (input.asap) return { ok: true, status: "handed_to_rep", ...dayNote, ...closing(SAY_HANDED_TO_REP) };
     if (input.requested_time === undefined && input.in_minutes === undefined) {
       // no time yet: on a real call the bot asked "when?" and handed off in the same breath, then hung up
       return {
@@ -160,7 +181,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     }
     const t = resolveTime(input, ctx);
     if (!t.ok) return t.response;
-    return { ok: true, status: "handed_to_rep", ...t.fields, ...closing(sayHandedToRepAt(t.scheduled, ctx.now(), tz(ctx))) };
+    return { ok: true, status: "handed_to_rep", ...dayNote, ...t.fields, ...closing(sayHandedToRepAt(t.scheduled, ctx.now(), tz(ctx))) };
   },
 
   // The model often calls the tools first and speaks after their results (ElevenLabs always does), so

@@ -95,7 +95,9 @@ class FakeDb implements ContactStore, DialerStore {
     this.control = { enabled, reason, changed_at: new Date().toISOString() };
     return { ...this.control };
   }
-  async nextDue(now: Date, skip: string[]): Promise<QueuedContact | null> {
+  courses: string[][] = [];
+  async nextDue(now: Date, skip: string[], courses: string[] = []): Promise<QueuedContact | null> {
+    this.courses.push(courses);
     const due = [...this.contacts.values()]
       .map((c) => ({ gold_record_id: c.gold_record_id, bot_status: c.bot_state!.bot_status, next_call_at: c.bot_state!.next_call_at }))
       .filter((q) => q.bot_status in RANK && (!q.next_call_at || new Date(q.next_call_at) <= now) && !skip.includes(q.gold_record_id))
@@ -234,6 +236,17 @@ describe("dialer", () => {
     expect(line.dialed).toEqual(["+972533333333", "+972532222222", "+972531111111"]);
     expect(await dialer.tick()).toBe(settings.dialing.tick_s * 1000);
     expect(dialer.status().state).toBe("queue_empty");
+  });
+
+  it("asks the queue only for the requested courses in settings (Mishlav: only יום עיון חשבונאות)", async () => {
+    const db = new FakeDb(contact("a", "053-1111111"));
+    const { line, dialer } = setup(db);
+    await dialer.start();
+    const t = dialer.tick();
+    await flush();
+    line.end();
+    await t;
+    expect(db.courses[0]).toEqual(["יום עיון חשבונאות"]);
   });
 
   it("one call at a time: the next call only after the line says the call ended", async () => {

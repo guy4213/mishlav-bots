@@ -53,6 +53,10 @@ dialing:
   ring_timeout_s: 40              # no answer by then -> cancel; ends like any no-answer (manual and dialer calls)
   pause_between_calls_s: 5        # the dialer waits this long after a call before the next one
   tick_s: 10                      # how often the dialer looks for work (on/off, hours, line, queue)
+  # The dialer calls only contacts whose "קורס מבוקש" (Gold's Excel) is in this list (Mishlav: only these leads
+  # are relevant; not "מערכות סולאריות", "בודק שכר" etc.). Exact text as in Gold. Empty list = everyone.
+  # Dashboard test calls are not filtered.
+  requested_courses: ["יום עיון חשבונאות"]
 
 # The purchase link the bot sends (send_purchase_link). {day} = the study day in Hebrew, {url} = its purchase_url
 # (config/knowledge/days/*.md). TODO(mishlav): the final wording and the sender name.

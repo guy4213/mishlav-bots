@@ -4,7 +4,7 @@ id: payroll-2027-01-12-zoom
 title: "דיני עבודה לחשבי שכר"
 topic: "דיני עבודה: שעות נוספות, חופשה, פיצויים"
 date: "2027-01-12"
-end_date: "2027-01-13"   # zoom = 2 days in a row (confirmed by Mishlav; exact dates TODO)
+end_date: "2027-01-13"   # zoom = one study day in two meetings (confirmed by Mishlav; exact dates TODO)
 start: "09:00"   # TODO(mishlav): calls mention Zoom days starting at 10:00 — confirm
 end: "14:00"
 format: zoom
@@ -16,7 +16,7 @@ purchase_url: "https://example.com/mishlav/purchase/payroll-2027-01-12-zoom"   #
 ---
 # דיני עבודה לחשבי שכר (זום)
 
-יומיים בזום: שלישי ורביעי, 12–13 בינואר 2027, 09:00–14:00 בכל יום. ההרשמה היא לשני הימים יחד.
+יום עיון אחד בזום, בשני מפגשים: שלישי ורביעי, 12–13 בינואר 2027, 09:00–14:00 בכל מפגש. ההרשמה היא ליום העיון כולו.
 
 ## על מה מדברים
 - TODO(mishlav): סדר יום מלא.

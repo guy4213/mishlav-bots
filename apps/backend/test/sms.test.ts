@@ -175,7 +175,8 @@ describe("send_purchase_link sends the SMS to the number on the call", () => {
     });
     store.numbers.set("call-1", "053-4271418");
     const r = await send("call-1");
-    expect((sms as FakeSms).sent[0]![1]).toBe(`משלב: קישור לרכישת ${r.day_he}: https://example.com/mishlav/purchase/${DAY}`);
+    expect((sms as FakeSms).sent[0]![1]).toBe(`משלב: קישור לרכישת עדכוני חקיקה בשכר לקראת 2027 – 8–9.12.2026: https://example.com/mishlav/purchase/${DAY}`);
+    expect(r.day_he).toBe("עדכוני חקיקה בשכר לקראת 2027 – 8–9.12.2026 · בזום"); // the note in Gold: also Zoom / in person
   });
 
   it("a scenario call (no contact): the number the line dialed", async () => {

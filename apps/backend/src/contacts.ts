@@ -92,10 +92,13 @@ export interface DialerStore {
   get(goldRecordId: string): Promise<ContactRecord | null>;
   dialerControl(): Promise<DialerControl>;
   setDialer(enabled: boolean, reason: string | null): Promise<DialerControl>;
-  /** The next contact to dial at `now` (callbacks, then retries, then new), skipping `skip`. */
-  nextDue(now: Date, skip: string[]): Promise<QueuedContact | null>;
+  /**
+   * The next contact to dial at `now` (callbacks, then retries, then new), skipping `skip`; only contacts whose
+   * requested course is in `courses` (settings dialing.requested_courses; empty = everyone).
+   */
+  nextDue(now: Date, skip: string[], courses?: string[]): Promise<QueuedContact | null>;
   /** The first contact whose time comes after `now` (for the dashboard, when nothing is due). */
-  nextScheduled(now: Date): Promise<QueuedContact | null>;
+  nextScheduled(now: Date, courses?: string[]): Promise<QueuedContact | null>;
   /** No valid phone: out of the queue as a wrong number. Returns the contact's status after it. */
   markNoPhone(goldRecordId: string): Promise<string | null>;
   /** How many calls of this origin started since `since`. */
@@ -487,18 +490,27 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     return this.req<DialerControl>("POST", "/rpc/dialer_set", { p_enabled: enabled, p_reason: reason });
   }
 
-  async nextDue(now: Date, skip: string[]) {
-    const rows = await this.req<QueuedContact[]>("POST", "/rpc/bot_next_due", { p_now: now.toISOString(), p_skip: skip });
+  async nextDue(now: Date, skip: string[], courses: string[] = []) {
+    const rows = await this.req<QueuedContact[]>("POST", "/rpc/bot_next_due_for", {
+      p_now: now.toISOString(),
+      p_skip: skip,
+      p_courses: courses.length ? courses : null,
+    });
     return rows[0] ?? null;
   }
 
-  async nextScheduled(now: Date) {
-    const rows = await this.req<QueuedContact[]>(
+  async nextScheduled(now: Date, courses: string[] = []) {
+    // only the courses the dialer calls: the contact's requested_course through the join (contacts!inner)
+    const byCourse = courses.length
+      ? `,contacts!inner(requested_course)&contacts.requested_course=in.(${courses.map((c) => encodeURIComponent(`"${c}"`)).join(",")})`
+      : "";
+    const rows = await this.req<(QueuedContact & { contacts?: unknown })[]>(
       "GET",
-      `/bot_state?select=gold_record_id,bot_status,next_call_at&bot_status=in.(new,queued,callback)` +
+      `/bot_state?select=gold_record_id,bot_status,next_call_at${byCourse}&bot_status=in.(new,queued,callback)` +
         `&next_call_at=gt.${encodeURIComponent(now.toISOString())}&order=next_call_at.asc,gold_record_id.asc&limit=1`,
     );
-    return rows[0] ?? null;
+    const row = rows[0];
+    return row ? { gold_record_id: row.gold_record_id, bot_status: row.bot_status, next_call_at: row.next_call_at } : null;
   }
 
   markNoPhone(goldRecordId: string) {

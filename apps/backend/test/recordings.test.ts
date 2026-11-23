@@ -73,3 +73,21 @@ describe("call recordings", () => {
     expect(none.statusCode).toBe(404);
   });
 });
+
+describe("the dialer's queue in Supabase", () => {
+  it("only the requested courses: the list goes to bot_next_due and filters the next scheduled one", async () => {
+    const sent: { url: string; body?: unknown }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      sent.push({ url, body: init.body });
+      return new Response(JSON.stringify([{ gold_record_id: "a", bot_status: "new", next_call_at: null, contacts: { requested_course: "x" } }]));
+    }) as unknown as typeof fetch;
+    const s = new SupabaseContacts("https://x.supabase.co", "k", fetchImpl);
+    await s.nextDue(new Date("2026-11-23T10:00:00Z"), [], ["יום עיון חשבונאות"]);
+    expect(JSON.parse(sent[0]!.body as string)).toMatchObject({ p_courses: ["יום עיון חשבונאות"] });
+    await s.nextDue(new Date("2026-11-23T10:00:00Z"), []);
+    expect(JSON.parse(sent[1]!.body as string)).toMatchObject({ p_courses: null });
+    const next = await s.nextScheduled(new Date("2026-11-23T10:00:00Z"), ["יום עיון חשבונאות"]);
+    expect(decodeURIComponent(sent[2]!.url)).toContain('contacts!inner(requested_course)&contacts.requested_course=in.("יום עיון חשבונאות")');
+    expect(next).toEqual({ gold_record_id: "a", bot_status: "new", next_call_at: null });
+  });
+});

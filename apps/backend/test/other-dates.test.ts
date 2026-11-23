@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { KnowledgeBase, StudyDay } from "../src/knowledge";
-import { otherDates } from "../src/tools/handlers";
+import { dayNoteHe, otherDates, toolHandlers } from "../src/tools/handlers";
 
 const day = (id: string, format: StudyDay["format"], date: string, series = "year-end", open = true): StudyDay => ({
   id, title: id, topic: "t", date, start: "09:00", end: "14:00", format, location: "x",
@@ -33,5 +33,27 @@ describe("get_day_info: other dates", () => {
     );
     expect(r.other_dates_same_format.map((d) => d.day_id)).toEqual(["h2"]);
     expect(r.same_content_other_format.map((d) => d.day_id)).toEqual(["z1"]);
+  });
+});
+
+describe("the chosen study day", () => {
+  const zoom: StudyDay = { ...day("z1", "zoom", "2027-02-21"), end_date: "2027-02-22", start: "10:00", end: "13:15", title: "יום עיון דצמבר" };
+  const ctx = { knowledge: kb(zoom), now: () => NOW } as never;
+
+  it("a Zoom day is said as ONE study day in two meetings, with the hours of each", async () => {
+    const r = (await toolHandlers.get_day_info({ day_id: "z1" }, ctx)) as unknown as { day: { structure_he: string } };
+    expect(r.day.structure_he).toBe("יום עיון אחד שמתקיים בשני מפגשים (21–22.2.2027), 10:00–13:15 בכל מפגש. המחיר וההרשמה הם ליום העיון כולו.");
+  });
+
+  it("the note in Gold: title, dates, Zoom or in person, and the course number the reps register", () => {
+    expect(dayNoteHe({ ...zoom, course_number: "4512" })).toBe("יום עיון דצמבר – 21–22.2.2027 · בזום · מספר קורס 4512");
+    expect(dayNoteHe(day("h1", "hotel", "2026-12-22"))).toBe("h1 – 22.12.2026 · פרונטלי");
+  });
+
+  it("a hand-off to a rep carries the day the customer chose (an unknown id is left out)", async () => {
+    const r = await toolHandlers.request_human({ reason: "pay_via_rep", asap: true, day_id: "z1" }, ctx);
+    expect(r).toMatchObject({ ok: true, status: "handed_to_rep", day_he: "יום עיון דצמבר – 21–22.2.2027 · בזום" });
+    const none = await toolHandlers.request_human({ reason: "pay_via_rep", asap: true, day_id: "nope" }, ctx);
+    expect(none).not.toHaveProperty("day_he");
   });
 });

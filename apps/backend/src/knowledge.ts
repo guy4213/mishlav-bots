@@ -20,6 +20,8 @@ export const StudyDayMeta = z
     price_ils: z.number().positive(),
     vat_included: z.boolean(),
     open_for_registration: z.boolean(),
+    /** Mishlav's number for this study day (what the reps register in Gold); goes into the bot's note. */
+    course_number: z.union([z.string(), z.number()]).transform(String).optional(),
     /** Sent by SMS (send_purchase_link); the bot never sees or says it. None: the tool answers no_purchase_url. */
     purchase_url: z.url({ protocol: /^https$/ }).optional(),
   })
