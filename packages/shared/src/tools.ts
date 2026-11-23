@@ -80,7 +80,8 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "Use only a day_id from the catalogue.",
   send_purchase_link:
     "Send the customer a purchase link for one study day, to the phone number on file. " +
-    "Call only after the customer agreed to receive a link. Never takes a phone number.",
+    "Call it as soon as the customer agrees to receive a link, saying nothing before it (never that the link is on its way): " +
+    "its answer has the sentence to say. Never takes a phone number.",
   schedule_callback:
     "Note the customer's request to be called back at the time they asked for (\"in N minutes\" -> in_minutes: N). It is a note for the team " +
     "that calls back - you have no calendar and see no one's schedule. If the time is outside business hours, " +

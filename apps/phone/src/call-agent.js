@@ -28,6 +28,7 @@ const SILENCE_CHECK_MS = 6000; // quiet line this long -> the bot checks the lin
 // The callee said "הלו" and the bot hasn't said a word this long after: Gemini missed it (a "הלו" right at pick-up
 // is often clipped), so it gets the opening cue. Only before the bot's first word: mid-call it never comes again.
 const OPEN_AFTER_CALLER_MS = 800; // + the bot starting to speak: about 1.5 s after the "הלו" (was 2.4 s)
+const OPENING_HOLD_MS = 3000; // after the opening cue, at most this long until the bot's voice (see _open)
 const SILENCE_GOODBYE_MAX_MS = 9000; // the no-answer goodbye can't run longer than this
 // end_call (as the worker's tools.py): the words before it play out; then the reply to its result (the goodbye,
 // only if none was said yet) plays, and the line drops.
@@ -111,6 +112,7 @@ export class CallAgent extends EventEmitter {
     this.callerVoiceAt = 0; // last time the caller really talked (100 ms of voice)
     this.turnHadAudio = false;
     this.opened = false;
+    this.openingHoldUntil = 0; // from the opening cue until the bot is heard, the caller is held (_open)
     this.callerSpoke = false;
     this.agentSpoke = false;
     this.toolsPending = 0;
@@ -331,8 +333,15 @@ export class CallAgent extends EventEmitter {
     }
   }
 
+  /**
+   * The opening cue. A "שלום" said just as the bot starts reached Gemini before the bot's voice did, and Gemini cut
+   * its own opening ("היי גיא, —") and answered seconds later from the middle. So from the cue until the bot is
+   * heard, the caller is held like any word over the bot: a short one doesn't cut the opening, real speech
+   * (BARGE_MS) still does. If no answer comes within OPENING_HOLD_MS, the caller reaches Gemini again.
+   */
   _open() {
     this.opened = true;
+    this.openingHoldUntil = performance.now() + OPENING_HOLD_MS;
     this._cue(CUES.open);
   }
 
@@ -375,7 +384,7 @@ export class CallAgent extends EventEmitter {
     this.rec?.lead.push(samples);
     const frame = level < SILENCE_RMS ? new Int16Array(samples.length) : samples;
 
-    const audible = this.queued > 0 || now < this.audibleUntil;
+    const audible = this.queued > 0 || now < this.audibleUntil || now < this.openingHoldUntil;
     if (audible && !this.bargedIn) {
       if (!this.holding) Object.assign(this, { holding: true, held: [], seg: null });
       this.held.push(frame);

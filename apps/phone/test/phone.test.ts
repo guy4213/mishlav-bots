@@ -414,6 +414,30 @@ describe("call agent", () => {
       agent.end();
     });
 
+    it("a short 'שלום' right after the opening cue doesn't reach Gemini (it cut its own opening); real speech does", async () => {
+      const voice = new Int16Array(160).fill(3000);
+      const run = async (ms: number) => {
+        const live = new FakeLive();
+        const heard: Buffer[] = [];
+        live.sendAudio = ((b: Buffer) => heard.push(b)) as never;
+        const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+        const rtp = new FakeRtp();
+        agent.start(rtp);
+        await wait(120);
+        expect(live.sent).toEqual([CUES.open]); // the opening was cued; no bot audio yet
+        const end = performance.now() + ms;
+        while (performance.now() < end) {
+          rtp.emit("audio", voice);
+          await wait(20);
+        }
+        await wait(60);
+        agent.end();
+        return heard.some((b) => b.some((x) => x !== 0)); // did any of the caller's voice reach Gemini?
+      };
+      expect(await run(400)).toBe(false); // "שלום": held, the opening goes on
+      expect(await run(800)).toBe(true); // "שלום, מי זה?": cuts in, Gemini hears it
+    });
+
     it("mid-call the opening is never cued, even when the bot doesn't answer", async () => {
       const live = new FakeLive();
       const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 2500 });
