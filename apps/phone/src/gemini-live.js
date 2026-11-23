@@ -5,6 +5,10 @@ import { EventEmitter } from 'node:events';
 
 export const DEFAULT_PHONE_MODEL = 'gemini-3.1-flash-live-preview';
 export const DEFAULT_VOICE = 'Kore';
+// Gemini's female voices, for the bot "נועה": Kore (Google: "firm") is the default; the others are described as
+// younger / lighter (Leda "youthful", Zephyr "bright", Aoede "breezy", Laomedeia "upbeat", Autonoe "bright",
+// Callirrhoe "easy-going", Despina "smooth"). The dashboard can pick one per test call; PHONE_VOICE sets the default.
+export const PHONE_VOICES = ['Kore', 'Leda', 'Zephyr', 'Aoede', 'Laomedeia', 'Autonoe', 'Callirrhoe', 'Despina'];
 export const DEFAULT_SILENCE_MS = 500;
 // The caller's speech is transcribed as Hebrew (not by automatic language detection). The reply language
 // comes from the prompt: the Live audio models take no speech language code.

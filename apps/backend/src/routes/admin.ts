@@ -9,6 +9,7 @@
  *   GET  /api/admin/contacts/:id        -> one contact + all its rep tasks + its calls, newest first
  *   GET  /api/admin/calls?limit=&origin=dialer|manual|all -> calls newest first, with the contact's name
  *   GET  /api/admin/calls/:call_id      -> the call + its transcript (database, else this server's disk) + tool actions
+ *   GET  /api/admin/calls/:call_id/recording -> { url }: the recording, playable for an hour (404: not recorded)
  *   GET  /api/admin/rep-tasks?open=1    -> rep tasks by callback time, with the contact's name and phone
  *   POST /api/admin/rep-tasks/:id/done  -> { ok, task }
  *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / SMS / server)
@@ -154,6 +155,18 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
     const origin: CallOrigin | null = q.origin === "dialer" || q.origin === "manual" ? q.origin : null;
     try {
       return { ok: true, origin: origin ?? "all", calls: await deps.admin.calls(limit, origin) };
+    } catch (err) {
+      return supabaseError(reply, err);
+    }
+  });
+
+  app.get("/api/admin/calls/:call_id/recording", async (req, reply) => {
+    const callId = (req.params as { call_id: string }).call_id;
+    if (!deps.admin?.recordingUrl) return reply.code(409).send({ ok: false, error: "no_recordings", message_he: "אין הקלטות בשרת הזה" });
+    try {
+      const url = await deps.admin.recordingUrl(callId);
+      if (!url) return reply.code(404).send({ ok: false, error: "not_recorded", message_he: "לשיחה הזאת אין הקלטה" });
+      return { ok: true, url };
     } catch (err) {
       return supabaseError(reply, err);
     }

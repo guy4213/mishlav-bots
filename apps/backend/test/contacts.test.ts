@@ -83,6 +83,10 @@ class FakeStore implements ContactStore {
     if (this.failNumber) throw new Error("supabase down");
     return this.callNumbers.get(callId) ?? null;
   }
+  recordings: [string, string][] = [];
+  async saveRecording(callId: string, file: string) {
+    this.recordings.push([callId, file]);
+  }
   async goldChanges(since?: string) {
     this.log.push(["gold", since]);
     return { until: "2026-11-08T08:00:00+00:00", contacts: this.changes };
@@ -163,6 +167,15 @@ describe("Supabase contacts: which record, when", () => {
     expect(nextCallAt).toHaveLength(3);
     expect(nextCallAt.every((t) => t.getTime() > Date.now())).toBe(true);
     expect(limits).toEqual({ noAnswerStreakMax: 4, maxTotalCalls: 8 });
+  });
+
+  it("the call's recording goes to the store when the call ends; a voice picked for the test reaches the line", async () => {
+    const { store, line, post } = await setup();
+    await post("/test/phone/call", { contact_id: ID, voice: "Leda" });
+    expect((line.dialed[0] as [string, { voice?: string }])[1].voice).toBe("Leda");
+    line.emit("ended", { call_id: "call-1", reason: "local", recording: "/tmp/logs/recordings/call-1.wav" });
+    await settle();
+    expect(store.recordings).toEqual([["call-1", "/tmp/logs/recordings/call-1.wav"]]);
   });
 
   it("a call that is not a contact's (no x-call-id) writes nothing", async () => {

@@ -17,6 +17,8 @@ export interface PhoneEnv {
   number: string;
   displayName?: string;
   logDir: string;
+  /** record every call (PHONE_RECORD, default on) */
+  record: boolean;
 }
 
 export interface PhoneLogLine {
@@ -42,6 +44,8 @@ export interface CallOptions {
   day?: string;
   /** the contact's gender when known (otherwise decided from the name before the call) */
   gender?: "male" | "female" | "unknown";
+  /** a Gemini voice for this call (one of PHONE_VOICES), else the line's PHONE_VOICE */
+  voice?: string;
   /** no answer by then: cancel (ends like any unanswered call). Outgoing calls only. */
   ringTimeoutMs?: number;
 }
@@ -61,6 +65,8 @@ export interface CallEnded {
   call_id: string;
   reason: string;
   usage?: AiUsage;
+  /** the call's recording (a WAV file on this server's disk), when it was recorded */
+  recording?: string;
 }
 
 export class PhoneLine extends EventEmitter {

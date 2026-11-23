@@ -155,6 +155,15 @@ export function pcmView(buf) {
 export const pcmBuffer = (samples) => Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
 
 /** 16-bit PCM -> a WAV file (for --record). */
+/** Stereo (caller left, bot right) -> one channel with both voices: half the size, plays everywhere. */
+export function mixToMono({ samples, rate, channels }) {
+  if (channels === 1) return { samples, rate, channels };
+  const n = samples.length / 2;
+  const out = new Int16Array(n);
+  for (let i = 0; i < n; i++) out[i] = Math.max(-32768, Math.min(32767, samples[2 * i] + samples[2 * i + 1]));
+  return { samples: out, rate, channels: 1 };
+}
+
 export function wav({ samples, rate, channels }) {
   const data = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
   const h = Buffer.alloc(44);

@@ -121,6 +121,8 @@ export interface ContactStore {
   callNumber(callId: string): Promise<string | null>;
   /** Stores the call's transcript (calls.transcript) so it outlives the server's disk. Card numbers already removed. */
   saveTranscript?(callId: string, lines: TranscriptLine[]): Promise<void>;
+  /** Uploads the call's recording (a WAV on this server's disk) to Storage and links it (calls.recording_path). */
+  saveRecording?(callId: string, file: string): Promise<void>;
   /** Stores the call's Gemini tokens and their cost (calls.ai_usage / ai_cost_usd). */
   saveUsage?(callId: string, usage: AiUsage, costUsd: number | null): Promise<void>;
 }
@@ -138,6 +140,8 @@ export interface CallRow {
   origin: CallOrigin;
   /** what the call's Gemini tokens cost (USD), when the bot ran */
   ai_cost_usd?: number | null;
+  /** its recording in Storage (bucket "recordings"), when it was recorded */
+  recording_path?: string | null;
   /** the contact's name (contacts.full_name) */
   full_name: string | null;
 }
@@ -174,6 +178,10 @@ export interface DashboardSummary {
 
 /** What the management dashboard reads (routes/admin.ts), besides the contacts list. */
 export interface AdminStore {
+  /** a link to play the call's recording, valid for an hour (null: not recorded) */
+  recordingUrl?(callId: string): Promise<string | null>;
+  /** deletes recordings of calls before `before`; returns how many */
+  pruneRecordings?(before: Date): Promise<number>;
   /** dayStart: midnight in the business time zone */
   summary(dayStart: Date): Promise<DashboardSummary>;
   /** the contact's calls, newest first */
@@ -230,7 +238,7 @@ function normalise(c: ContactRecord): ContactRecord {
 }
 
 /** Supabase over its REST API (PostgREST), with the service role key - the only role the tables let in. */
-const CALL_FIELDS = "call_id,gold_record_id,started_at,duration_sec,outcome,reason,summary,answered,origin,ai_cost_usd";
+const CALL_FIELDS = "call_id,gold_record_id,started_at,duration_sec,outcome,reason,summary,answered,origin,ai_cost_usd,recording_path";
 const TASK_FIELDS = "id,gold_record_id,call_id,reason,callback_at,note,done,created_at";
 type Embedded<T> = T | T[] | null;
 const one = <T>(v: Embedded<T> | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
@@ -325,6 +333,64 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
 
   callNumber(callId: string) {
     return this.req<string | null>("POST", "/rpc/bot_call_number", { p_call_id: callId });
+  }
+
+  // ---- call recordings: Supabase Storage, private bucket "recordings" (only this service role reads it)
+
+  private get storage() {
+    return this.base.replace(/\/rest\/v1$/, "/storage/v1");
+  }
+
+  private async storageReq(method: string, path: string, body?: string | Uint8Array, headers: Record<string, string> = {}, timeoutMs = 60000) {
+    const res = await this.fetchImpl(this.storage + path, {
+      method,
+      headers: { apikey: this.serviceKey, authorization: `Bearer ${this.serviceKey}`, ...headers },
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`Supabase Storage ${method} ${path.split("?")[0]}: HTTP ${res.status} ${text.slice(0, 200)}`);
+    return text ? (JSON.parse(text) as unknown) : null;
+  }
+
+  async saveRecording(callId: string, file: string) {
+    const { readFile, unlink } = await import("node:fs/promises");
+    const path = `${callId}.wav`;
+    await this.storageReq("POST", `/object/recordings/${encodeURIComponent(path)}`, await readFile(file), {
+      "content-type": "audio/wav",
+      "x-upsert": "true",
+    });
+    await this.req("PATCH", `/calls?call_id=eq.${encodeURIComponent(callId)}`, { recording_path: path });
+    await unlink(file).catch(() => {}); // kept in Storage now: the server's disk is small
+  }
+
+  /** A link to play the recording, valid for an hour (null: not recorded). */
+  async recordingUrl(callId: string): Promise<string | null> {
+    const rows = await this.req<{ recording_path: string | null }[]>(
+      "GET",
+      `/calls?select=recording_path&call_id=eq.${encodeURIComponent(callId)}`,
+    );
+    const path = rows[0]?.recording_path;
+    if (!path) return null;
+    const r = (await this.storageReq("POST", `/object/sign/recordings/${encodeURIComponent(path)}`, JSON.stringify({ expiresIn: 3600 }), {
+      "content-type": "application/json",
+    })) as { signedURL?: string } | null;
+    return r?.signedURL ? `${this.storage}${r.signedURL.startsWith("/") ? "" : "/"}${r.signedURL}` : null;
+  }
+
+  /** Deletes recordings older than `before` (retention), and unlinks them from their calls. Returns how many. */
+  async pruneRecordings(before: Date): Promise<number> {
+    const rows = await this.req<{ call_id: string; recording_path: string }[]>(
+      "GET",
+      `/calls?select=call_id,recording_path&recording_path=not.is.null&started_at=lt.${encodeURIComponent(before.toISOString())}&limit=500`,
+    );
+    if (!rows.length) return 0;
+    await this.storageReq("DELETE", "/object/recordings", JSON.stringify({ prefixes: rows.map((r) => r.recording_path) }), {
+      "content-type": "application/json",
+    });
+    const ids = rows.map((r) => `"${r.call_id.replace(/"/g, "")}"`).join(",");
+    await this.req("PATCH", `/calls?call_id=in.(${encodeURIComponent(ids)})`, { recording_path: null });
+    return rows.length;
   }
 
   async saveUsage(callId: string, usage: AiUsage, costUsd: number | null) {
