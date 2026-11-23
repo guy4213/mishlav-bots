@@ -70,6 +70,30 @@ export function datesHe(d: { date: string; end_date?: string | undefined }): str
   return y1 === y2 && m1 === m2 ? `${d1}–${d2}.${m2}.${y2}` : `${d1}.${m1}.${y1}–${d2}.${m2}.${y2}`;
 }
 
+/**
+ * Hours as they are said on the phone: ("10:00", "13:15") -> "מעשר בבוקר עד אחת ורבע בצהריים". The bot gets only
+ * this, so it never reads "13:15" out as digits.
+ */
+export function timeRangeHe(start: string, end: string): string {
+  return `מ${timeHe(start)} עד ${timeHe(end)}`;
+}
+
+const HOURS_HE = ["שתים עשרה", "אחת", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע", "עשר", "אחת עשרה"];
+const hourHe = (h: number) => HOURS_HE[h % 12]!;
+const dayPartHe = (h: number) => (h < 5 ? "בלילה" : h < 12 ? "בבוקר" : h < 15 ? "בצהריים" : h < 18 ? "אחר הצהריים" : h < 22 ? "בערב" : "בלילה");
+
+/** "13:15" -> "אחת ורבע בצהריים", "09:00" -> "תשע בבוקר", "13:45" -> "רבע לשתיים בצהריים" */
+export function timeHe(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number) as [number, number];
+  const said =
+    m === 0 ? hourHe(h)
+    : m === 15 ? `${hourHe(h)} ורבע`
+    : m === 30 ? `${hourHe(h)} וחצי`
+    : m === 45 ? `רבע ל${hourHe(h + 1)}`
+    : `${hourHe(h)} ו-${m} דקות`;
+  return `${said} ${dayPartHe(h)}`;
+}
+
 export type StudyDay = z.infer<typeof StudyDayMeta> & { description: string; series: string };
 
 /** How customers say it: "פרונטלי" / "פיזי" / "במלון" vs "בזום" / "אונליין" / "מקוון". */

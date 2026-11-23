@@ -42,7 +42,7 @@ describe("the chosen study day", () => {
 
   it("a Zoom day is said as ONE study day in two meetings, with the hours of each", async () => {
     const r = (await toolHandlers.get_day_info({ day_id: "z1" }, ctx)) as unknown as { day: { structure_he: string } };
-    expect(r.day.structure_he).toBe("יום עיון אחד שמתקיים בשני מפגשים (21–22.2.2027), 10:00–13:15 בכל מפגש. המחיר וההרשמה הם ליום העיון כולו.");
+    expect(r.day.structure_he).toBe("יום עיון אחד שמתקיים בשני מפגשים (21–22.2.2027), מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש. המחיר וההרשמה הם ליום העיון כולו.");
   });
 
   it("the note in Gold: title, dates, Zoom or in person, and the course number the reps register", () => {

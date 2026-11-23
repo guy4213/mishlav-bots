@@ -9,7 +9,7 @@ import {
   type ToolName,
 } from "@mishlav/shared";
 import type { z } from "zod";
-import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay } from "../knowledge";
+import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay, timeRangeHe } from "../knowledge";
 import type { SmsSender } from "../sms";
 import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
 
@@ -68,8 +68,8 @@ const publicDay = (d: StudyDay) => ({
  */
 const structureHe = (d: StudyDay) =>
   d.end_date
-    ? `יום עיון אחד שמתקיים בשני מפגשים (${datesHe(d)}), ${d.start}–${d.end} בכל מפגש. המחיר וההרשמה הם ליום העיון כולו.`
-    : `יום עיון אחד (${datesHe(d)}), ${d.start}–${d.end}.`;
+    ? `יום עיון אחד שמתקיים בשני מפגשים (${datesHe(d)}), ${timeRangeHe(d.start, d.end)} בכל מפגש. המחיר וההרשמה הם ליום העיון כולו.`
+    : `יום עיון אחד (${datesHe(d)}), ${timeRangeHe(d.start, d.end)}.`;
 
 /** The study day in the bot's note in Gold: what the reps register (course number), when, Zoom or in person. */
 export const dayNoteHe = (d: StudyDay) =>

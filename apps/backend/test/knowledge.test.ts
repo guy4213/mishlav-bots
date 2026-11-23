@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { findRepoRoot } from "@mishlav/shared";
 import { describe, expect, it } from "vitest";
 import { buildDayCatalog } from "../src/context";
-import { datesHe, type KnowledgeBase, loadKnowledge, newDayId, parseDayFile, StudyDayInput } from "../src/knowledge";
+import { datesHe, type KnowledgeBase, loadKnowledge, newDayId, parseDayFile, StudyDayInput, timeHe, timeRangeHe } from "../src/knowledge";
 import { redactText } from "../src/redact";
 import { FIXED_NOW } from "./helpers";
 
@@ -77,14 +77,22 @@ describe("knowledge base", () => {
     expect(datesHe({ date: "2026-12-31", end_date: "2027-01-01" })).toBe("31.12.2026–1.1.2027");
   });
 
+  it("hours are given to the bot as they are said, never as digits", () => {
+    expect(timeRangeHe("10:00", "13:15")).toBe("מעשר בבוקר עד אחת ורבע בצהריים");
+    expect(timeRangeHe("09:00", "16:00")).toBe("מתשע בבוקר עד ארבע אחר הצהריים");
+    expect(timeHe("12:30")).toBe("שתים עשרה וחצי בצהריים");
+    expect(timeHe("13:45")).toBe("רבע לשתיים בצהריים");
+    expect(timeHe("18:00")).toBe("שש בערב");
+  });
+
   it("the prompt's catalogue is built from the days: upcoming only, Zoom then the hotel, each by date, closed ones marked", () => {
     const catalog = buildDayCatalog(kb, FIXED_NOW).split("\n");
     expect(catalog).toHaveLength(10); // 2 headings + 8 days
     expect(catalog[0]).toBe("בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):");
-    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · 370 ₪ כולל מע\"מ");
+    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ");
     expect(catalog[2]).toContain("`2027-03-17-zoom`");
     expect(catalog[7]).toBe("במלון – יום מלא (הקרוב ראשון):");
-    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע\"מ");
+    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע\"מ");
     expect(catalog[9]).toContain("`2027-11-21-hotel`");
 
     const first = kb.days.get("2027-02-21-zoom")!;
@@ -97,7 +105,7 @@ describe("knowledge base", () => {
     };
     expect(buildDayCatalog(k, FIXED_NOW)).toBe(
       "בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):\n" +
-        "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · 370 ₪ כולל מע\"מ · ההרשמה סגורה",
+        "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ · ההרשמה סגורה",
     );
     expect(buildDayCatalog({ days: new Map(), general: "" }, FIXED_NOW)).toBe("אין כרגע ימי עיון בקטלוג.");
   });

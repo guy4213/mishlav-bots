@@ -6,7 +6,7 @@
  * "another day" on its own (it once answered "is there another date?" with the Zoom days of other topics).
  */
 import { genderFactHe, type Gender } from "./gender";
-import { datesHe, type KnowledgeBase, type StudyDay } from "./knowledge";
+import { datesHe, type KnowledgeBase, type StudyDay, timeRangeHe } from "./knowledge";
 
 export const TZ = "Asia/Jerusalem";
 export const DEFAULT_FIRST_NAME = "דנה";
@@ -30,9 +30,10 @@ export const todayIso = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZo
  * The prompt's catalogue: the upcoming days in two groups, Zoom then the hotel, each by date (so "the nearest Zoom
  * day" is the group's first line), e.g.
  *   בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):
- *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · 370 ₪ כולל מע"מ
+ *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע"מ
  *   במלון – יום מלא (הקרוב ראשון):
- *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע"מ
+ *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע"מ
+ * Hours as they are said (timeRangeHe): with "13:15" in front of it the bot read it out as digits.
  * Past days are left out; a day with registration closed is marked. The dates, hours, place and price are here so the
  * bot answers them at once: a tool call on a phone line is a silence (get_day_info is for what isn't here).
  */
@@ -44,7 +45,7 @@ export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
     [
       `- \`${d.id}\` – ${d.title}`,
       datesHe(d),
-      `${d.start}–${d.end}`,
+      d.end_date ? `${timeRangeHe(d.start, d.end)} בכל מפגש` : timeRangeHe(d.start, d.end),
       ...(d.format === "hotel" && d.location ? [d.location] : []),
       `${d.price_ils} ₪ ${d.vat_included ? "כולל" : "לפני"} מע"מ`,
       ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),
