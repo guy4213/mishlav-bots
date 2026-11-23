@@ -429,6 +429,71 @@ describe("call agent", () => {
     });
   });
 
+  describe("the caller cuts in by talking", () => {
+    const voice = new Int16Array(160).fill(3000);
+    const quiet = new Int16Array(160);
+    // 20 ms frames at line pace: the cut-in is measured in real time
+    const frames = async (rtp: FakeRtp, f: Int16Array, ms: number) => {
+      const end = performance.now() + ms;
+      while (performance.now() < end) {
+        rtp.emit("audio", f);
+        await wait(20);
+      }
+    };
+    const talk = (rtp: FakeRtp, ms: number) => frames(rtp, voice, ms);
+    const pause = (rtp: FakeRtp, ms: number) => frames(rtp, quiet, ms);
+    const longAnswer = () => Buffer.alloc(24000 * 3 * 2, 1); // 3 s of the bot, at 24 kHz
+
+    it("Gemini already sent the whole answer: the bot stops at once (no 'interrupted' comes)", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      expect(agent.queued).toBeGreaterThan(0);
+      await talk(rtp, 700);
+      expect(agent.queued).toBe(0);
+      agent.end();
+    });
+
+    it("Gemini still sending: the rest of that answer is dropped, the next one plays", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", longAnswer());
+      rtp.nextFrame();
+      await talk(rtp, 700);
+      expect(agent.queued).toBe(0);
+      live.emit("audio", longAnswer()); // more of the cut answer
+      expect(agent.queued).toBe(0);
+      live.emit("turnComplete"); // its end
+      live.emit("audio", Buffer.alloc(4800, 1)); // the answer to what the caller said
+      expect(agent.queued).toBeGreaterThan(0);
+      agent.end();
+    });
+
+    it("a short word (\"כן\") doesn't cut the bot; words with short pauses between them do", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await talk(rtp, 300); // "כן"
+      expect(agent.queued).toBeGreaterThan(0);
+      await pause(rtp, 1000);
+      await talk(rtp, 300); // "רגע"
+      await pause(rtp, 300);
+      await talk(rtp, 300); // "רגע"
+      expect(agent.queued).toBe(0);
+      agent.end();
+    });
+  });
+
   it("voicemail: hangs up at once and plays nothing", async () => {
     const live = new FakeLive();
     const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "ending" }) }, openAfterSilenceMs: 0 });
