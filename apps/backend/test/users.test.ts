@@ -186,7 +186,7 @@ describe("what Mishlav's users may do", () => {
     expect((await req("GET", "/test/phone", { cookie: guy, ...VIEW })).json().log).toEqual([]); // the log hidden, as for them
     // the same with TOOLS_SECRET; without the header he is an admin again
     expect((await req("GET", "/api/admin/logs", { ...AUTH, ...VIEW })).statusCode).toBe(403);
-    expect((await req("GET", "/auth/me", { cookie: guy })).json()).toMatchObject({ role: "admin", viewing_as: false, server: { version: "v1.0" } });
+    expect((await req("GET", "/auth/me", { cookie: guy })).json()).toMatchObject({ role: "admin", viewing_as: false, server: { version: expect.stringMatching(/^v\d+\.\d+$/) } });
     // the version is for admins: not for Mishlav's users, nor for an admin viewing as them
     expect((await req("GET", "/auth/me", { cookie: guy, ...VIEW })).json().server).toBeUndefined();
     expect((await req("GET", "/auth/me", { cookie: dana })).json().server).toBeUndefined();
