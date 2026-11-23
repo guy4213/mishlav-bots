@@ -15,16 +15,13 @@ actor_script:
 expect:
   outcome: LINK_SENT
   required_tools:
-    - tool: get_day_info
-      params:
-        day_id: { equals: 2027-05-17-hotel }
     - tool: send_purchase_link
       params:
         day_id: { equals: 2027-05-17-hotel }
   forbidden_tools: [request_human]
 guide_he:
   title: רוצה להירשם
-  expect: הבוט מוסר מחיר (790 ₪ כולל מע"מ) ומיקום (מלון) מתוך הכלי, שולח קישור ליום העיון במלון, נפרד ומנתק.
+  expect: הבוט מוסר מחיר (790 ₪ כולל מע"מ) ומיקום (מלון) מהקטלוג, מיד, בלי לבדוק, שולח קישור ליום העיון במלון, נפרד ומנתק.
   tips:
     - תגיד "הלו" וחכה למשפט הפתיחה.
     - שאל קודם על המחיר ואחר כך על המיקום.

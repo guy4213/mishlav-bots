@@ -74,8 +74,10 @@ export type ToolInputSchemas = ReturnType<typeof buildToolInputSchemas>;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   get_day_info:
-    "Get the details of one study day (date, hours, location, price, agenda) and the general policies. " +
-    "Call before quoting any detail. Use only a day_id from the catalogue.",
+    "Get what the catalogue doesn't hold for one study day: the lecturers and the agenda. " +
+    "The dates, hours, place and price are already in the catalogue - say those at once, without this tool. " +
+    "Before calling it, say one short sentence in the same turn (e.g. that you are checking), so the line is never silent. " +
+    "Use only a day_id from the catalogue.",
   send_purchase_link:
     "Send the customer a purchase link for one study day, to the phone number on file. " +
     "Call only after the customer agreed to receive a link. Never takes a phone number.",

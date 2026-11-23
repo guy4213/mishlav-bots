@@ -30,10 +30,11 @@ export const todayIso = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZo
  * The prompt's catalogue: the upcoming days in two groups, Zoom then the hotel, each by date (so "the nearest Zoom
  * day" is the group's first line), e.g.
  *   בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):
- *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15
+ *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · 370 ₪ כולל מע"מ
  *   במלון – יום מלא (הקרוב ראשון):
- *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב
- * Past days are left out; a day with registration closed is marked.
+ *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע"מ
+ * Past days are left out; a day with registration closed is marked. The dates, hours, place and price are here so the
+ * bot answers them at once: a tool call on a phone line is a silence (get_day_info is for what isn't here).
  */
 export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
   const today = todayIso(now);
@@ -45,6 +46,7 @@ export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
       datesHe(d),
       `${d.start}–${d.end}`,
       ...(d.format === "hotel" && d.location ? [d.location] : []),
+      `${d.price_ils} ₪ ${d.vat_included ? "כולל" : "לפני"} מע"מ`,
       ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),
     ].join(" · ");
   return CATALOG_GROUPS.flatMap(({ format, heading }) => {

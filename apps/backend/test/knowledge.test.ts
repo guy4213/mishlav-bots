@@ -81,10 +81,10 @@ describe("knowledge base", () => {
     const catalog = buildDayCatalog(kb, FIXED_NOW).split("\n");
     expect(catalog).toHaveLength(10); // 2 headings + 8 days
     expect(catalog[0]).toBe("בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):");
-    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15");
+    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · 370 ₪ כולל מע\"מ");
     expect(catalog[2]).toContain("`2027-03-17-zoom`");
     expect(catalog[7]).toBe("במלון – יום מלא (הקרוב ראשון):");
-    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב");
+    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · 09:00–16:00 · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע\"מ");
     expect(catalog[9]).toContain("`2027-11-21-hotel`");
 
     const first = kb.days.get("2027-02-21-zoom")!;
@@ -97,7 +97,7 @@ describe("knowledge base", () => {
     };
     expect(buildDayCatalog(k, FIXED_NOW)).toBe(
       "בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):\n" +
-        "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · ההרשמה סגורה",
+        "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · 10:00–13:15 · 370 ₪ כולל מע\"מ · ההרשמה סגורה",
     );
     expect(buildDayCatalog({ days: new Map(), general: "" }, FIXED_NOW)).toBe("אין כרגע ימי עיון בקטלוג.");
   });

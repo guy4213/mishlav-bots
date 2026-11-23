@@ -4,7 +4,7 @@ name: Zoom pair - remembered price
 core: false
 description: >
   The customer asks for the dates and says "it's 360 for both days, right?". The bot gives both dates
-  of the two Zoom meetings and the price only from get_day_info (does not confirm 360), then sends the link.
+  of the two Zoom meetings and the price only from the catalogue (does not confirm 360), then sends the link.
 context:
   first_name: "מיכל"
   interested_day_id: 2027-02-21-zoom
@@ -15,9 +15,6 @@ actor_script:
 expect:
   outcome: LINK_SENT
   required_tools:
-    - tool: get_day_info
-      params:
-        day_id: { equals: 2027-02-21-zoom }
     - tool: send_purchase_link
       params:
         day_id: { equals: 2027-02-21-zoom }
@@ -27,14 +24,14 @@ expect:
     - "Quoted the price from the tool and did not confirm 360"
 guide_he:
   title: יום עיון בזום בשני מפגשים – "360 לשני הימים?"
-  expect: הבוט אומר את שני תאריכי המפגשים (יום עיון אחד בשני מפגשים, לא "יומיים") ואת המחיר מהכלי בלבד – לא מאשר 360 – ושולח קישור.
+  expect: הבוט אומר את שני תאריכי המפגשים (יום עיון אחד בשני מפגשים, לא "יומיים") ואת המחיר מהקטלוג בלבד – לא מאשר 360 – ושולח קישור.
   tips:
     - שאל מתי זה.
     - תגיד "זה 360 לשני הימים, נכון?".
     - בקש קישור.
   watch:
     - אמר את שני התאריכים ושההרשמה ליום העיון כולו (לא "יומיים")
-    - מסר את המחיר מהכלי ולא אישר 360
+    - מסר את המחיר מהקטלוג ולא אישר 360
 simulate:
   - { tool: get_day_info, params: { day_id: 2027-02-21-zoom } }
   - { tool: send_purchase_link, params: { day_id: 2027-02-21-zoom } }
