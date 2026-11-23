@@ -1,6 +1,6 @@
 // לקוחות: the contacts table (search + filter); a contact opens with its Gold fields, the bot's state, its calls
 // and its rep tasks, and a test-dial button.
-import { get, post } from "../api.js";
+import { isAdmin, get, post } from "../api.js";
 import {
   chip, CONTACT_STATUS_HE, confirmDialog, emptyState, errorState, esc, every, fmtDateTime, fmtRel, GENDER_HE, GOLD_FIELDS, icon,
   loadingState, notesHtml, openDrawer, originChip, outcomeChip, outcomeLabel, PHONE_COL, phoneLink, REP_REASON_HE, statusChip,
@@ -90,8 +90,9 @@ export async function openContact(id) {
     d.setSub(`<span class="ltr">${esc(id)}</span>${c.status ? ` · בגולד: ${esc(c.status)}` : ""}`);
     const kv = (pairs) => `<dl class="kv">${pairs.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
     const tasks = c.rep_tasks ?? [];
+    // calling a customer from here is ours: Mishlav's users test with a call to themselves (שיחת בדיקה אליי)
     d.body.innerHTML = `
-      <div class="row" style="margin-bottom:18px">
+      <div class="row" style="margin-bottom:18px" ${isAdmin() ? "" : "hidden"}>
         <button class="btn primary" id="cDial" ${dnc || !dialing ? "disabled" : ""}>${icon("phone")} חייג עכשיו (בדיקה)</button>
         <span class="small muted">${dnc ? "ביקש לא להתקשר – אי אפשר לחייג" : dialing ? `מחייג ל-${pi === 1 ? "טלפון" : `טלפון ${pi}`} <span class="ltr">${esc(dialing)}</span>` : "אין מספר תקין"}</span>
       </div>

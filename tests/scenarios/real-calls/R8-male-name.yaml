@@ -7,7 +7,7 @@ description: >
   from the name; the bot must address him in the masculine in every sentence, never the feminine.
 context:
   first_name: "רועי"
-  interested_day_id: payroll-2026-12-08-zoom
+  interested_day_id: 2027-02-21-zoom
 actor_script:
   - "כן, יש לי כמה דקות."
   - "כמה זה עולה ומתי זה?"
@@ -17,7 +17,7 @@ expect:
   required_tools:
     - tool: send_purchase_link
       params:
-        day_id: { equals: payroll-2026-12-08-zoom }
+        day_id: { equals: 2027-02-21-zoom }
   forbidden_tools: [request_human]
   manual_checks:
     - "Masculine in every sentence addressed to the customer (אתה, לְךָ, אליךָ, רוצה) - never feminine"
@@ -30,6 +30,6 @@ guide_he:
   watch:
     - לשון זכר בכל משפט, בלי אף מילה בנקבה
 simulate:
-  - { tool: get_day_info, params: { day_id: payroll-2026-12-08-zoom } }
-  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-08-zoom } }
+  - { tool: get_day_info, params: { day_id: 2027-02-21-zoom } }
+  - { tool: send_purchase_link, params: { day_id: 2027-02-21-zoom } }
   - { tool: end_call, params: { reason: completed } }

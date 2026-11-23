@@ -21,6 +21,7 @@ export function testConfig(): AppConfig {
     toolsSecret: SECRET,
     logDir: mkdtempSync(join(tmpdir(), "mishlav-logs-")),
     knowledgeDir: join(repoRoot, "config", "knowledge"),
+    offlineDaysDir: join(repoRoot, "tests", "fixtures", "days"),
     settings: loadSettings(join(repoRoot, "config", "settings.yaml")),
   };
 }

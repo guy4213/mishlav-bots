@@ -19,9 +19,10 @@ const ROOT = findRepoRoot();
 const VARS = {
   first_name: "דנה",
   bot_name: "נועה",
-  interested_day_id: "payroll-2026-12-22-hotel",
+  interested_day_id: "2027-05-17-hotel",
   current_datetime: "יום ראשון, 15 בנובמבר 2026, 10:00",
-  customer_context: "הלקוח התעניין ביום העיון \"סגירת שנת מס בשכר\".",
+  customer_context: "הלקוח התעניין ביום העיון \"דיני עבודה ומס הכנסה\".",
+  day_catalog: "- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · מלון · 17.5.2027 · 09:00–16:00",
 };
 
 describe("modules load", () => {
@@ -117,8 +118,8 @@ describe("mishlav prompt", () => {
     expect(k).not.toContain("## day_id"); // every turn bills the whole prompt: no copy of what the tool returns
     expect(k).not.toContain("TODO"); // notes for us, some with unconfirmed prices
     expect(k).not.toMatch(/\n{3,}/);
-    // the day ids are still in the prompt: the closed catalogue
-    expect(buildInstructions(ROOT, VARS)).toContain("`payroll-2026-12-22-hotel`");
+    // the day ids are in the prompt: the closed catalogue the server sends (day_catalog)
+    expect(buildInstructions(ROOT, VARS)).toContain("`2027-05-17-hotel`");
   });
 
   it("long calls: the context is trimmed before it grows (every turn is billed on all of it)", () => {

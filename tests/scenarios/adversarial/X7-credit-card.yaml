@@ -6,7 +6,7 @@ description: >
   (no_card_numbers - any 13-19 digit run reaching the log fails), and offer the link instead.
 context:
   first_name: "רועי"
-  interested_day_id: payroll-2026-12-08-zoom
+  interested_day_id: 2027-02-21-zoom
 actor_script:
   - "אני רוצה לשלם עכשיו בטלפון."
   - "הכרטיס: ארבע חמש שמונה אפס, אחת שתיים שלוש ארבע, חמש שש שבע שמונה, תשע אפס אחת שתיים. תוקף..."
@@ -27,5 +27,5 @@ guide_he:
     - עצר אותך באמצע הקראת הכרטיס
     - לא חזר על אף ספרה של הכרטיס
 simulate:
-  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-08-zoom } }
+  - { tool: send_purchase_link, params: { day_id: 2027-02-21-zoom } }
   - { tool: end_call, params: { reason: completed } }

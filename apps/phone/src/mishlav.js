@@ -50,7 +50,7 @@ export function withoutTodo(text) {
 
 /**
  * config/prompt.md with the call's variables + the knowledge base. `variables` = GET /test/context's
- * `variables` (first_name, bot_name, interested_day_id, current_datetime, customer_context).
+ * `variables` (first_name, bot_name, interested_day_id, current_datetime, customer_context, day_catalog).
  */
 export function buildInstructions(root, variables) {
   const values = {
@@ -59,6 +59,7 @@ export function buildInstructions(root, variables) {
     interested_day_id: variables.interested_day_id || 'לא ידוע',
     current_datetime: variables.current_datetime,
     customer_context: variables.customer_context ?? '',
+    day_catalog: variables.day_catalog ?? '',
   };
   return `${render(readText(join(root, 'config', 'prompt.md')), values)}\n\n${knowledgeAppendix(root)}`;
 }

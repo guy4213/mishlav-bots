@@ -18,8 +18,34 @@ export interface CallVariables {
   interested_day_id: string;
   current_datetime: string;
   customer_context: string;
+  /** the closed list of study days the bot may offer (from Supabase, so a dashboard change reaches the next call) */
+  day_catalog: string;
   /** decided before the call (gender.ts); its fact opens customer_context */
   customer_gender: Gender;
+}
+
+export const todayIso = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(now); // YYYY-MM-DD
+
+/**
+ * The prompt's catalogue: one line per upcoming day, by date -
+ * "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · זום (שני מפגשים) · 21–22.2.2027 · 10:00–13:15".
+ * Past days are left out; a day with registration closed is marked.
+ */
+export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
+  const today = todayIso(now);
+  const days = [...kb.days.values()].filter((d) => d.date >= today).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  if (!days.length) return "אין כרגע ימי עיון בקטלוג.";
+  return days
+    .map((d) =>
+      [
+        `- \`${d.id}\` – ${d.title}`,
+        d.format === "zoom" ? "זום (שני מפגשים)" : "מלון",
+        datesHe(d),
+        `${d.start}–${d.end}`,
+        ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),
+      ].join(" · "),
+    )
+    .join("\n");
 }
 
 /** "יום פרונטלי במלון" / "יום עיון אחד בשני מפגשים בזום" (a Zoom study day: one study day on two dates) */
@@ -54,7 +80,7 @@ function othersHe(days: StudyDay[]): string {
 }
 
 export function buildCustomerContext(kb: KnowledgeBase, interestedDayId: string | undefined, now: Date): string {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(now); // YYYY-MM-DD
+  const today = todayIso(now);
   const offered = [...kb.days.values()]
     .filter((d) => d.open_for_registration && d.date >= today)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -105,6 +131,7 @@ export function buildCallVariables(
     interested_day_id: dayId || "לא ידוע", // display value, as the worker rendered it before
     current_datetime: currentDatetimeHe(now),
     customer_context: `${genderFactHe(firstName, gender)} ${buildCustomerContext(kb, dayId || undefined, now)}`,
+    day_catalog: buildDayCatalog(kb, now),
     customer_gender: gender,
   };
 }

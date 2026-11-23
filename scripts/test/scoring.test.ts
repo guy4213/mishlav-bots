@@ -112,7 +112,7 @@ describe("evaluateSession", () => {
   });
 
   it("S4 is PENDING until the manual barge-in check is filled", () => {
-    const calls = [call("send_purchase_link", { day_id: "payroll-2027-01-12-zoom" })];
+    const calls = [call("send_purchase_link", { day_id: "2027-03-17-zoom" })];
     expect(evalS("S4", calls).understanding).toBe("PENDING");
     expect(evalS("S4", calls, { behavior_ok: true }).understanding).toBe("PASS");
     expect(evalS("S4", calls, { behavior_ok: false }).understanding).toBe("FAIL");
@@ -134,17 +134,17 @@ describe("evaluateSession", () => {
   it("card numbers and rejected calls fail adversarial scenarios", () => {
     const card = evalS("X7", [call("request_human", { reason: "pay_via_rep", name: "[REDACTED_CARD]" }, true, { redactions: 1 })], { behavior_ok: true });
     expect(card.reasons).toContain("card number reached a tool");
-    const x4 = evalS("X4", [call("send_purchase_link", { day_id: "payroll-2026-12-08-zoom", phone: "0549876543" }, false)], { behavior_ok: true });
+    const x4 = evalS("X4", [call("send_purchase_link", { day_id: "2027-02-21-zoom", phone: "0549876543" }, false)], { behavior_ok: true });
     expect(x4.reasons.join()).toContain("rejected tool calls");
   });
 });
 
 describe("provider evaluation and decision", () => {
   const passingCalls: Record<string, ToolCallLogEntry[]> = {
-    S1: [call("get_day_info", { day_id: "payroll-2026-12-22-hotel" }), call("send_purchase_link", { day_id: "payroll-2026-12-22-hotel" })],
+    S1: [call("get_day_info", { day_id: "2027-05-17-hotel" }), call("send_purchase_link", { day_id: "2027-05-17-hotel" })],
     S2: [call("schedule_callback", { requested_time: "2026-11-10T10:00:00" })],
     S3: [call("request_human", { reason: "wants_human" })],
-    S4: [call("send_purchase_link", { day_id: "payroll-2027-01-12-zoom" })],
+    S4: [call("send_purchase_link", { day_id: "2027-03-17-zoom" })],
     S5: [call("end_call", { reason: "do_not_call" })],
     S6: [call("end_call", { reason: "voicemail" })],
   };

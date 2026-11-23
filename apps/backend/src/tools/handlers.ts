@@ -57,6 +57,8 @@ const publicDay = (d: StudyDay) => ({
   price_ils: d.price_ils,
   vat_included: d.vat_included,
   open_for_registration: d.open_for_registration,
+  lecturers: d.lecturers,
+  academic_hours: d.academic_hours, // academic hours (not clock hours) toward the CPA chamber's yearly requirement
   description: d.description,
 });
 

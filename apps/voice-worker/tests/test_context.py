@@ -23,27 +23,29 @@ def test_render_substitutes_and_rejects_unknown_variables():
 
 
 def test_instructions_have_no_leftover_variables_and_include_knowledge():
-    text = build_instructions(ROOT, CallVars(first_name="דנה", bot_name="נועה", current_datetime="x"))
+    catalog = "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · זום (שני מפגשים) · 21–22.2.2027 · 10:00–13:15"
+    text = build_instructions(ROOT, CallVars(first_name="דנה", bot_name="נועה", current_datetime="x", day_catalog=catalog))
     assert "{{" not in text
     assert "היי דנה, כאן נועה, נציגת הבינה המלאכותית של מכללת מישלב" in text
     assert "לא ידוע" in text  # no interested_day_id
-    for day in ("payroll-2026-12-08-zoom", "payroll-2026-12-22-hotel", "payroll-2027-01-12-zoom"):
-        assert f"`{day}`" in text
+    assert catalog in text  # the closed catalogue, sent by the server (day_catalog)
 
 
 def test_customer_context_from_the_server_reaches_the_prompt():
-    ctx = 'הלקוח התעניין ביום העיון "סגירת שנת מס בשכר" – יום פרונטלי במלון, 22.12.2026.'
+    ctx = 'הלקוח התעניין ביום העיון "דיני עבודה ומס הכנסה" – יום פרונטלי במלון, 17.5.2027.'
     call = CallVars.from_server(
         {
             "first_name": "דנה",
             "bot_name": "נועה",
-            "interested_day_id": "payroll-2026-12-22-hotel",
+            "interested_day_id": "2027-05-17-hotel",
             "current_datetime": "x",
             "customer_context": ctx,
+            "day_catalog": "- `2027-05-17-hotel` – x",
         }
     )
     text = build_instructions(ROOT, call)
     assert "# הקשר השיחה" in text and ctx in text
+    assert "- `2027-05-17-hotel` – x" in text
     assert "{{" not in text
     # the server sends the display value "לא ידוע" for an unknown day
     assert CallVars.from_server({"first_name": "a", "bot_name": "b", "interested_day_id": "לא ידוע", "current_datetime": "x"}).interested_day_id == ""
@@ -57,7 +59,7 @@ def test_format_now_he_is_israel_time():
 
 
 def test_scenario_context():
-    assert scenario_context(ROOT, "S1") == {"first_name": "דנה", "interested_day_id": "payroll-2026-12-22-hotel"}
+    assert scenario_context(ROOT, "S1") == {"first_name": "דנה", "interested_day_id": "2027-05-17-hotel"}
     assert scenario_context(ROOT, "S3") == {"first_name": "מיכל"}
     assert scenario_context(ROOT, "NOPE") == {}
     assert scenario_context(ROOT, None) == {}

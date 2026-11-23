@@ -129,8 +129,8 @@ describe("tool schemas", () => {
     expect(s.end_call.safeParse({ reason: "whatever" }).success).toBe(false);
   });
 
-  it("exports JSON Schema with the day catalogue as enum", () => {
-    const defs = toolDefinitions({ captureDictatedDetails: false, dayIds: ["a", "b"] });
+  it("exports JSON Schema; day_id has no fixed enum (the days change in the dashboard)", () => {
+    const defs = toolDefinitions({ captureDictatedDetails: false });
     expect(defs.map((d) => d.name)).toEqual([
       "get_day_info",
       "send_purchase_link",
@@ -139,7 +139,7 @@ describe("tool schemas", () => {
       "end_call",
     ]);
     const props = defs[0]!.parameters.properties as Record<string, { enum?: string[] }>;
-    expect(props.day_id!.enum).toEqual(["a", "b"]);
+    expect(props.day_id!.enum).toBeUndefined();
     expect(defs[0]!.parameters.additionalProperties).toBe(false);
   });
 });

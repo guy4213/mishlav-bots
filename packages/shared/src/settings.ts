@@ -53,7 +53,7 @@ export const Settings = z.object({
     }),
   /** The purchase-link SMS (send_purchase_link, apps/backend/src/sms.ts). */
   sms: z.object({
-    /** {day} = the study day in Hebrew (title + dates), {url} = its purchase_url (config/knowledge/days). */
+    /** {day} = the study day in Hebrew (title + dates), {url} = its purchase_url (Supabase study_days). */
     link_template: z.string().refine((t) => t.includes("{url}"), { message: "link_template needs {url}" }),
     /**
      * TEMPORARY, for tests only: when set, sent instead of link_template, without the link ({day} optional). Zadarma

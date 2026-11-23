@@ -1,6 +1,6 @@
 // What every screen shows at the top: which server, the dialer, the phone line and the call on it.
 // One poll for the whole page; screens subscribe instead of polling the same things themselves.
-import { get } from "./api.js";
+import { get, isAdmin } from "./api.js";
 
 export const live = {
   env: null, // GET /api/admin/env
@@ -33,6 +33,7 @@ export async function refreshLive() {
 }
 
 export async function loadEnv() {
+  if (!isAdmin()) return; // which server, keys set or not: ours
   try { live.env = await get("/api/admin/env"); } catch { live.env = null; }
   emit();
 }

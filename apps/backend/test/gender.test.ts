@@ -29,7 +29,7 @@ describe("customer gender before the call", () => {
   });
 
   it("the fact opens customer_context", () => {
-    const kb = loadKnowledge(join(findRepoRoot(__dirname), "config", "knowledge"));
+    const kb = loadKnowledge(join(findRepoRoot(__dirname), "config", "knowledge"), join(findRepoRoot(__dirname), "tests", "fixtures", "days"));
     const v = buildCallVariables(kb, { first_name: "רועי", gender: "male" }, FIXED_NOW);
     expect(v.customer_gender).toBe("male");
     expect(v.customer_context.startsWith("הלקוח רועי – גבר.")).toBe(true);

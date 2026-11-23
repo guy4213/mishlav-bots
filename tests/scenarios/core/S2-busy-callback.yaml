@@ -6,7 +6,7 @@ description: >
   for a Tuesday at 10:00 (the nearest upcoming Tuesday or the one after are both accepted).
 context:
   first_name: "יוסי"
-  interested_day_id: payroll-2026-12-08-zoom
+  interested_day_id: 2027-02-21-zoom
 actor_script:
   - "אני באמצע משהו עכשיו."
   - "תחזרי אליי ביום שלישי הבא בעשר."
