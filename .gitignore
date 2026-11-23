@@ -23,3 +23,4 @@ transcripts/
 
 # Supabase CLI link state (project ref, pooler url)
 supabase/.temp/
+*.xlsx
