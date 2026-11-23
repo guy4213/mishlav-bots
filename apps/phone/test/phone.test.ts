@@ -373,10 +373,10 @@ describe("call agent", () => {
     agent.end();
   });
 
-  it("the bot opens after 2.5 s of silence by default (it was 4)", async () => {
+  it("the bot opens after 1.3 s of silence by default (about 2 s with the bot starting to speak)", async () => {
     // @ts-expect-error plain JS module
     const { phoneEnv } = await import("../src/line.js");
-    expect(phoneEnv({}, ROOT).openAfterSilenceMs).toBe(2500);
+    expect(phoneEnv({}, ROOT).openAfterSilenceMs).toBe(1300);
     expect(phoneEnv({ OPEN_AFTER_SILENCE_S: "3" }, ROOT).openAfterSilenceMs).toBe(3000);
   });
 
@@ -386,15 +386,15 @@ describe("call agent", () => {
       for (let i = 0; i < 20; i++) rtp.emit("audio", voice); // 0.4 s of "הלו"
     };
 
-    it("Gemini missed it (no transcript, no answer): the opening cue 1.5 s after the caller stopped", async () => {
+    it("Gemini missed it (no transcript, no answer): the opening cue 0.8 s after the caller stopped", async () => {
       const live = new FakeLive();
       const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 2500 });
       const rtp = new FakeRtp();
       agent.start(rtp);
       hello(rtp);
-      await wait(1000);
+      await wait(500);
       expect(live.sent).toEqual([]);
-      await wait(800);
+      await wait(600);
       expect(live.sent).toEqual([CUES.open]);
       await wait(300);
       expect(live.sent).toEqual([CUES.open]); // once

@@ -51,7 +51,7 @@ Test sessions work as with the LiveKit number: `npm run session -- start --provi
 `GOOGLE_API_KEY`, `TOOLS_SECRET`, and the line: `ZADARMA_SIP_SERVER`, `ZADARMA_SIP_LOGIN`,
 `ZADARMA_SIP_PASSWORD` (a line on Zadarma's cloud PBX registers as an extension: login like `660895-100`,
 server `pbx.zadarma.com`; incoming calls to the number must reach that extension). Optional:
-`ZADARMA_NUMBER` (display), `PHONE_GEMINI_MODEL`, `PHONE_VOICE`, `OPEN_AFTER_SILENCE_S` (default 2.5),
+`ZADARMA_NUMBER` (display), `PHONE_GEMINI_MODEL`, `PHONE_VOICE`, `OPEN_AFTER_SILENCE_S` (default 1.3),
 `GEMINI_TEMPERATURE` (0.6), `PHONE_DISPLAY_NAME`, `SIP_DEBUG=1` (log every SIP message).
 
 Only one program should be registered on the extension at a time (e.g. not this and

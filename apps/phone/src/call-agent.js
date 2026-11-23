@@ -27,7 +27,7 @@ const CALLER_SPOKE_FRAMES = 5; // 100 ms of voice = the callee said something ("
 const SILENCE_CHECK_MS = 6000; // quiet line this long -> the bot checks the line; the second time it says goodbye
 // The callee said "הלו" and the bot hasn't said a word this long after: Gemini missed it (a "הלו" right at pick-up
 // is often clipped), so it gets the opening cue. Only before the bot's first word: mid-call it never comes again.
-const OPEN_AFTER_CALLER_MS = 1500;
+const OPEN_AFTER_CALLER_MS = 800; // + the bot starting to speak: about 1.5 s after the "הלו" (was 2.4 s)
 const SILENCE_GOODBYE_MAX_MS = 9000; // the no-answer goodbye can't run longer than this
 // end_call (as the worker's tools.py): the words before it play out; then the reply to its result (the goodbye,
 // only if none was said yet) plays, and the line drops.
