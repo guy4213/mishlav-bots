@@ -16,6 +16,8 @@
   from a lowercase `c:\` path every test file fails with "Cannot read properties of undefined (reading 'config')".
 - When he asks for a report before fixes, report first and wait for approval.
 - Commit and push only when he asks.
+- Every push to main raises the version in `package.json` by 0.1 (1.0.0 → 1.1.0 → 1.2.0). Admins see it in the
+  dashboard ("גרסה v1.1 · עלתה …"), so Guy knows the deploy is live.
 
 ## Hard rules
 - Never run an ElevenLabs conversation (voice or text) without asking first — it spends his credits.

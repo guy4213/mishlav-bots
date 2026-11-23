@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LOG_FILES } from "@mishlav/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
@@ -255,7 +256,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
   await registerPhoneRoutes(app, phone, { contacts, settings: config.settings, transcriptsDir, knowledge: () => knowledge, now });
-  await registerAuthRoutes(app, { users, now, log: (text) => serverLog.push("server", text) });
+  await registerAuthRoutes(app, { users, now, log: (text) => serverLog.push("server", text), server: serverVersion(config.repoRoot, now(), opts.env ?? process.env) });
   await registerAdminRoutes(app, {
     dialer,
     contacts: opts.contacts,
@@ -277,4 +278,26 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   });
 
   return app;
+}
+
+/**
+ * Which version runs, for the admins' dashboard: the version in package.json (raised with every push to main:
+ * v1.0, v1.1...), when this server started (a deploy = a start) and Render's commit.
+ */
+export interface ServerVersion {
+  version: string;
+  started_at: string;
+  commit: string | null;
+}
+
+function serverVersion(repoRoot: string, startedAt: Date, env: NodeJS.ProcessEnv): ServerVersion {
+  let version = "?";
+  try {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version?: string };
+    const [major, minor] = String(pkg.version).split(".");
+    version = `v${major}.${minor}`;
+  } catch {
+    // no package.json: "?"
+  }
+  return { version, started_at: startedAt.toISOString(), commit: env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null };
 }

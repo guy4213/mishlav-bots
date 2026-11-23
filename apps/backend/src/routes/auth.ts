@@ -5,6 +5,7 @@
  *   POST /auth/logout    -> clears it                                                  (public)
  *   GET  /auth/me        -> { ok, role, via: "secret" | "session", user | null, viewing_as }
  *                           (viewing_as: an admin seeing the dashboard as Mishlav does, header x-view-as: access.ts)
+ *                           + server {version, started_at, commit}: admins only
  *   POST /auth/password  {current, password} -> the logged-in user's own password (other sessions end; a new cookie)
  *
  *   GET  /api/admin/users                  -> every user (no hashes)                     (admin)
@@ -16,6 +17,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import type { Principal } from "../access";
+import type { ServerVersion } from "../server";
 import { toE164 } from "../contacts";
 import {
   hashPassword, LoginLimiter, PASSWORD_MIN, publicUser, ROLES, setSessionCookie, UserExists, type Users, verifyPassword,
@@ -27,6 +29,8 @@ export interface AuthRouteDeps {
   now?: () => Date;
   /** the dashboard's log: logins, failed logins, user changes */
   log?: (text: string) => void;
+  /** which version runs (shown to admins only) */
+  server?: ServerVersion;
 }
 
 const Password = z.string().min(PASSWORD_MIN).max(200);
@@ -88,7 +92,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
 
   app.get("/auth/me", async (req) => {
     const p = req.principal as Principal;
-    return { ok: true, role: p.role, via: p.via, user: p.user, viewing_as: !!p.viewingAs };
+    // the version is for us: not for Mishlav's users (nor for an admin viewing as them)
+    return { ok: true, role: p.role, via: p.via, user: p.user, viewing_as: !!p.viewingAs, ...(p.role === "admin" && deps.server && { server: deps.server }) };
   });
 
   app.post("/auth/password", async (req, reply) => {

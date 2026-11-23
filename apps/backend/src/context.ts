@@ -6,7 +6,7 @@
  * "another day" on its own (it once answered "is there another date?" with the Zoom days of other topics).
  */
 import { genderFactHe, type Gender } from "./gender";
-import { datesHe, type KnowledgeBase, type StudyDay, timeRangeHe } from "./knowledge";
+import { datesHe, type KnowledgeBase, spokenDatesHe, type StudyDay, timeRangeHe } from "./knowledge";
 
 export const TZ = "Asia/Jerusalem";
 export const DEFAULT_FIRST_NAME = "דנה";
@@ -27,13 +27,18 @@ export interface CallVariables {
 export const todayIso = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(now); // YYYY-MM-DD
 
 /**
- * The prompt's catalogue: the upcoming days in two groups, Zoom then the hotel, each by date (so "the nearest Zoom
- * day" is the group's first line), e.g.
+ * The prompt's catalogue, built so the bot reads an answer instead of searching for one (searching, it once put a
+ * topic into a day that doesn't have it, and offered a later day as "the nearest"):
+ *   1. the days in two groups, Zoom then the hotel, each by date (the nearest first);
+ *   2. by topic: each topic of the titles, with its days in date order and where they are.
+ * e.g.
  *   בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):
- *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע"מ
+ *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע"מ
  *   במלון – יום מלא (הקרוב ראשון):
- *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע"מ
- * Hours as they are said (timeRangeHe): with "13:15" in front of it the bot read it out as digits.
+ *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17 במאי · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע"מ
+ *   לפי נושא (הקרוב ראשון):
+ *   - ביטוח לאומי: 17 ו-18 במרץ בזום · 21 ו-22 ביוני בזום (רק בזום)
+ * Dates and hours as they are said (spokenDatesHe, timeRangeHe): given "13:15" the bot read the digits out.
  * Past days are left out; a day with registration closed is marked. The dates, hours, place and price are here so the
  * bot answers them at once: a tool call on a phone line is a silence (get_day_info is for what isn't here).
  */
@@ -41,19 +46,39 @@ export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
   const today = todayIso(now);
   const days = [...kb.days.values()].filter((d) => d.date >= today).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   if (!days.length) return "אין כרגע ימי עיון בקטלוג.";
+  const when = (d: StudyDay) => spokenDatesHe(d, today);
   const line = (d: StudyDay) =>
     [
       `- \`${d.id}\` – ${d.title}`,
-      datesHe(d),
+      when(d),
       d.end_date ? `${timeRangeHe(d.start, d.end)} בכל מפגש` : timeRangeHe(d.start, d.end),
       ...(d.format === "hotel" && d.location ? [d.location] : []),
       `${d.price_ils} ₪ ${d.vat_included ? "כולל" : "לפני"} מע"מ`,
       ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),
     ].join(" · ");
-  return CATALOG_GROUPS.flatMap(({ format, heading }) => {
+  const byFormat = CATALOG_GROUPS.flatMap(({ format, heading }) => {
     const group = days.filter((d) => d.format === format);
     return group.length ? [heading, ...group.map(line)] : [];
-  }).join("\n");
+  });
+  const topics = new Map<string, StudyDay[]>();
+  for (const d of days) for (const t of topicsOf(d.title)) topics.set(t, [...(topics.get(t) ?? []), d]);
+  const byTopic = [...topics].map(([topic, ds]) => {
+    const only = new Set(ds.map((d) => d.format)).size === 1 ? ` (רק ${IN_FORMAT_HE[ds[0]!.format]})` : "";
+    return `- ${topic}: ${ds.map((d) => `${when(d)} ${IN_FORMAT_HE[d.format]}`).join(" · ")}${only}`;
+  });
+  return [...byFormat, "לפי נושא (הקרוב ראשון):", ...byTopic].join("\n");
+}
+
+/**
+ * The topics of a title, as Mishlav write them: "דיני עבודה, מס הכנסה וביטוח פנסיוני" -> דיני עבודה / מס הכנסה /
+ * ביטוח פנסיוני (split at the commas and at the "ו" that joins the last one).
+ */
+export function topicsOf(title: string): string[] {
+  return title
+    .split(" – ")[0]!
+    .split(/,\s*|\s+ו(?=\S)/)
+    .map((t) => t.trim())
+    .filter(Boolean);
 }
 
 const CATALOG_GROUPS: { format: StudyDay["format"]; heading: string }[] = [

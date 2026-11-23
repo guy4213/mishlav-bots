@@ -200,6 +200,7 @@ function renderUser() {
   box.hidden = false;
   box.innerHTML = `<div class="user-name">${esc(u?.name ?? "סיסמת השרת")}</div>
     <div class="user-sub">${esc(ROLE_HE[session.role] ?? session.role)}${u ? ` · <span class="ltr">${esc(u.phone.replace(/^\+972/, "0"))}</span>` : ""}</div>
+    ${session.server ? `<div class="user-sub" id="serverVersion" title="${esc(session.server.commit ? `commit ${session.server.commit}` : "")}">גרסה ${esc(session.server.version)} · עלתה ${esc(fmtDateTime(session.server.started_at))}</div>` : ""}
     <div class="row user-actions">${u ? `<button class="btn sm" id="pwBtn">החלפת סיסמה</button>` : ""}<button class="btn sm" id="logoutBtn">יציאה</button></div>
     ${isAdmin() ? `<button class="btn sm view-as-btn" id="viewAsBtn" title="לראות בדיוק מה שאנשי משלב רואים">${icon("eye")} צפייה כמו משלב</button>` : ""}`;
   $("logoutBtn").onclick = async () => { await logout(); location.reload(); };

@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findRepoRoot } from "@mishlav/shared";
 import { describe, expect, it } from "vitest";
-import { buildDayCatalog } from "../src/context";
-import { datesHe, type KnowledgeBase, loadKnowledge, newDayId, parseDayFile, StudyDayInput, timeHe, timeRangeHe } from "../src/knowledge";
+import { buildDayCatalog, topicsOf } from "../src/context";
+import { datesHe, type KnowledgeBase, loadKnowledge, newDayId, parseDayFile, spokenDatesHe, StudyDayInput, timeHe, timeRangeHe } from "../src/knowledge";
 import { redactText } from "../src/redact";
 import { FIXED_NOW } from "./helpers";
 
@@ -87,13 +87,21 @@ describe("knowledge base", () => {
 
   it("the prompt's catalogue is built from the days: upcoming only, Zoom then the hotel, each by date, closed ones marked", () => {
     const catalog = buildDayCatalog(kb, FIXED_NOW).split("\n");
-    expect(catalog).toHaveLength(10); // 2 headings + 8 days
     expect(catalog[0]).toBe("בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):");
-    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ");
+    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ");
     expect(catalog[2]).toContain("`2027-03-17-zoom`");
     expect(catalog[7]).toBe("במלון – יום מלא (הקרוב ראשון):");
-    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17.5.2027 · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע\"מ");
+    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17 במאי · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע\"מ");
     expect(catalog[9]).toContain("`2027-11-21-hotel`");
+    // by topic: the answer to "what about national insurance?" is one line - and no hotel day has it
+    expect(catalog[10]).toBe("לפי נושא (הקרוב ראשון):");
+    expect(catalog).toContain("- ביטוח לאומי: 17 ו-18 במרץ בזום · 21 ו-22 ביוני בזום · 21 ו-22 בספטמבר בזום · 20 ו-21 בדצמבר 2027 בזום (רק בזום)");
+    expect(catalog.find((l) => l.startsWith("- דיני עבודה:"))).toBe(
+      "- דיני עבודה: 21 ו-22 בפברואר בזום · 17 במאי במלון · 20 ו-21 ביולי בזום · 21 בנובמבר 2027 במלון · 20 ו-21 בדצמבר 2027 בזום",
+    );
+    expect(topicsOf("דיני עבודה, מס הכנסה וביטוח פנסיוני")).toEqual(["דיני עבודה", "מס הכנסה", "ביטוח פנסיוני"]);
+    expect(topicsOf("ביטוח לאומי וביטוח פנסיוני")).toEqual(["ביטוח לאומי", "ביטוח פנסיוני"]);
+    expect(spokenDatesHe({ date: "2027-12-31", end_date: "2028-01-01" }, "2027-11-01")).toBe("31 בדצמבר ו-1 בינואר");
 
     const first = kb.days.get("2027-02-21-zoom")!;
     const k: KnowledgeBase = {
@@ -103,10 +111,10 @@ describe("knowledge base", () => {
       ]),
       general: "",
     };
-    expect(buildDayCatalog(k, FIXED_NOW)).toBe(
-      "בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):\n" +
-        "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21–22.2.2027 · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ · ההרשמה סגורה",
-    );
+    expect(buildDayCatalog(k, FIXED_NOW).split("\n").slice(0, 2)).toEqual([
+      "בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):",
+      "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ · ההרשמה סגורה",
+    ]);
     expect(buildDayCatalog({ days: new Map(), general: "" }, FIXED_NOW)).toBe("אין כרגע ימי עיון בקטלוג.");
   });
 

@@ -76,7 +76,7 @@ export const post = (path, body = {}) => api("POST", path, body);
 export async function whoAmI() {
   try {
     const me = await api("GET", "/auth/me");
-    Object.assign(session, { role: me.role, via: me.via, user: me.user, viewingAs: !!me.viewing_as });
+    Object.assign(session, { role: me.role, via: me.via, user: me.user, viewingAs: !!me.viewing_as, server: me.server ?? null });
     if (viewAs && !me.viewing_as) setViewAs(false); // not an admin: nothing to view as
     return me;
   } catch (e) {

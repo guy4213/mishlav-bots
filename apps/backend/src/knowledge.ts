@@ -94,6 +94,23 @@ export function timeHe(hhmm: string): string {
   return `${said} ${dayPartHe(h)}`;
 }
 
+const MONTHS_HE = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
+
+/**
+ * Dates as they are said: "17 במאי", a Zoom day "21 ו-22 בפברואר" ("31 בדצמבר ו-1 בינואר" across months). The year
+ * only for a date more than a year away, i.e. when the same date is still ahead this year too.
+ */
+export function spokenDatesHe(d: { date: string; end_date?: string | undefined }, todayIso: string): string {
+  const parts = (iso: string) => iso.split("-").map(Number) as [number, number, number];
+  const year = (iso: string, y: number) => ((Date.parse(iso) - Date.parse(todayIso)) / 86_400_000 > 365 ? ` ${y}` : "");
+  const [y1, m1, d1] = parts(d.date);
+  if (!d.end_date) return `${d1} ב${MONTHS_HE[m1 - 1]}${year(d.date, y1)}`;
+  const [y2, m2, d2] = parts(d.end_date);
+  return m1 === m2 && y1 === y2
+    ? `${d1} ו-${d2} ב${MONTHS_HE[m2 - 1]}${year(d.end_date, y2)}`
+    : `${d1} ב${MONTHS_HE[m1 - 1]}${year(d.date, y1)} ו-${d2} ב${MONTHS_HE[m2 - 1]}${year(d.end_date, y2)}`;
+}
+
 export type StudyDay = z.infer<typeof StudyDayMeta> & { description: string; series: string };
 
 /** How customers say it: "פרונטלי" / "פיזי" / "במלון" vs "בזום" / "אונליין" / "מקוון". */
