@@ -1,10 +1,10 @@
 -- 1. The dialer calls only the contacts whose "קורס מבוקש" is in settings.yaml dialing.requested_courses (Mishlav:
---    only "יום עיון חשבונאות"). bot_next_due gets the list; null or empty = everyone (as before).
+--    only "יום עיון חשבונאות"). bot_next_due_for = bot_next_due + the list (null or empty = everyone). A new name,
+--    so nothing is dropped: the old bot_next_due stays for a server still on the previous version.
 -- 2. A hand-off to a rep names the study day the customer chose (request_human's day_he), as a sent link already
 --    does: course number, dates, zoom or in person. bot_tool_event is the same as 20261117040000 otherwise.
 
-drop function bot_next_due(timestamptz, text[]);
-create function bot_next_due(p_now timestamptz, p_skip text[] default '{}', p_courses text[] default null)
+create function bot_next_due_for(p_now timestamptz, p_skip text[] default '{}', p_courses text[] default null)
 returns table (gold_record_id text, bot_status public.contact_status, next_call_at timestamptz)
 language sql stable set search_path = '' as $$
   select s.gold_record_id, s.bot_status, s.next_call_at
@@ -19,8 +19,8 @@ language sql stable set search_path = '' as $$
             s.gold_record_id
    limit 1
 $$;
-revoke execute on function bot_next_due(timestamptz, text[], text[]) from public, anon, authenticated;
-grant execute on function bot_next_due(timestamptz, text[], text[]) to service_role;
+revoke execute on function bot_next_due_for(timestamptz, text[], text[]) from public, anon, authenticated;
+grant execute on function bot_next_due_for(timestamptz, text[], text[]) to service_role;
 
 create or replace function bot_tool_event(p_call_id text, p_tool text, p_params jsonb, p_result jsonb) returns text
 language plpgsql set search_path = '' as $$

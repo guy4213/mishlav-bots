@@ -491,7 +491,7 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
   }
 
   async nextDue(now: Date, skip: string[], courses: string[] = []) {
-    const rows = await this.req<QueuedContact[]>("POST", "/rpc/bot_next_due", {
+    const rows = await this.req<QueuedContact[]>("POST", "/rpc/bot_next_due_for", {
       p_now: now.toISOString(),
       p_skip: skip,
       p_courses: courses.length ? courses : null,
