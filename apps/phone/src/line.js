@@ -32,8 +32,9 @@ export function phoneEnv(env = process.env, root) {
     model: env.PHONE_GEMINI_MODEL || DEFAULT_PHONE_MODEL,
     voice: env.PHONE_VOICE || env.GEMINI_VOICE || DEFAULT_VOICE,
     temperature: Number(env.GEMINI_TEMPERATURE ?? 0.6),
-    // the callee answered and said nothing: the bot opens after this (Guy: 2-3 s, not more)
-    openAfterSilenceMs: 1000 * Number(env.OPEN_AFTER_SILENCE_S ?? 2.5),
+    // the callee answered and said nothing: the bot opens after this. 2.5 s + the bot starting to speak was 3.2 s
+    // on calls (Nov 2026): 1.3 s makes it about 2 s (Guy / Yair)
+    openAfterSilenceMs: 1000 * Number(env.OPEN_AFTER_SILENCE_S ?? 1.3),
     baseUrl: env.TOOLS_BASE_URL || `http://127.0.0.1:${env.PORT || 8787}`,
     secret: env.TOOLS_SECRET,
     login: env.ZADARMA_SIP_LOGIN,
