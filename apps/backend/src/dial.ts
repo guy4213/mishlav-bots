@@ -61,10 +61,13 @@ export async function dialContact(deps: DialDeps, goldRecordId: string, opts: Di
   const ended = new Map<string, Ended>();
   const onEnded = (e: CallEnded) => ended.set(e.call_id, { at: Date.now(), usage: e.usage, recording: e.recording });
   line.on("ended", onEnded);
+  // the voice the team picked in the dashboard (a test call can try another); Supabase down: the line's own
+  const voice = callOpts.voice || ((await deps.contacts.store.botVoice?.().catch(() => null)) ?? undefined);
   let callId: string;
   try {
     ({ call_id: callId } = await line.dial(toDial, {
       ...callOpts,
+      voice,
       name: callOpts.name ?? firstName(contact.full_name) ?? undefined,
       day: callOpts.day ?? contact.bot_state?.interested_day_id ?? undefined,
       gender: contact.bot_state?.customer_gender ?? undefined,

@@ -1,14 +1,52 @@
 // סקירה: today's numbers (dialer calls only), the contacts' funnel, the queue, rep tasks, the dialer and the live call.
-import { get } from "../api.js";
+import { get, post } from "../api.js";
 import { live, liveCall, subscribe } from "../live.js";
 import {
   chip, conversationHtml, CONTACT_STATUS_HE, DIALER_STATE_HE, emptyState, errorState, esc, every, fmtDateTime, fmtDuration, fmtRel,
-  loadingState, setFollowing, statusChip, statusTone, TONE_VAR,
+  loadingState, setFollowing, statusChip, statusTone, toast, TONE_VAR,
 } from "../ui.js";
 import { openCall } from "./calls.js";
 import { openContact } from "./contacts.js";
 
 let stops = [];
+
+// Gemini's female voices (apps/phone/src/voices.js), with Google's own description of each
+const VOICE_HE = {
+  Kore: "תקיף", Leda: "צעיר", Zephyr: "בהיר", Aoede: "קליל", Laomedeia: "שמח", Autonoe: "בהיר", Callirrhoe: "רגוע", Despina: "חלק",
+};
+
+/** קול הבוט: the team picks the voice for every call; it is kept in Supabase and used from the next call. */
+async function voiceCard(el) {
+  const head = `<div class="card-head"><h2>קול הבוט</h2></div>`;
+  let r;
+  try {
+    r = await get("/api/admin/voice");
+  } catch (e) {
+    el.innerHTML = head + errorState(e.message, true);
+    return;
+  }
+  const opt = (v, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(v)} – ${esc(VOICE_HE[v] ?? "")}</option>`;
+  el.innerHTML = `${head}<div class="card-body stack">
+      <label class="field full">הקול בכל השיחות <select id="ovVoiceSel">
+        <option value=""${r.voice ? "" : " selected"}>ברירת המחדל של השרת (${esc(r.server_voice)})</option>
+        ${r.voices.map((v) => opt(v, r.voice)).join("")}
+      </select></label>
+      <div class="row"><button class="btn primary sm" id="ovVoiceSave">שמירה</button>
+        <span class="small muted">חל מהשיחה הבאה. לשמוע קול לפני שבוחרים: שיחת בדיקה במסך "בדיקות".</span></div>
+    </div>`;
+  el.querySelector("#ovVoiceSave").onclick = async (e) => {
+    const voice = el.querySelector("#ovVoiceSel").value || null;
+    e.target.disabled = true;
+    try {
+      await post("/api/admin/voice", { voice });
+      toast(`הקול נשמר: ${voice ?? "ברירת המחדל של השרת"}`, "ok");
+    } catch (err) {
+      toast(err.message, "bad");
+    } finally {
+      e.target.disabled = false;
+    }
+  };
+}
 
 function kpis(s) {
   const t = s.today;
@@ -79,11 +117,13 @@ export default {
         </div>
         <div class="stack">
           <div id="ovDialer"></div>
+          <div class="card" id="ovVoice"></div>
           <div id="ovQueue"></div>
           <div class="card" id="ovTasks"></div>
         </div>
       </div>`;
     const $r = (id) => root.querySelector(`#${id}`);
+    voiceCard($r("ovVoice"));
     const load = async () => {
       try {
         const { summary: s } = await get("/api/admin/summary");

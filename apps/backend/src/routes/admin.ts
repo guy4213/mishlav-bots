@@ -24,6 +24,7 @@ import type { Dialer } from "../dialer";
 import type { JsonlFile } from "../jsonl";
 import type { ServerLog } from "../serverlog";
 import type { SmsSender } from "../sms";
+import { DEFAULT_VOICE, PHONE_VOICES } from "../../../phone/src/voices.js";
 import { CALL_ID, readTranscript } from "../transcripts";
 import type { PhoneHolder } from "./phone";
 import { toolCallsWhere } from "./test";
@@ -108,6 +109,29 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
       }
     });
   }
+
+  // ---- the bot's voice for every call: the team picks it (kept in Supabase, so a deploy keeps it)
+  const serverVoice = () => (PHONE_VOICES.includes(env.PHONE_VOICE ?? "") ? env.PHONE_VOICE! : DEFAULT_VOICE);
+  app.get("/api/admin/voice", async (_req, reply) => {
+    if (!deps.contacts?.botVoice) return reply.code(409).send(noSupabase);
+    try {
+      return { ok: true, voice: await deps.contacts.botVoice(), server_voice: serverVoice(), voices: PHONE_VOICES };
+    } catch (err) {
+      return supabaseError(reply, err);
+    }
+  });
+  const VoiceBody = z.strictObject({ voice: z.enum(PHONE_VOICES as [string, ...string[]]).nullable() });
+  app.post("/api/admin/voice", async (req, reply) => {
+    if (!deps.contacts?.setBotVoice) return reply.code(409).send(noSupabase);
+    const parsed = VoiceBody.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
+    try {
+      await deps.contacts.setBotVoice(parsed.data.voice);
+      return { ok: true, voice: parsed.data.voice, server_voice: serverVoice() };
+    } catch (err) {
+      return supabaseError(reply, err);
+    }
+  });
 
   // ---- overview
   app.get("/api/admin/summary", async (_req, reply) => {

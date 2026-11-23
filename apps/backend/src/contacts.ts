@@ -121,10 +121,13 @@ export interface ContactStore {
   callNumber(callId: string): Promise<string | null>;
   /** Stores the call's transcript (calls.transcript) so it outlives the server's disk. Card numbers already removed. */
   saveTranscript?(callId: string, lines: TranscriptLine[]): Promise<void>;
-  /** Uploads the call's recording (a WAV on this server's disk) to Storage and links it (calls.recording_path). */
+  /** Uploads the call's recording (an MP3 on this server's disk) to Storage and links it (calls.recording_path). */
   saveRecording?(callId: string, file: string): Promise<void>;
   /** Stores the call's Gemini tokens and their cost (calls.ai_usage / ai_cost_usd). */
   saveUsage?(callId: string, usage: AiUsage, costUsd: number | null): Promise<void>;
+  /** The voice the team picked in the dashboard for every call (dialer_control.voice); null: PHONE_VOICE. */
+  botVoice?(): Promise<string | null>;
+  setBotVoice?(voice: string | null): Promise<void>;
 }
 
 /** One row of calls (the list leaves the transcript out). */
@@ -355,9 +358,10 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
 
   async saveRecording(callId: string, file: string) {
     const { readFile, unlink } = await import("node:fs/promises");
-    const path = `${callId}.wav`;
+    const ext = file.endsWith(".mp3") ? "mp3" : "wav"; // MP3; WAV only if encoding failed
+    const path = `${callId}.${ext}`;
     await this.storageReq("POST", `/object/recordings/${encodeURIComponent(path)}`, await readFile(file), {
-      "content-type": "audio/wav",
+      "content-type": ext === "mp3" ? "audio/mpeg" : "audio/wav",
       "x-upsert": "true",
     });
     await this.req("PATCH", `/calls?call_id=eq.${encodeURIComponent(callId)}`, { recording_path: path });
@@ -468,6 +472,15 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     const rows = await this.req<DialerControl[]>("GET", "/dialer_control?select=enabled,changed_at,reason");
     if (!rows[0]) throw new Error("dialer_control has no row (supabase/migrations)");
     return rows[0];
+  }
+
+  async botVoice() {
+    const rows = await this.req<{ voice: string | null }[]>("GET", "/dialer_control?select=voice");
+    return rows[0]?.voice ?? null;
+  }
+
+  async setBotVoice(voice: string | null) {
+    await this.req("PATCH", "/dialer_control?id=eq.true", { voice });
   }
 
   setDialer(enabled: boolean, reason: string | null) {

@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { mixToMono, wav } from './audio.js';
+import { mixToMono, mp3, wav } from './audio.js';
 import { CallAgent } from './call-agent.js';
 import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive, PHONE_VOICES } from './gemini-live.js';
 import { buildInstructions, loadToolDefinitions, ToolsClient } from './mishlav.js';
@@ -368,8 +368,15 @@ export class PhoneLine extends EventEmitter {
         const rec = agent.recording();
         if (rec) {
           mkdirSync(join(logDir, 'recordings'), { recursive: true });
-          const file = join(logDir, 'recordings', `${callId}.wav`);
-          writeFileSync(file, wav(mixToMono(rec))); // one channel: half the size of the stereo recording
+          const mono = mixToMono(rec); // one channel: both voices
+          let file = join(logDir, 'recordings', `${callId}.mp3`);
+          try {
+            writeFileSync(file, mp3(mono)); // 8x smaller than the WAV: recordings are kept for good
+          } catch (err) {
+            this.log(`recording: MP3 failed (${err.message}), kept as WAV`, callId);
+            file = join(logDir, 'recordings', `${callId}.wav`);
+            writeFileSync(file, wav(mono));
+          }
           this.recordings.set(callId, file); // goes out with 'ended' (the contact's call keeps it in Supabase)
           this.log(`recording: ${file}`, callId);
         }

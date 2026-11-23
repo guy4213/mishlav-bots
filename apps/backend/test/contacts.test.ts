@@ -84,6 +84,13 @@ class FakeStore implements ContactStore {
     return this.callNumbers.get(callId) ?? null;
   }
   recordings: [string, string][] = [];
+  voice: string | null = null;
+  async botVoice() {
+    return this.voice;
+  }
+  async setBotVoice(voice: string | null) {
+    this.voice = voice;
+  }
   async saveRecording(callId: string, file: string) {
     this.recordings.push([callId, file]);
   }
@@ -176,6 +183,24 @@ describe("Supabase contacts: which record, when", () => {
     line.emit("ended", { call_id: "call-1", reason: "local", recording: "/tmp/logs/recordings/call-1.wav" });
     await settle();
     expect(store.recordings).toEqual([["call-1", "/tmp/logs/recordings/call-1.wav"]]);
+  });
+
+  it("every call uses the voice the team picked in the dashboard; a test call's own voice wins", async () => {
+    const { store, line, app, post } = await setup();
+    const bad = await app.inject({ method: "POST", url: "/api/admin/voice", headers: AUTH, payload: { voice: "Nobody" } });
+    expect(bad.statusCode).toBe(400);
+    const set = await app.inject({ method: "POST", url: "/api/admin/voice", headers: AUTH, payload: { voice: "Leda" } });
+    expect(set.json()).toMatchObject({ ok: true, voice: "Leda" });
+    expect(store.voice).toBe("Leda");
+    const got = await app.inject({ method: "GET", url: "/api/admin/voice", headers: AUTH });
+    expect(got.json()).toMatchObject({ ok: true, voice: "Leda", server_voice: "Kore" });
+    expect(got.json().voices).toContain("Aoede");
+    await post("/test/phone/call", { contact_id: ID });
+    expect((line.dialed[0] as [string, { voice?: string }])[1].voice).toBe("Leda");
+    line.emit("ended", { call_id: "call-1", reason: "local" });
+    await settle();
+    await post("/test/phone/call", { contact_id: ID, voice: "Zephyr" });
+    expect((line.dialed[1] as [string, { voice?: string }])[1].voice).toBe("Zephyr");
   });
 
   it("a call that is not a contact's (no x-call-id) writes nothing", async () => {

@@ -12,7 +12,7 @@ let stops = [];
 const savedNumber = () => ls.get("mishlav_phone", "");
 const saveNumber = (n) => ls.set("mishlav_phone", n);
 
-// Gemini's female voices (apps/phone/src/gemini-live.js PHONE_VOICES), to compare on test calls; Google's own words
+// Gemini's female voices (apps/phone/src/voices.js), to try one on a test call before picking it in סקירה; Google's own words
 const VOICES = [
   ["Kore", "תקיף (ברירת המחדל עד היום)"], ["Leda", "צעיר"], ["Zephyr", "בהיר"], ["Aoede", "קליל"],
   ["Laomedeia", "שמח"], ["Autonoe", "בהיר"], ["Callirrhoe", "רגוע"], ["Despina", "חלק"],
@@ -38,7 +38,7 @@ export default {
                 <label class="field">שם הלקוח (רשות) <input type="text" id="phName" placeholder="מהתרחיש"></label>
                 <label class="field full">תרחיש <select id="phScenario"><option value="">ללא תרחיש (שם ויום ברירת מחדל)</option></select></label>
                 <label class="field full">קול הבוט <select id="phVoice">
-                  <option value="">ברירת המחדל של השרת (PHONE_VOICE)</option>
+                  <option value="">הקול שנבחר בסקירה</option>
                   ${VOICES.map(([v, he]) => `<option value="${v}">${v} – ${he}</option>`).join("")}
                 </select></label>
               </div>
