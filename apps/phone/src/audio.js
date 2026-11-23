@@ -3,6 +3,8 @@
 // Gemini returns 16-bit PCM at 24 kHz and accepts PCM at any rate (we send it 8 kHz).
 // Ported from gemini-live-agent/phone/audio.js (same code, used on real Zadarma calls).
 
+import { Mp3Encoder } from '@breezystack/lamejs';
+
 export const PHONE_RATE = 8000;
 export const FRAME_SAMPLES = 160; // 20 ms at 8 kHz
 
@@ -155,6 +157,15 @@ export function pcmView(buf) {
 export const pcmBuffer = (samples) => Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
 
 /** 16-bit PCM -> a WAV file (for --record). */
+/** Stereo (caller left, bot right) -> one channel with both voices: half the size, plays everywhere. */
+export function mixToMono({ samples, rate, channels }) {
+  if (channels === 1) return { samples, rate, channels };
+  const n = samples.length / 2;
+  const out = new Int16Array(n);
+  for (let i = 0; i < n; i++) out[i] = Math.max(-32768, Math.min(32767, samples[2 * i] + samples[2 * i + 1]));
+  return { samples: out, rate, channels: 1 };
+}
+
 export function wav({ samples, rate, channels }) {
   const data = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
   const h = Buffer.alloc(44);
@@ -171,4 +182,19 @@ export function wav({ samples, rate, channels }) {
   h.write('data', 36);
   h.writeUInt32LE(data.length, 40);
   return Buffer.concat([h, data]);
+}
+
+/* ---------------- MP3 (call recordings) ---------------- */
+
+/** A mono recording as MP3 at 16 kbps: a 2-minute call is ~240 KB (the WAV is ~1.9 MB). Speech stays clear. */
+export function mp3({ samples, rate }, kbps = 16) {
+  const enc = new Mp3Encoder(1, rate, kbps);
+  const parts = [];
+  for (let i = 0; i < samples.length; i += 1152) {
+    const out = enc.encodeBuffer(samples.subarray(i, i + 1152));
+    if (out.length) parts.push(Buffer.from(out));
+  }
+  const tail = enc.flush();
+  if (tail.length) parts.push(Buffer.from(tail));
+  return Buffer.concat(parts);
 }

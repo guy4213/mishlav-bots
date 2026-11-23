@@ -11,7 +11,7 @@ import { type CallOrigin, type ContactEvents, type ContactRecord, dialNumber, fi
 import { readTranscript, transcriptForDb } from "./transcripts";
 
 /** when the line said the call ended, and its Gemini tokens */
-type Ended = { at: number; usage?: CallEnded["usage"] };
+type Ended = { at: number; usage?: CallEnded["usage"]; recording?: string };
 
 export interface DialDeps {
   contacts: ContactEvents;
@@ -59,12 +59,15 @@ export async function dialContact(deps: DialDeps, goldRecordId: string, opts: Di
   const { line } = deps;
   // the line's 'ended' can come right after dial() returns: catch it from now on
   const ended = new Map<string, Ended>();
-  const onEnded = (e: CallEnded) => ended.set(e.call_id, { at: Date.now(), usage: e.usage });
+  const onEnded = (e: CallEnded) => ended.set(e.call_id, { at: Date.now(), usage: e.usage, recording: e.recording });
   line.on("ended", onEnded);
+  // the voice the team picked in the dashboard (a test call can try another); Supabase down: the line's own
+  const voice = callOpts.voice || ((await deps.contacts.store.botVoice?.().catch(() => null)) ?? undefined);
   let callId: string;
   try {
     ({ call_id: callId } = await line.dial(toDial, {
       ...callOpts,
+      voice,
       name: callOpts.name ?? firstName(contact.full_name) ?? undefined,
       day: callOpts.day ?? contact.bot_state?.interested_day_id ?? undefined,
       gender: contact.bot_state?.customer_gender ?? undefined,
@@ -96,7 +99,7 @@ function trackContactCall(
   const { dialing, business_hours } = deps.settings;
   const limits = { noAnswerStreakMax: dialing.no_answer_streak_max, maxTotalCalls: dialing.max_total_calls };
   return new Promise((resolve) => {
-    const finish = ({ at, usage }: Ended) => {
+    const finish = ({ at, usage, recording }: Ended) => {
       line.off("ended", onEnded);
       line.off("ended", waitEnd);
       // the next call for each streak this call can make; SQL picks by the contact's new streak
@@ -107,10 +110,12 @@ function trackContactCall(
       if (lines.length) void events.run(callId, "transcript", async (s) => s.saveTranscript?.(callId, lines));
       // what the call cost in Gemini tokens (the price table is in settings.yaml)
       if (usage) void events.run(callId, "ai usage", async (s) => s.saveUsage?.(callId, usage, aiCostUsd(usage, deps.settings)));
+      // the recording outlives the server's disk in Supabase Storage (the dashboard plays it from there)
+      if (recording) void events.run(callId, "recording", async (s) => s.saveRecording?.(callId, recording));
       void closed.then(resolve);
     };
     const waitEnd = (e: CallEnded) => {
-      if (e.call_id === callId) finish({ at: Date.now(), usage: e.usage });
+      if (e.call_id === callId) finish({ at: Date.now(), usage: e.usage, recording: e.recording });
     };
     void events.run(callId, "call started", (s) => s.callStarted(callId, goldRecordId, origin));
     const already = ended.get(callId);

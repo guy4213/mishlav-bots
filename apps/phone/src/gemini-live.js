@@ -4,7 +4,9 @@
 import { EventEmitter } from 'node:events';
 
 export const DEFAULT_PHONE_MODEL = 'gemini-3.1-flash-live-preview';
-export const DEFAULT_VOICE = 'Kore';
+import { DEFAULT_VOICE, PHONE_VOICES } from './voices.js';
+
+export { DEFAULT_VOICE, PHONE_VOICES };
 export const DEFAULT_SILENCE_MS = 500;
 // The caller's speech is transcribed as Hebrew (not by automatic language detection). The reply language
 // comes from the prompt: the Live audio models take no speech language code.

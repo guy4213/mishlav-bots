@@ -117,6 +117,12 @@ gold_import:
     מקור: source
     סטטוס: status             # the bot sets it (gold_status_text in supabase/migrations)
 
+# Every call is recorded (PHONE_RECORD=0 turns it off) and kept in Supabase Storage, private: the dashboard plays it.
+# Kept for good (Guy: the team must always be able to listen): retention_days 0. A number deletes older ones.
+# Size: about 1.9 MB per 2-minute call (WAV) - the free plan's 1 GB holds ~500 calls; Supabase Pro has 100 GB.
+recordings:
+  retention_days: 0
+
 # What a call's Gemini tokens cost: USD per 1M tokens (Gemini 3.1 Flash Live, paid tier, as published Nov 2026).
 # The Live API bills every turn on the whole session context, so a call costs more than its minutes x the audio rate.
 # Check https://ai.google.dev/gemini-api/docs/pricing when the model or the prices change.

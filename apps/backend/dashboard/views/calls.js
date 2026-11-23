@@ -119,6 +119,7 @@ export function openCall(callId) {
           <dt>משך</dt><dd class="num">${r.live ? "בשיחה…" : fmtDuration(c.duration_sec)}</dd>
           <dt>ענה</dt><dd>${c.answered ? "כן" : "לא"}</dd>
           <dt>עלות AI</dt><dd class="num">${fmtCost(c.ai_cost_usd, c.duration_sec)}</dd>
+          <dt>הקלטה</dt><dd data-rec-box>${c.recording_path ? `<button class="btn sm" data-rec>▶ השמע הקלטה</button>` : r.live ? "תישמר בסוף השיחה" : "אין"}</dd>
           <dt>תוצאה</dt><dd>${esc(outcomeLabel(c.outcome))}${c.reason ? ` · ${esc(REASON_HE[c.reason] ?? c.reason)}` : ""}</dd>
           ${c.summary ? `<dt>סיכום</dt><dd>${esc(c.summary)}</dd>` : ""}
         </dl>`
@@ -144,8 +145,19 @@ export function openCall(callId) {
     }
   };
   stop = every(1500, load, () => d.isOpen());
-  d.body.onclick = (e) => {
+  d.body.onclick = async (e) => {
     const a = e.target.closest("[data-contact]");
-    if (a) { e.preventDefault(); openContact(a.dataset.contact); }
+    if (a) { e.preventDefault(); openContact(a.dataset.contact); return; }
+    // the recording: a link valid for an hour, asked for only when someone wants to listen
+    const play = e.target.closest("[data-rec]");
+    if (!play) return;
+    const box = play.closest("[data-rec-box]");
+    play.disabled = true;
+    try {
+      const r = await get(`/api/admin/calls/${encodeURIComponent(callId)}/recording`);
+      box.innerHTML = `<audio controls autoplay preload="auto" src="${esc(r.url)}" style="width:100%;max-width:360px"></audio>`;
+    } catch (err) {
+      box.innerHTML = `<span style="color:var(--danger)">${esc(err.message)}</span>`;
+    }
   };
 }

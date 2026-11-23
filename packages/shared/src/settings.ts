@@ -86,6 +86,8 @@ export const Settings = z.object({
       columns: z.record(z.string(), z.string()),
     })
     .default({ record_id_key: "מזהה", columns: {} }),
+  /** Call recordings (Supabase Storage "recordings"): deleted after this many days; 0 = kept for good */
+  recordings: z.object({ retention_days: z.number().int().nonnegative() }).default({ retention_days: 0 }),
   /** USD per 1M tokens, by modality (TEXT / AUDIO ...): what a call's Gemini tokens cost (calls.ai_cost_usd) */
   pricing: z
     .object({

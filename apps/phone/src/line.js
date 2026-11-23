@@ -5,9 +5,9 @@ import { EventEmitter } from 'node:events';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { wav } from './audio.js';
+import { mixToMono, mp3, wav } from './audio.js';
 import { CallAgent } from './call-agent.js';
-import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive } from './gemini-live.js';
+import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive, PHONE_VOICES } from './gemini-live.js';
 import { buildInstructions, loadToolDefinitions, ToolsClient } from './mishlav.js';
 import { dialable, maskNumber } from './numbers.js';
 import { usageLine } from './usage.js';
@@ -31,6 +31,8 @@ export function phoneEnv(env = process.env, root) {
     apiKey: env.GOOGLE_API_KEY || env.GEMINI_API_KEY,
     model: env.PHONE_GEMINI_MODEL || DEFAULT_PHONE_MODEL,
     voice: env.PHONE_VOICE || env.GEMINI_VOICE || DEFAULT_VOICE,
+    // every call is recorded (logs/recordings, then the tools server keeps it in Supabase); PHONE_RECORD=0: none
+    record: env.PHONE_RECORD !== '0',
     temperature: Number(env.GEMINI_TEMPERATURE ?? 0.6),
     // the callee answered and said nothing: the bot opens after this. 2.5 s + the bot starting to speak was 3.2 s
     // on calls (Nov 2026): 1.3 s makes it about 2 s (Guy / Yair)
@@ -64,12 +66,13 @@ export function missingPhoneEnv(e) {
  * Events: 'log' ({ seq, ts, call_id, text }), 'call' (status() when a call starts), 'ended' ({ call_id, reason }).
  */
 export class PhoneLine extends EventEmitter {
-  constructor({ root, env, answer = true, record = false, incoming = {} }) {
+  constructor({ root, env, answer = true, record, incoming = {} }) {
     super();
     this.root = root;
     this.env = env;
     this.answer = answer; // answer incoming calls
-    this.record = record;
+    this.record = record ?? env.record ?? false;
+    this.recordings = new Map(); // call_id -> its recording file, until the call's 'ended'
     this.incoming = incoming; // scenario / name / day for incoming calls (default: the active test session)
     this.ua = null;
     this.registered = false;
@@ -155,7 +158,7 @@ export class PhoneLine extends EventEmitter {
    * 'ended' for that. Throws on a bad number, a busy line, or a bot that can't be prepared.
    * ringTimeoutMs: no answer by then -> the call is cancelled and ends like any unanswered call.
    */
-  async dial(rawNumber, { scenario, name, day, gender, ringTimeoutMs } = {}) {
+  async dial(rawNumber, { scenario, name, day, gender, voice, ringTimeoutMs } = {}) {
     if (!this.registered) throw new Error(this.error || 'the line is not registered with Zadarma');
     if (this.call) throw new Error('a call is already running on the line');
     const number = dialable(rawNumber);
@@ -163,7 +166,7 @@ export class PhoneLine extends EventEmitter {
     this.call = { id: callId, direction: 'out', number, scenario: scenario ?? null, started_at: new Date().toISOString(), sip: null };
     let prep;
     try {
-      prep = await this._prepare(callId, { scenario, name, day, gender });
+      prep = await this._prepare(callId, { scenario, name, day, gender, voice });
     } catch (err) {
       this._finish(callId, `could not prepare the bot: ${err.message}`);
       throw err;
@@ -284,21 +287,30 @@ export class PhoneLine extends EventEmitter {
 
   _finish(callId, reason) {
     const usage = this.usage.get(callId);
+    const recording = this.recordings.get(callId);
     this.usage.delete(callId);
+    this.recordings.delete(callId);
     if (this.call?.id === callId) this.call = null;
-    this.emit('ended', { call_id: callId, reason, ...(usage?.messages && { usage: { model: this.env.model, input: usage.input, output: usage.output } }) });
+    this.emit('ended', {
+      call_id: callId,
+      reason,
+      ...(usage?.messages && { usage: { model: this.env.model, input: usage.input, output: usage.output } }),
+      ...(recording && { recording }),
+    });
   }
 
   /** One call's bot: prompt variables, Gemini session and tools client. */
-  async _prepare(callId, { scenario, name, day, gender }) {
+  async _prepare(callId, { scenario, name, day, gender, voice }) {
     const e = this.env;
     const tools = new ToolsClient({ baseUrl: e.baseUrl, secret: e.secret, provider: 'C', callId });
     const session = await tools.currentSession();
     if (session && session.provider !== 'C') this.log(`⚠ the active test session is for provider ${session.provider}, this line is C`, callId);
     const ctx = await tools.callContext({ scenario, firstName: name, dayId: day, gender });
+    // a voice picked for this test call (the dashboard), else the line's
+    const callVoice = PHONE_VOICES.includes(voice) ? voice : e.voice;
     const setup = buildSetup({
       model: e.model,
-      voice: e.voice,
+      voice: callVoice,
       instructions: buildInstructions(this.root, ctx.variables),
       tools: this.toolDefs,
       temperature: e.temperature,
@@ -310,7 +322,7 @@ export class PhoneLine extends EventEmitter {
       openAfterSilenceMs: e.openAfterSilenceMs,
       genderReminder: GENDER_REMINDER[customerGender],
     });
-    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}`, callId);
+    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}, voice ${callVoice}`, callId);
     return { callId, tools, session, agent, scenario: ctx.scenario };
   }
 
@@ -356,8 +368,16 @@ export class PhoneLine extends EventEmitter {
         const rec = agent.recording();
         if (rec) {
           mkdirSync(join(logDir, 'recordings'), { recursive: true });
-          const file = join(logDir, 'recordings', `${callId}.wav`);
-          writeFileSync(file, wav(rec));
+          const mono = mixToMono(rec); // one channel: both voices
+          let file = join(logDir, 'recordings', `${callId}.mp3`);
+          try {
+            writeFileSync(file, mp3(mono)); // 8x smaller than the WAV: recordings are kept for good
+          } catch (err) {
+            this.log(`recording: MP3 failed (${err.message}), kept as WAV`, callId);
+            file = join(logDir, 'recordings', `${callId}.wav`);
+            writeFileSync(file, wav(mono));
+          }
+          this.recordings.set(callId, file); // goes out with 'ended' (the contact's call keeps it in Supabase)
           this.log(`recording: ${file}`, callId);
         }
         this.log(`transcript: ${transcript}`, callId);

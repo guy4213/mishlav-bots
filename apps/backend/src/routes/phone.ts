@@ -24,6 +24,8 @@ const DialRequest = z
     scenario: z.string().trim().max(20).optional(),
     name: z.string().trim().max(40).optional(),
     day: z.string().trim().max(100).optional(),
+    /** a Gemini voice for this test call (the line checks it is one of PHONE_VOICES) */
+    voice: z.string().trim().max(30).optional(),
   })
   .refine((v) => v.number || v.contact_id, { message: "number or contact_id" });
 
