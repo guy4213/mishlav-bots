@@ -38,6 +38,8 @@ class CallVars:
     current_datetime: str = ""
     # Facts about this customer and the catalogue, built by the tools server (GET /test/context).
     customer_context: str = ""
+    # The closed list of study days (from Supabase via the server), one line per day.
+    day_catalog: str = ""
 
     @classmethod
     def from_server(cls, variables: dict[str, str]) -> "CallVars":
@@ -49,6 +51,7 @@ class CallVars:
             interested_day_id="" if day == "לא ידוע" else day,
             current_datetime=variables["current_datetime"],
             customer_context=variables.get("customer_context", ""),
+            day_catalog=variables.get("day_catalog", ""),
         )
 
 
@@ -96,6 +99,7 @@ def build_instructions(root: Path, call: CallVars) -> str:
         "interested_day_id": call.interested_day_id or "לא ידוע",
         "current_datetime": call.current_datetime,
         "customer_context": call.customer_context,
+        "day_catalog": call.day_catalog,
     }
     return render(prompt, values) + "\n\n" + knowledge_appendix(root)
 

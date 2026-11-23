@@ -97,8 +97,16 @@ All tool inputs are **strict objects** — unknown fields are rejected and logge
 | `end_call` | `{ reason?: EndCallReason }` | Body may be empty |
 
 `buildToolInputSchemas({ captureDictatedDetails })` returns the zod schemas;
-`toolDefinitions({ dayIds, captureDictatedDetails })` returns `[{ name, description, parameters }]`
-with JSON Schema (day ids as `enum`) — exported to `config/tools.json`.
+`toolDefinitions({ captureDictatedDetails })` returns `[{ name, description, parameters }]`
+with JSON Schema — exported to `config/tools.json`. `day_id` has no `enum`: the study days change in the dashboard
+while the bot runs. The prompt's `{{day_catalog}}` lists the ids, and an unknown id gets `unknown_day_id` with the ids
+that exist.
+
+**Study days.** Table `study_days` in Supabase (migration `20261124000000_study_days.sql`), edited in the dashboard
+("ימי עיון", `/api/admin/study-days`, `apps/backend/src/routes/study-days.ts`). The server reads it at start (it does not
+start if it can't), after every dashboard change and every minute (`LiveKnowledge`, `apps/backend/src/study-days.ts`). A
+failed read keeps the last good days. A day is never deleted, only archived. Without Supabase (tests, text runs) the
+fixed days in `tests/fixtures/days/*.md` (the yellow page 2027) are used. `config/knowledge/general.md` stays a file.
 
 ### 3.3 Production types (declared now, implemented in Part 4)
 
@@ -161,6 +169,24 @@ Every `/tools/*` and `/test/*` request must carry the secret as `X-Tools-Secret:
 `401 { ok: false, error: "unauthorized" }`, and an `auth_failure` line is logged (path + IP, never the
 supplied value). `GET /healthz` is public.
 
+**Dashboard logins** (`users.ts`, `access.ts`, `routes/auth.ts`; migration `20261125000000_dashboard_users`). Besides
+the secret, a person logs in with a phone + a password (`POST /auth/login`; Supabase `dashboard_users`, scrypt
+hashes, never deleted, `active = false` blocks). The server sets `mishlav_session` (HttpOnly, SameSite=Strict,
+Secure over https, 12 h): a token signed with a key derived from `TOOLS_SECRET` holding the user id, the password
+version (`password_changed_at`) and the expiry; no session table. Each request checks it against the users as last
+read (kept 30 s, re-read after every change), so a block, a role change or a new password take effect within that
+time on every server. 5 wrong passwords per phone (20 per address) in 15 min → 429. Two roles:
+- `admin` (the project team): everything, like the secret. Manages users in the dashboard ("משתמשים":
+  `/api/admin/users`, add / rename / role / block / new password; an admin can't block or demote themselves).
+- `mishlav`: an allowlist (`access.ts`), so a new route is closed to them until opened on purpose: summary, calls +
+  recordings + transcripts, contacts, rep tasks (+ done), study days (+ edit), the dialer's **state**, the line's
+  state (without its log), `/auth/me`, `/auth/password`, and a test call to **their own phone only**
+  (`/api/me/test-call` `{day_id?}` → the line dials the phone they logged in with, as the customer of that day,
+  under their first name; touches no contact; `/api/me/hangup` ends only a call they placed). Everything else → 403.
+- **View as Mishlav** (admins): the dashboard's "צפייה כמו משלב" sends `x-view-as: mishlav` on every request of that
+  tab (sessionStorage); the server then treats the admin exactly as a Mishlav user (`access.ts viewAs`: the same
+  allowlist and 403s, `/auth/me` → `viewing_as: true`). It only ever lowers the role: from a Mishlav user it is ignored.
+
 ### 4.3 Call metadata
 
 Each tool call is tagged with:
@@ -202,7 +228,7 @@ hint for the model.
 ```json
 {"type":"tool_call","ts":"2026-11-08T10:15:02.114Z","session_id":"A-S1-20261108-101455",
  "scenario":"S1","provider":"A","call_id":"conv_123","tool":"send_purchase_link",
- "params":{"day_id":"payroll-2026-12-08-zoom"},"redactions":0,"ok":true,
+ "params":{"day_id":"2027-02-21-zoom"},"redactions":0,"ok":true,
  "response":{"ok":true,"status":"sent","sms":{"sent":true,"provider":"zadarma"},"message_he":"..."},
  "recipient":"+97250***4567","duration_ms":1.8}
 ```
@@ -242,7 +268,7 @@ id: S2
 name: Busy - callback
 core: true                       # core scenarios count toward the decision
 description: ...
-context: { first_name: "דנה", interested_day_id: payroll-2026-12-08-zoom }
+context: { first_name: "דנה", interested_day_id: 2027-02-21-zoom }
 actor_script: ["...", "..."]     # what the human tester says
 expect:
   outcome: CALLBACK              # or outcome_one_of: [...]
@@ -317,7 +343,8 @@ a human call. No passer: any `TUNE_LATENCY` → "tune and re-test"; any `PENDING
 
 ## 10. Security in Part 1
 
-- Shared secret on every non-health route, from day one; secret only in `.env` (git-ignored).
+- Shared secret on every non-health route, from day one; secret only in `.env` (git-ignored). Later: personal
+  dashboard logins with roles (§4.2), the secret stays for the bot, the worker, scripts and the team.
 - Strict tool schemas; unknown fields rejected and logged.
 - Card-number redaction before anything is written to disk.
 - No real SMS, no DB, no personal data — the log holds only tool params.
@@ -362,7 +389,9 @@ scripted outcomes and delays.
 
 **Management dashboard** (`apps/backend/dashboard/`, no build step: `index.html`, `styles.css`, ES modules
 `app.js` / `api.js` / `live.js` / `ui.js` / `views/*.js`, served by `routes/dashboard.ts`; only these static files
-are public, all data is behind `TOOLS_SECRET`, same `#k=` → localStorage mechanism). Screens: overview (today's
+are public, all data is behind a login: a phone + a password (role admin / mishlav, §4.2) or `TOOLS_SECRET`, same
+`#k=` → localStorage mechanism for `npm run lab`). Mishlav's users see the work screens and "שיחת בדיקה אליי"; the
+testing, results, logs, Gold and users screens, the dialer switch and the bot's voice are the team's. Screens: overview (today's
 dialer-only KPIs, funnel, queue, rep tasks, dialer, live call), contacts, calls (transcript + tool actions in one
 timeline), rep tasks, testing (the old dial tab + "what to expect" per scenario), scenario results (provider C,
 from `/test/report`), live log, Gold. Top bar on every screen: environment (`RENDER` set → production), dialer

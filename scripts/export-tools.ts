@@ -7,11 +7,9 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { toolDefinitions } from "@mishlav/shared";
-import { loadKnowledge } from "../apps/backend/src/knowledge";
 import { scriptEnv } from "./lib/env";
 
 const env = scriptEnv();
-const knowledge = loadKnowledge(join(env.root, "config", "knowledge"));
 const capture = env.settings.testing.capture_dictated_details;
 
 const out = {
@@ -27,7 +25,7 @@ const out = {
     },
     body: "JSON object with the tool parameters below",
   },
-  tools: toolDefinitions({ captureDictatedDetails: capture, dayIds: [...knowledge.days.keys()] }),
+  tools: toolDefinitions({ captureDictatedDetails: capture }),
 };
 
 const path = join(env.root, "config", "tools.json");

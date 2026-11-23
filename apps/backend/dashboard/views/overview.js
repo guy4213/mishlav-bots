@@ -1,5 +1,5 @@
 // סקירה: today's numbers (dialer calls only), the contacts' funnel, the queue, rep tasks, the dialer and the live call.
-import { get, post } from "../api.js";
+import { get, isAdmin, post } from "../api.js";
 import { live, liveCall, subscribe } from "../live.js";
 import {
   chip, conversationHtml, CONTACT_STATUS_HE, DIALER_STATE_HE, emptyState, errorState, esc, every, fmtDateTime, fmtDuration, fmtRel,
@@ -117,13 +117,13 @@ export default {
         </div>
         <div class="stack">
           <div id="ovDialer"></div>
-          <div class="card" id="ovVoice"></div>
+          ${isAdmin() ? `<div class="card" id="ovVoice"></div>` : ""}
           <div id="ovQueue"></div>
           <div class="card" id="ovTasks"></div>
         </div>
       </div>`;
     const $r = (id) => root.querySelector(`#${id}`);
-    voiceCard($r("ovVoice"));
+    if (isAdmin()) voiceCard($r("ovVoice")); // the bot's voice: ours
     const load = async () => {
       try {
         const { summary: s } = await get("/api/admin/summary");

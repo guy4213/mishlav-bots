@@ -102,6 +102,10 @@ async function main() {
     dialer: contacts && { store: contacts, run: true },
     // the dashboard's log: kept in Supabase (14 days) and fed by the server's own output too
     logStore: contacts,
+    // the study days the bot offers: Supabase study_days, edited in the dashboard
+    studyDays: contacts,
+    // who may log in to the dashboard (Supabase dashboard_users); TOOLS_SECRET keeps working
+    users: contacts,
     tapConsole: true,
   });
   await app.listen({ port: config.port, host: config.host });

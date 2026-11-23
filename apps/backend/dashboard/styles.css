@@ -146,6 +146,22 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .nav a:hover { background: var(--surface-3); color: var(--text); }
 .nav a.on { background: var(--primary-weak); color: var(--primary); }
 .nav a .count { margin-inline-start: auto; font-size: 11.5px; font-weight: 600; background: var(--danger); color: #fff; border-radius: 999px; padding: 0 7px; min-width: 20px; text-align: center; }
+/* who is logged in, above the foot */
+.user-box { margin-top: auto; padding: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+.user-box + .sidebar-foot { margin-top: 0; }
+.user-name { font-weight: 600; }
+.user-sub { font-size: 12px; color: var(--text-3); }
+.user-actions { margin-top: 6px; gap: 6px; }
+.login-brand { display: flex; align-items: center; gap: 10px; }
+.login-brand .modal-title { margin: 0; }
+.login-error { color: var(--danger); margin: 0; }
+.login-secret summary { cursor: pointer; }
+.login-secret[open] { display: flex; flex-direction: column; gap: 8px; }
+.sidebar-foot:empty { display: none; }
+.view-as-bar { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 8px 16px; background: var(--warning-bg); color: var(--warning); font-weight: 600; font-size: 13.5px; border-bottom: 1px solid var(--border); }
+.view-as-bar[hidden] { display: none; }
+.view-as-btn { margin-top: 6px; gap: 6px; }
+.view-as-btn svg { width: 15px; height: 15px; }
 .sidebar-foot { margin-top: auto; font-size: 12px; color: var(--text-3); padding: 10px; border-top: 1px solid var(--border); }
 
 .main { min-width: 0; display: flex; flex-direction: column; }
@@ -185,11 +201,16 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 }
 .icon-btn:hover { background: var(--surface-3); color: var(--text); }
 
-input[type="text"], input[type="search"], input[type="password"], input[type="tel"], select, textarea {
+input[type="text"], input[type="search"], input[type="password"], input[type="tel"], input[type="url"], input[type="number"],
+input[type="date"], input[type="time"], select, textarea {
   font: inherit; color: var(--text); background: var(--surface); height: 36px; padding: 0 10px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); min-width: 0; width: 100%;
 }
 select { padding-inline-end: 28px; }
+textarea { height: auto; padding: 8px 10px; resize: vertical; line-height: 1.5; }
+input[type="date"], input[type="time"], input[type="number"] { font-variant-numeric: tabular-nums; }
+.field.bad input, .field.bad textarea, .field.bad select { border-color: var(--danger); }
+.field[hidden] { display: none; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus); }
 input[readonly] { background: var(--surface-2); color: var(--text-2); }
 .field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 500; color: var(--text-2); }

@@ -22,12 +22,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "Study day id from the closed catalogue in the prompt",
-            "enum": [
-              "payroll-2026-12-08-zoom",
-              "payroll-2026-12-22-hotel",
-              "payroll-2027-01-12-zoom"
-            ]
+            "description": "Study day id from the closed catalogue in the prompt"
           }
         },
         "required": [
@@ -46,12 +41,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "Study day id from the closed catalogue in the prompt",
-            "enum": [
-              "payroll-2026-12-08-zoom",
-              "payroll-2026-12-22-hotel",
-              "payroll-2027-01-12-zoom"
-            ]
+            "description": "Study day id from the closed catalogue in the prompt"
           }
         },
         "required": [
@@ -104,12 +94,7 @@
             "description": "The study day the customer chose or talked about, if any (from the catalogue). Omit when none",
             "type": "string",
             "minLength": 1,
-            "maxLength": 100,
-            "enum": [
-              "payroll-2026-12-08-zoom",
-              "payroll-2026-12-22-hotel",
-              "payroll-2027-01-12-zoom"
-            ]
+            "maxLength": 100
           },
           "requested_time": {
             "description": "When the customer wants the rep to call back: ISO 8601 date-time (Asia/Jerusalem local time), exactly the hour and minutes they said - never rounded",

@@ -1,5 +1,7 @@
-// The dashboard shell: secret, navigation (#/screen), the top bar (server, dialer, line, live call), theme.
-import { get, loadSecret, post, setSecret } from "./api.js";
+// The dashboard shell: logging in, navigation (#/screen) by role, the top bar (server, dialer, line, live call), theme.
+// Mishlav's users (role "mishlav") see the work screens and a test call to themselves; the rest is ours (admin). The
+// server enforces the same split (apps/backend/src/access.ts): hiding a tab here is only for a clean screen.
+import { get, isAdmin, login, loadSecret, logout, post, session, setSecret, setViewAs, whoAmI } from "./api.js";
 import { live, liveCall, refreshLive, startLive, subscribe } from "./live.js";
 import { $, closeDrawer, confirmDialog, DIALER_STATE_HE, esc, fmtDateTime, fmtDuration, icon, ls, toast } from "./ui.js";
 import calls, { openCall } from "./views/calls.js";
@@ -8,15 +10,21 @@ import gold from "./views/gold.js";
 import logs from "./views/logs.js";
 import overview from "./views/overview.js";
 import reps from "./views/reps.js";
+import studyDays from "./views/study-days.js";
 import results from "./views/results.js";
+import selfTest from "./views/self-test.js";
 import testing from "./views/testing.js";
+import users from "./views/users.js";
 
 const VIEWS = [
-  { group: "עבודה", items: [overview, contacts, calls, reps] },
-  { group: "בדיקות", items: [testing, results] },
-  { group: "מערכת", items: [logs, gold] },
+  { group: "עבודה", items: [overview, contacts, calls, reps, studyDays] },
+  { group: "בדיקות", items: [selfTest, testing, results] },
+  { group: "מערכת", items: [users, logs, gold] },
 ];
-const ALL = VIEWS.flatMap((g) => g.items);
+// who sees a screen (default: everyone)
+const ONLY = { testing: "admin", results: "admin", users: "admin", logs: "admin", gold: "admin", "self-test": "mishlav" };
+const allowed = (v) => !ONLY[v.id] || ONLY[v.id] === session.role;
+let ALL = VIEWS.flatMap((g) => g.items);
 // old bookmarks (#tab=phone) from the previous dashboard
 const LEGACY = { phone: "testing", test: "testing", logs: "logs", results: "results" };
 
@@ -32,7 +40,8 @@ function routeId() {
 }
 
 function renderNav() {
-  $("nav").innerHTML = VIEWS.map(
+  ALL = VIEWS.flatMap((g) => g.items).filter(allowed);
+  $("nav").innerHTML = VIEWS.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length).map(
     (g) =>
       `<div class="nav-sep">${esc(g.group)}</div>` +
       g.items.map((v) => `<a href="#/${v.id}" data-id="${v.id}">${icon(v.icon)}<span>${esc(v.title)}</span>${v.id === "reps" ? `<span class="count" id="repCount" hidden></span>` : ""}</a>`).join(""),
@@ -86,9 +95,9 @@ function renderTop() {
     const on = d.enabled === true;
     const tone = !on ? "" : d.state === "error" ? "bad" : d.state === "running" || d.state === "in_call" ? "ok" : "warn";
     const title = [d.reason && `סיבה: ${d.reason}`, d.changed_at && `שונה: ${fmtDateTime(d.changed_at)}`, d.last_error && `תקלה אחרונה: ${d.last_error.message}`].filter(Boolean).join("\n");
-    dialer = `<span class="dialer-ctl"><span class="pill" title="${esc(title)}"><span class="ldot ${tone}"></span><span class="hide-sm">חיוג אוטומטי</span> <b>${on ? esc(DIALER_STATE_HE[d.state] ?? d.state) : "כבוי"}</b></span>${
-      on ? `<button class="btn danger" id="dialerStop">⏹ עצור חיוג</button>` : `<button class="btn success" id="dialerStart">▶ הפעל חיוג</button>`
-    }</span>`;
+    // the switch is ours (admin); Mishlav's users see the state only
+    const btn = !isAdmin() ? "" : on ? `<button class="btn danger" id="dialerStop">⏹ עצור חיוג</button>` : `<button class="btn success" id="dialerStart">▶ הפעל חיוג</button>`;
+    dialer = `<span class="dialer-ctl"><span class="pill" title="${esc(title)}"><span class="ldot ${tone}"></span><span class="hide-sm">חיוג אוטומטי</span> <b>${on ? esc(DIALER_STATE_HE[d.state] ?? d.state) : "כבוי"}</b></span>${btn}</span>`;
   }
   // each part only when it changed: a button replaced under the pointer would lose the click
   const parts = { envPill, linePill, callPill, dialer };
@@ -158,17 +167,71 @@ function toggleTheme() {
   renderThemeBtn();
 }
 
-// ------------------------------------------------------------------ secret + boot
-function askSecret() {
-  const dlg = $("secretModal");
+// ------------------------------------------------------------------ logging in
+function askLogin() {
+  const dlg = $("loginModal");
   if (dlg.open) return;
+  closeDrawer();
+  $("loginPassword").value = "";
   $("secretInput").value = "";
+  $("loginError").hidden = true;
   dlg.showModal();
+  $("loginPhone").focus();
+}
+
+function loginError(text) {
+  $("loginError").textContent = text;
+  $("loginError").hidden = false;
+}
+
+async function afterLogin() {
+  // a new person in this browser: start from a clean page
+  if (booted) { location.reload(); return; }
+  const me = await whoAmI();
+  if (!me) { loginError("הכניסה לא הצליחה"); return; }
+  $("loginModal").close();
+  boot();
+}
+
+const ROLE_HE = { admin: "צוות הפרויקט", mishlav: "משלב" };
+function renderUser() {
+  const u = session.user;
+  const box = $("userBox");
+  box.hidden = false;
+  box.innerHTML = `<div class="user-name">${esc(u?.name ?? "סיסמת השרת")}</div>
+    <div class="user-sub">${esc(ROLE_HE[session.role] ?? session.role)}${u ? ` · <span class="ltr">${esc(u.phone.replace(/^\+972/, "0"))}</span>` : ""}</div>
+    <div class="row user-actions">${u ? `<button class="btn sm" id="pwBtn">החלפת סיסמה</button>` : ""}<button class="btn sm" id="logoutBtn">יציאה</button></div>
+    ${isAdmin() ? `<button class="btn sm view-as-btn" id="viewAsBtn" title="לראות בדיוק מה שאנשי משלב רואים">${icon("eye")} צפייה כמו משלב</button>` : ""}`;
+  $("logoutBtn").onclick = async () => { await logout(); location.reload(); };
+  // an admin seeing what Mishlav sees (this tab only; the server answers as it would them: api.js)
+  if (isAdmin()) $("viewAsBtn").onclick = () => { setViewAs(true); location.reload(); };
+  $("viewAsBar").hidden = !session.viewingAs;
+  $("viewAsExit").onclick = () => { setViewAs(false); location.reload(); };
+  if (u) $("pwBtn").onclick = () => {
+    $("pwCurrent").value = $("pwNew").value = "";
+    $("pwError").hidden = true;
+    $("pwModal").showModal();
+    $("pwCurrent").focus();
+  };
+}
+
+async function changePassword(e) {
+  e.preventDefault();
+  try {
+    await post("/auth/password", { current: $("pwCurrent").value, password: $("pwNew").value });
+    $("pwModal").close();
+    toast("הסיסמה הוחלפה. בדפדפנים אחרים צריך להתחבר מחדש.", "ok");
+  } catch (err) {
+    $("pwError").textContent = err.message;
+    $("pwError").hidden = false;
+  }
 }
 
 function boot() {
   if (booted) return;
   booted = true;
+  renderNav();
+  renderUser();
   startLive();
   subscribe(renderTop);
   setInterval(renderTop, 1000); // the live call's clock
@@ -177,10 +240,9 @@ function boot() {
   show(routeId());
 }
 
-function init() {
+async function init() {
   $("menuBtn").innerHTML = icon("menu");
   $("drawerClose").innerHTML = icon("x");
-  renderNav();
   renderThemeBtn();
   $("themeBtn").onclick = toggleTheme;
   $("menuBtn").onclick = () => setMenu(!$("sidebar").classList.contains("open"));
@@ -195,14 +257,38 @@ function init() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderThemeBtn);
   window.addEventListener("hashchange", () => booted && show(routeId()));
-  window.addEventListener("auth-required", askSecret);
-  $("secretForm").addEventListener("submit", () => {
-    setSecret($("secretInput").value.trim());
-    if (booted) location.reload();
-    else boot();
+  window.addEventListener("auth-required", askLogin);
+  $("loginModal").addEventListener("cancel", (e) => e.preventDefault()); // Esc doesn't skip the login
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const phone = $("loginPhone").value.trim();
+    const password = $("loginPassword").value;
+    if (!phone || !password) { loginError("הכנס מספר טלפון וסיסמה"); return; }
+    $("loginBtn").disabled = true;
+    try {
+      await login(phone, password);
+      await afterLogin();
+    } catch (err) {
+      loginError(err.message);
+    } finally { $("loginBtn").disabled = false; }
   });
-  if (loadSecret()) boot();
-  else askSecret();
+  $("secretBtn").onclick = async () => {
+    const value = $("secretInput").value.trim();
+    if (!value) return;
+    setSecret(value);
+    try { await afterLogin(); } catch (err) { loginError(err.message); }
+  };
+  $("pwForm").addEventListener("submit", changePassword);
+  $("pwCancel").onclick = () => $("pwModal").close();
+
+  loadSecret();
+  try {
+    if (await whoAmI()) boot();
+    else askLogin();
+  } catch (err) {
+    askLogin();
+    loginError(err.message);
+  }
 }
 
 init();

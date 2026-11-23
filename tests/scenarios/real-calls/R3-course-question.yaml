@@ -7,7 +7,7 @@ description: >
   the bot's scope: it gives no course prices, tracks or discounts and hands off with course_interest (a lead).
 context:
   first_name: "מירב"
-  interested_day_id: payroll-2026-12-08-zoom
+  interested_day_id: 2027-02-21-zoom
 actor_script:
   - "האמת שאני חושבת בכלל על הקורס של חשבי שכר. כמה הוא עולה?"
   - "יש מסלול בימי שישי? ויש הנחה?"

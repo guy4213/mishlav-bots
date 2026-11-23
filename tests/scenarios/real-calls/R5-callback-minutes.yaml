@@ -7,7 +7,7 @@ description: >
   from now (or the nearest slot the tool offers) - not tomorrow - and sends no link.
 context:
   first_name: "שביט"
-  interested_day_id: payroll-2026-12-08-zoom
+  interested_day_id: 2027-02-21-zoom
 actor_script:
   - "יש מצב שנדבר עוד עשר דקות? אני באמצע משהו."
   - "כן, תחזרי אליי עוד עשר דקות."

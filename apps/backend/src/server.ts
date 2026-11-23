@@ -1,22 +1,27 @@
 import { join } from "node:path";
 import { LOG_FILES } from "@mishlav/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import { mayCall, type Principal, VIEW_AS_HEADER, viewAs } from "./access";
 import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
 import { type AdminStore, ContactEvents, type ContactStore, type DialerStore } from "./contacts";
 import { Dialer, parseOnlyNumbers } from "./dialer";
 import type { GenderClassifier } from "./gender";
 import { JsonlFile } from "./jsonl";
-import { loadKnowledge } from "./knowledge";
+import { type KnowledgeBase, loadGeneral, loadKnowledge } from "./knowledge";
 import { registerAdminRoutes } from "./routes/admin";
+import { registerAuthRoutes } from "./routes/auth";
 import { isDashboardFile, registerDashboardRoutes } from "./routes/dashboard";
 import { GOLD_CHANGES_PATH, registerGoldRoutes } from "./routes/gold";
 import { type PhoneHolder, registerPhoneRoutes } from "./routes/phone";
+import { registerStudyDayRoutes } from "./routes/study-days";
 import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
 import { type LogStore, pinoText, ServerLog, tapConsole } from "./serverlog";
 import { SessionStore } from "./sessions";
 import { type SmsSender, smsSenderFromEnv } from "./sms";
+import { LiveKnowledge, type StudyDayStore } from "./study-days";
+import { publicUser, type UserStore, Users } from "./users";
 
 export interface BuildOptions {
   now?: () => Date;
@@ -42,20 +47,26 @@ export interface BuildOptions {
   sms?: SmsSender;
   /** Where the dashboard's log is kept, so a deploy doesn't wipe it (main.ts: Supabase server_logs). */
   logStore?: LogStore;
+  /**
+   * The study days in Supabase (main.ts: the same store): the bot reads them at start and every minute, the dashboard
+   * edits them. None: the fixed days of config.offlineDaysDir (tests, text runs).
+   */
+  studyDays?: StudyDayStore;
+  /** Who may log in to the dashboard (main.ts: the same Supabase store). None: TOOLS_SECRET only. */
+  users?: UserStore;
   /** main.ts only: the process's console output goes into the dashboard's log too */
   tapConsole?: boolean;
 }
 
-/** Paths without TOOLS_SECRET: health check, the dashboard's static files (no data; the page sends the secret),
- * and the Gold API (its own key, routes/gold.ts). */
+/** Paths without a login: health check, the dashboard's static files (no data), logging in / out, and the Gold API
+ * (its own key, routes/gold.ts). */
 function isPublic(url: string): boolean {
   const path = url.split("?")[0]!;
-  return path === "/healthz" || path === GOLD_CHANGES_PATH || isDashboardFile(path);
+  return path === "/healthz" || path === GOLD_CHANGES_PATH || path === "/auth/login" || path === "/auth/logout" || isDashboardFile(path);
 }
 
 export async function buildServer(config: AppConfig, opts: BuildOptions = {}): Promise<FastifyInstance> {
   const now = opts.now ?? (() => new Date());
-  const knowledge = loadKnowledge(config.knowledgeDir);
   const toolLog = new JsonlFile(join(config.logDir, LOG_FILES.toolCalls));
   const metricsLog = new JsonlFile(join(config.logDir, LOG_FILES.metrics));
   const sessions = new SessionStore(new JsonlFile(join(config.logDir, LOG_FILES.sessions)), now);
@@ -99,21 +110,45 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     }
   });
 
+  let knowledge: KnowledgeBase = { days: new Map(), general: "" }; // set below, before the server listens
+  let liveDays: LiveKnowledge | undefined;
   app.get("/healthz", async () => ({
     ok: true,
     service: "mishlav-tools-server",
     mode: "test",
     days: knowledge.days.size,
+    days_source: liveDays ? "supabase" : "files",
     session: sessions.current()?.session_id ?? null,
   }));
 
-  // Shared-secret auth on everything except the public paths.
+  // Everything but the public paths needs TOOLS_SECRET (the bot, the worker, scripts, `npm run lab`: all of it) or a
+  // logged-in dashboard user, who may call what their role allows (access.ts).
+  const users = opts.users ? new Users(opts.users, config.toolsSecret) : undefined;
+  app.decorateRequest("principal", null);
   app.addHook("onRequest", async (req, reply) => {
     if (isPublic(req.url)) return;
-    if (!secretMatches(presentedSecret(req), config.toolsSecret)) {
-      toolLog.append({ type: "auth_failure", ts: now().toISOString(), path: req.url.split("?")[0], ip: req.ip });
-      return reply.code(401).send({ ok: false, error: "unauthorized" });
+    const path = req.url.split("?")[0]!;
+    let principal: Principal;
+    if (secretMatches(presentedSecret(req), config.toolsSecret)) {
+      principal = { role: "admin", via: "secret", user: null };
+    } else {
+      let user = null;
+      try {
+        user = users ? await users.fromRequest(req) : null;
+      } catch {
+        return reply.code(503).send({ ok: false, error: "users_unavailable", message_he: "לא ניתן לבדוק את הכניסה כרגע (Supabase). נסה שוב בעוד דקה." });
+      }
+      if (!user) {
+        toolLog.append({ type: "auth_failure", ts: now().toISOString(), path, ip: req.ip });
+        return reply.code(401).send({ ok: false, error: "unauthorized" });
+      }
+      principal = { role: user.role, via: "session", user: publicUser(user) };
     }
+    principal = viewAs(principal, req.headers[VIEW_AS_HEADER]); // an admin seeing exactly what Mishlav sees
+    if (!mayCall(principal.role, req.method, path)) {
+      return reply.code(403).send({ ok: false, error: "forbidden", message_he: "אין לך הרשאה לפעולה הזו" });
+    }
+    req.principal = principal;
   });
 
   const phone = opts.phone ?? { line: null, reason: "not started" };
@@ -126,6 +161,25 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     app.addHook("onClose", async () => untap());
   }
   serverLog.start();
+
+  // the study days: Supabase (refreshed every minute and after each dashboard change), else the fixed files.
+  // A server that can't read them at start doesn't start (Render then keeps the previous deploy running).
+  if (opts.studyDays) {
+    const live = new LiveKnowledge(opts.studyDays, loadGeneral(config.knowledgeDir), (kind, text) => serverLog.push(kind, text));
+    try {
+      await live.refresh();
+    } catch (err) {
+      throw new Error(
+        `could not read the study days from Supabase (is migration 20261124000000_study_days applied?): ${(err as Error).message}`,
+      );
+    }
+    live.start();
+    app.addHook("onClose", async () => live.stop());
+    liveDays = live;
+    knowledge = live;
+  } else {
+    knowledge = loadKnowledge(config.knowledgeDir, config.offlineDaysDir);
+  }
   // recordings older than settings.recordings.retention_days are deleted: at start, then every 12 h (0: kept for good)
   const admin = opts.admin;
   if (admin?.pruneRecordings && config.settings.recordings.retention_days > 0) {
@@ -200,7 +254,8 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     settings: config.settings,
   });
   await registerDashboardRoutes(app, { config, sessions, now, env: opts.env, manualInputsPath: opts.manualInputsPath });
-  await registerPhoneRoutes(app, phone, { contacts, settings: config.settings, transcriptsDir });
+  await registerPhoneRoutes(app, phone, { contacts, settings: config.settings, transcriptsDir, knowledge: () => knowledge, now });
+  await registerAuthRoutes(app, { users, now, log: (text) => serverLog.push("server", text) });
   await registerAdminRoutes(app, {
     dialer,
     contacts: opts.contacts,
@@ -214,6 +269,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     sms,
     now,
   });
+  await registerStudyDayRoutes(app, { studyDays: opts.studyDays && liveDays && { store: opts.studyDays, live: liveDays }, now });
   await registerGoldRoutes(app, {
     contacts: opts.contacts,
     settings: config.settings,

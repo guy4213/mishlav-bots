@@ -106,6 +106,7 @@ const PLACEHOLDERS: Record<string, string> = {
   interested_day_id: "לא ידוע",
   current_datetime: "",
   customer_context: "",
+  day_catalog: "",
 };
 
 // ---------------------------------------------------------------- tools

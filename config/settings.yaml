@@ -59,7 +59,7 @@ dialing:
   requested_courses: ["יום עיון חשבונאות"]
 
 # The purchase link the bot sends (send_purchase_link). {day} = the study day in Hebrew, {url} = its purchase_url
-# (config/knowledge/days/*.md). TODO(mishlav): the final wording and the sender name.
+# (Supabase study_days, edited in the dashboard). TODO(mishlav): the final wording and the sender name.
 sms:
   link_template: "משלב: קישור לרכישת {day}: {url}"
   # TEMPORARY, tests only: sent instead of link_template. Zadarma refuses links in SMS to Israel ("Links in SMS to

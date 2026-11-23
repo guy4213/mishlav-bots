@@ -4,7 +4,7 @@ import { dayNoteHe, otherDates, toolHandlers } from "../src/tools/handlers";
 
 const day = (id: string, format: StudyDay["format"], date: string, series = "year-end", open = true): StudyDay => ({
   id, title: id, topic: "t", date, start: "09:00", end: "14:00", format, location: "x",
-  price_ils: format === "zoom" ? 370 : 790, vat_included: true, open_for_registration: open, series, description: "",
+  price_ils: format === "zoom" ? 370 : 790, vat_included: true, open_for_registration: open, series, lecturers: [], description: "",
 });
 
 const kb = (...days: StudyDay[]): KnowledgeBase => ({ days: new Map(days.map((d) => [d.id, d])), general: "" });

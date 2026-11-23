@@ -7,7 +7,7 @@ description: >
   persuade (no 50% / 300 ₪ pitch), says only the one fixed closing sentence and ends with not_interested.
 context:
   first_name: "אורנה"
-  interested_day_id: payroll-2026-12-08-zoom
+  interested_day_id: 2027-02-21-zoom
 actor_script:
   - "לא, תודה. אני כבר יצאתי לפנסיה."
 expect:

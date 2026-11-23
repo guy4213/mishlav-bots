@@ -8,7 +8,7 @@ description: >
   and hands off with company_purchase.
 context:
   first_name: "רונית"
-  interested_day_id: payroll-2026-12-22-hotel
+  interested_day_id: 2027-05-17-hotel
 actor_script:
   - "שוב? כבר דיברתי איתכם, שלחתי טופס לשתי עובדות."
   - "אנחנו מחכים לאישור של ועדת הרכש. כמה פעמים אפשר לשאול אותי את אותן שאלות?"

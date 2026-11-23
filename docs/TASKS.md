@@ -26,8 +26,9 @@ M1 ──► M2 ──► M3 ──┐
 - [x] **1.1 Repo & structure** (~1h) — npm workspaces, `apps/backend`, `packages/shared`, `config/`, `tests/`, `scripts/`, tsconfig, vitest, `.env.example`, README.
 - [~] **1.2 Prompt & knowledge** (~2h) — only the real materials are open (blocked on Mishlav)
   - [x] `config/prompt.md` — flow 4.5, rules 4.6, boundaries 4.2, Hebrew lock, voicemail/card rules
-  - [~] `config/knowledge/` — 3 study days + `general.md` (placeholders, `TODO(mishlav)`)
-  - [ ] Replace placeholders with real Mishlav materials (dates, hours, location, lecturers, cancellation policy)
+  - [x] Study days: the yellow page 2027 (`docs/yellow-page-2027.md`), in Supabase `study_days`, edited in the dashboard ("ימי עיון"); `general.md` prices, benefit, cancellation from the yellow page
+  - [ ] Course numbers and purchase links per study day (not on the yellow page; Mishlav fills them in the dashboard)
+  - [ ] Which Gold field takes the course number (today: in the bot's note)
 - [x] **1.3 Tools server with log** (~1h)
   - [x] 5 endpoints with fixed answers, strict schemas, `ok:false` errors
   - [x] Business-hours logic for `schedule_callback` (Sun–Thu 09–17, holidays, DST)
@@ -103,7 +104,9 @@ M1 ──► M2 ──► M3 ──┐
 - [ ] **Tests** (7h) — unit (rules, hours, normalisation, dedup, idempotency, locks, block list, validation), integration (Importer → … → Export), load (20 concurrent, no double dial, no stuck record)
 - [ ] **Deploy** (2h) — Render Frankfurt (web + background worker), structured logs per `callId`, `/healthz`, alerts, kill switch
 
-- [x] **Management dashboard** — replaces the provider-testing lab: `apps/backend/dashboard/` (ES modules, no build), screens overview / contacts / calls / rep tasks / testing / results / logs / Gold, dialer stop/start in the top bar, light + dark, phone layout; routes `/api/admin/{env,summary,contacts,calls,rep-tasks,logs}`; transcripts stored in `calls.transcript` at the end of a contact's call (migration `20261118010000_dashboard`). Left: Mishlav management access (real login), tool actions also in the database (today from `tool-calls.jsonl`, lost on deploy), delete `apps/backend/test/hangup-rule.test.ts` (skips itself; the browser call is gone)
+- [x] **Management dashboard** — replaces the provider-testing lab: `apps/backend/dashboard/` (ES modules, no build), screens overview / contacts / calls / rep tasks / testing / results / logs / Gold, dialer stop/start in the top bar, light + dark, phone layout; routes `/api/admin/{env,summary,contacts,calls,rep-tasks,logs}`; transcripts stored in `calls.transcript` at the end of a contact's call (migration `20261118010000_dashboard`). Mishlav access: done (phone + password per person, roles admin / mishlav, screen "משתמשים", a test call to one's own phone; migration `20261125000000_dashboard_users`). Left: tool actions also in the database (today from `tool-calls.jsonl`, lost on deploy), delete `apps/backend/test/hangup-rule.test.ts` (skips itself; the browser call is gone)
+  - [ ] Apply migration `20261125000000_dashboard_users` to Supabase; add the users in "משתמשים": admins Guy, Yair; Mishlav: Eden, Ofer, Yehuda, Amit, Anat (phone numbers from Guy)
+  - [ ] Render: a paid instance that never sleeps (the dialer and the phone line run inside the server), then give Mishlav the production URL
 
 ## Phase 5 — Winning branch (G) → M5
 
@@ -138,4 +141,4 @@ M1 ──► M2 ──► M3 ──┐
 - [ ] Link channel: SMS or WhatsApp
 - [ ] Approve 4.7 defaults; confirm list is permitted for marketing outreach
 - [ ] Call recording yes/no (if yes → opening announcement)
-- [ ] Real study-day materials for the knowledge base
+- [x] Real study-day materials for the knowledge base (the yellow page 2027)

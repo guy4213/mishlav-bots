@@ -16,6 +16,8 @@
 import type { AiUsage, Settings } from "@mishlav/shared";
 import type { Gender } from "./gender";
 import type { LogStore, StoredLogLine } from "./serverlog";
+import { StudyDayExists, type StudyDayRow, type StudyDayStore, type StudyDayWrite } from "./study-days";
+import { type DashboardUser, type UserStore, UserExists } from "./users";
 import type { TranscriptLine } from "./transcripts";
 
 /** Gold's columns, as in the export (settings.yaml gold_import.columns). */
@@ -255,7 +257,7 @@ function callRow(r: Omit<CallRow, "full_name"> & { contacts?: Embedded<{ full_na
   return { ...call, full_name: one(contacts)?.full_name ?? null };
 }
 
-export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, LogStore {
+export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, LogStore, StudyDayStore, UserStore {
   private readonly base: string;
   constructor(
     url: string,
@@ -280,7 +282,10 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(`Supabase ${method} ${path.split("?")[0]}: HTTP ${res.status} ${text.slice(0, 200)}`);
+    if (!res.ok) {
+      const err = new Error(`Supabase ${method} ${path.split("?")[0]}: HTTP ${res.status} ${text.slice(0, 200)}`);
+      throw Object.assign(err, { status: res.status });
+    }
     return (text ? JSON.parse(text) : null) as T;
   }
 
@@ -484,6 +489,65 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
 
   async setBotVoice(voice: string | null) {
     await this.req("PATCH", "/dialer_control?id=eq.true", { voice });
+  }
+
+  // ---- the study days (study-days.ts): the dashboard edits them, the bot reads them every minute
+
+  studyDays() {
+    return this.req<StudyDayRow[]>("GET", "/study_days?select=*&order=date.asc,id.asc");
+  }
+
+  async createStudyDay(row: StudyDayWrite & { id: string }) {
+    try {
+      const rows = await this.req<StudyDayRow[]>("POST", "/study_days", row, { prefer: "return=representation" });
+      return rows[0]!;
+    } catch (err) {
+      if ((err as { status?: number }).status === 409) throw new StudyDayExists(row.id);
+      throw err;
+    }
+  }
+
+  async updateStudyDay(id: string, row: StudyDayWrite) {
+    const rows = await this.req<StudyDayRow[]>(
+      "PATCH",
+      `/study_days?id=eq.${encodeURIComponent(id)}`,
+      { ...row, updated_at: new Date().toISOString() },
+      { prefer: "return=representation" },
+    );
+    return rows[0] ?? null;
+  }
+
+  async setStudyDayArchived(id: string, archived: boolean) {
+    const at = new Date().toISOString();
+    const rows = await this.req<StudyDayRow[]>(
+      "PATCH",
+      `/study_days?id=eq.${encodeURIComponent(id)}`,
+      { archived_at: archived ? at : null, updated_at: at },
+      { prefer: "return=representation" },
+    );
+    return rows[0] ?? null;
+  }
+
+  // ---- the dashboard's logins (users.ts)
+  dashboardUsers() {
+    return this.req<DashboardUser[]>("GET", "/dashboard_users?select=*&order=created_at.asc");
+  }
+
+  async createDashboardUser(row: Pick<DashboardUser, "phone" | "name" | "role" | "password_hash">) {
+    try {
+      const rows = await this.req<DashboardUser[]>("POST", "/dashboard_users", row, { prefer: "return=representation" });
+      return rows[0]!;
+    } catch (err) {
+      if ((err as { status?: number }).status === 409) throw new UserExists(row.phone);
+      throw err;
+    }
+  }
+
+  async updateDashboardUser(id: string, patch: Partial<DashboardUser>) {
+    const rows = await this.req<DashboardUser[]>("PATCH", `/dashboard_users?id=eq.${encodeURIComponent(id)}`, patch, {
+      prefer: "return=representation",
+    });
+    return rows[0] ?? null;
   }
 
   setDialer(enabled: boolean, reason: string | null) {

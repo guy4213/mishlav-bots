@@ -5,26 +5,28 @@ import { buildCustomerContext, currentDatetimeHe } from "../src/context";
 import { loadKnowledge, type KnowledgeBase, type StudyDay } from "../src/knowledge";
 import { AUTH, FIXED_NOW, testServer } from "./helpers";
 
-const kb = loadKnowledge(join(findRepoRoot(__dirname), "config", "knowledge"));
+const kb = loadKnowledge(join(findRepoRoot(__dirname), "config", "knowledge"), join(findRepoRoot(__dirname), "tests", "fixtures", "days"));
 
 describe("customer context (facts only)", () => {
   it("hotel day: format, only date, and the other topics with their format", () => {
-    const text = buildCustomerContext(kb, "payroll-2026-12-22-hotel", FIXED_NOW);
-    expect(text).toContain('"סגירת שנת מס בשכר" – יום פרונטלי במלון, 22.12.2026');
+    const text = buildCustomerContext(kb, "2027-05-17-hotel", FIXED_NOW);
+    expect(text).toContain('"דיני עבודה ומס הכנסה" – יום פרונטלי במלון, 17.5.2027');
     expect(text).toContain("זה המועד היחיד של יום העיון הזה כרגע");
-    expect(text).toContain("בקטלוג יש עוד שני ימי עיון בנושאים אחרים, שניהם בזום");
+    expect(text).toContain("בקטלוג יש עוד 7 ימי עיון בנושאים אחרים: ");
+    expect(text).toContain("ביטוח לאומי וביטוח פנסיוני (בזום, 17–18.3.2027)");
   });
 
   it("unknown day: one sentence over the catalogue", () => {
     const text = buildCustomerContext(kb, undefined, FIXED_NOW);
-    expect(text).toMatch(/^לא ידוע באיזה יום עיון הלקוח התעניין\. בקטלוג 3 ימי עיון: /);
-    expect(text).toContain("סגירת שנת מס בשכר – פרונטלי במלון, 22.12.2026");
+    expect(text).toMatch(/^לא ידוע באיזה יום עיון הלקוח התעניין\. בקטלוג 8 ימי עיון: /);
+    expect(text).toContain("דיני עבודה ומס הכנסה – פרונטלי במלון, 17.5.2027");
+    expect(text).toContain("דיני עבודה ומס הכנסה – עיון אחד בשני מפגשים בזום, 21–22.2.2027");
   });
 
   it("uses the series: other dates in the same format vs the same day in the other format", () => {
     const d = (id: string, format: StudyDay["format"], date: string, series: string): StudyDay => ({
       id, title: `נושא ${series}`, topic: "t", date, start: "09:00", end: "14:00", format, location: "x",
-      price_ils: 1, vat_included: true, open_for_registration: true, series, description: "",
+      price_ils: 1, vat_included: true, open_for_registration: true, series, lecturers: [], description: "",
     });
     const days = [d("h1", "hotel", "2026-12-22", "a"), d("h2", "hotel", "2027-02-16", "a"), d("z1", "zoom", "2027-01-05", "a")];
     const k: KnowledgeBase = { days: new Map(days.map((x) => [x.id, x])), general: "" };
@@ -45,8 +47,8 @@ describe("GET /test/context", () => {
     const r = await app.inject({ method: "GET", url: "/test/context?scenario=S1", headers: AUTH });
     expect(r.statusCode).toBe(200);
     const { variables } = r.json();
-    expect(Object.keys(variables).sort()).toEqual(["bot_name", "current_datetime", "customer_context", "customer_gender", "first_name", "interested_day_id"]);
-    expect(variables).toMatchObject({ first_name: "דנה", bot_name: "נועה", interested_day_id: "payroll-2026-12-22-hotel" });
+    expect(Object.keys(variables).sort()).toEqual(["bot_name", "current_datetime", "customer_context", "customer_gender", "day_catalog", "first_name", "interested_day_id"]);
+    expect(variables).toMatchObject({ first_name: "דנה", bot_name: "נועה", interested_day_id: "2027-05-17-hotel" });
     expect(variables.customer_context).toContain("יום פרונטלי במלון");
   });
 
@@ -56,8 +58,8 @@ describe("GET /test/context", () => {
     expect(plain).toMatchObject({ first_name: "דנה", interested_day_id: "לא ידוע" });
     expect(plain.customer_context).toMatch(/^לא ידוע אם דנה גבר או אישה\. לא ידוע באיזה יום עיון/);
 
-    const over = await app.inject({ method: "GET", url: "/test/context?scenario=S1&first_name=רון&day_id=payroll-2027-01-12-zoom", headers: AUTH });
-    expect(over.json().variables).toMatchObject({ first_name: "רון", interested_day_id: "payroll-2027-01-12-zoom" });
+    const over = await app.inject({ method: "GET", url: "/test/context?scenario=S1&first_name=רון&day_id=2027-03-17-zoom", headers: AUTH });
+    expect(over.json().variables).toMatchObject({ first_name: "רון", interested_day_id: "2027-03-17-zoom" });
 
     expect((await app.inject({ method: "GET", url: "/test/context?scenario=NOPE", headers: AUTH })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/test/context" })).statusCode).toBe(401);

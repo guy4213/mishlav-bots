@@ -26,7 +26,7 @@ describe("auth", () => {
     const { app } = await setup();
     const res = await app.inject({ method: "GET", url: "/healthz" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ ok: true, days: 3 });
+    expect(res.json()).toMatchObject({ ok: true, days: 8, days_source: "files" });
   });
 
   it("rejects tools without / with a wrong secret and logs the failure", async () => {
@@ -49,19 +49,19 @@ describe("auth", () => {
 describe("tools", () => {
   it("get_day_info returns knowledge, unknown day is an ok:false error", async () => {
     const { post } = await setup();
-    const ok = (await post("/tools/get_day_info", { day_id: "payroll-2026-12-22-hotel" })).json();
+    const ok = (await post("/tools/get_day_info", { day_id: "2027-05-17-hotel" })).json();
     expect(ok).toMatchObject({ ok: true, day: { price_ils: 790, format: "hotel", vat_included: true } });
     expect(ok.general).toContain("50%");
     const bad = (await post("/tools/get_day_info", { day_id: "eilat-intl-tax" })).json();
     expect(bad).toMatchObject({ ok: false, error: "unknown_day_id" });
-    expect(bad.available_day_ids).toContain("payroll-2026-12-08-zoom");
+    expect(bad.available_day_ids).toContain("2027-02-21-zoom");
   });
 
   it("send_purchase_link refuses extra fields (link to another number)", async () => {
     const { post, toolLog } = await setup();
-    const res = (await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom", phone: "0501111111" })).json();
+    const res = (await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom", phone: "0501111111" })).json();
     expect(res).toMatchObject({ ok: false, error: "invalid_params" });
-    const ok = (await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" })).json();
+    const ok = (await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom" })).json();
     // no SMS keys in tests: log only (nothing is sent); the recipient never comes from the bot
     expect(ok).toMatchObject({ ok: true, status: "sent", sms: { sent: false, provider: "log" } });
     expect(ok.test_mode).toBeUndefined();
@@ -143,7 +143,7 @@ describe("tools", () => {
   it("actions that close the call say the next step is end_call (R1, R3, X7: goodbye, then an open line)", async () => {
     const { post } = await setup();
     const closing = [
-      await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" }),
+      await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom" }),
       await post("/tools/request_human", { reason: "company_purchase", asap: true }),
       await post("/tools/schedule_callback", { requested_time: "2026-11-10T10:00:00" }),
     ];

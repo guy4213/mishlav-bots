@@ -20,7 +20,7 @@ import { AUTH, FIXED_NOW, SECRET, testConfig } from "./helpers";
 
 const ID = "a000000000000001demo";
 const TASK_ID = "6f1c2b9e-1a2b-4c3d-8e9f-0123456789ab";
-const DAY = "payroll-2026-12-08-zoom";
+const DAY = "2027-02-21-zoom";
 
 const CONTACT: ContactRecord = {
   gold_record_id: ID,

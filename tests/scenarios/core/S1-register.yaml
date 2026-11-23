@@ -6,7 +6,7 @@ description: >
   day details, quote them from the tool, and send the purchase link.
 context:
   first_name: "דנה"
-  interested_day_id: payroll-2026-12-22-hotel
+  interested_day_id: 2027-05-17-hotel
 actor_script:
   - "כן, יש לי דקה."
   - "כמה זה עולה?"
@@ -17,10 +17,10 @@ expect:
   required_tools:
     - tool: get_day_info
       params:
-        day_id: { equals: payroll-2026-12-22-hotel }
+        day_id: { equals: 2027-05-17-hotel }
     - tool: send_purchase_link
       params:
-        day_id: { equals: payroll-2026-12-22-hotel }
+        day_id: { equals: 2027-05-17-hotel }
   forbidden_tools: [request_human]
 guide_he:
   title: רוצה להירשם
@@ -31,6 +31,6 @@ guide_he:
     - בקש שישלחו לך קישור.
   watch: []
 simulate:
-  - { tool: get_day_info, params: { day_id: payroll-2026-12-22-hotel } }
-  - { tool: send_purchase_link, params: { day_id: payroll-2026-12-22-hotel } }
+  - { tool: get_day_info, params: { day_id: 2027-05-17-hotel } }
+  - { tool: send_purchase_link, params: { day_id: 2027-05-17-hotel } }
   - { tool: end_call, params: { reason: completed } }

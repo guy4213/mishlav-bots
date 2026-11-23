@@ -2,13 +2,22 @@
  * The Zadarma phone line inside the tools server: the dashboard dials any number with a scenario and
  * follows the call live. The line itself is started by main.ts after the server listens (it checks the
  * server first); until then, or without ZADARMA_SIP_* in the env, `holder.line` is null.
+ *
+ * Mishlav's users (access.ts) don't get /test/phone/call: their test call is /api/me/test-call, to the phone they
+ * logged in with and nowhere else, as the customer of the study day they pick, under their own first name.
+ *   GET  /api/me/test-call   -> { phone, line: {available, reason, busy}, days: [{id, label}] }
+ *   POST /api/me/test-call   {day_id?} -> { call_id }
+ *   POST /api/me/hangup      -> only a call they placed
  */
 import type { Settings } from "@mishlav/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PhoneLine } from "../../../phone/src/line.js";
-import type { ContactEvents } from "../contacts";
+import { isAdmin } from "../access";
+import { todayIso } from "../context";
+import { type ContactEvents, firstName } from "../contacts";
 import { type DialError, dialContact, ringTimeoutMs } from "../dial";
+import { datesHe, FORMAT_HE, type KnowledgeBase } from "../knowledge";
 
 export interface PhoneHolder {
   line: PhoneLine | null;
@@ -35,7 +44,12 @@ export interface PhoneRouteDeps {
   settings: Settings;
   /** logs/transcripts: a contact call's transcript is stored in Supabase at its end */
   transcriptsDir?: string;
+  /** the study days a test call can be about (Mishlav's own test call) */
+  knowledge?: () => KnowledgeBase;
+  now?: () => Date;
 }
+
+const SelfDial = z.strictObject({ day_id: z.string().trim().max(100).optional() });
 
 export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHolder, deps: PhoneRouteDeps): Promise<void> {
   // the contacts to dial from the dashboard
@@ -54,7 +68,63 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
     const line = holder.line;
     if (!line) return { ok: true, available: false, reason: holder.reason, status: null, log: [] };
     const since = Number(q.since ?? 0) || 0;
-    return { ok: true, available: true, reason: null, status: line.status(), log: line.recent.filter((l) => l.seq > since) };
+    // the line's log is ours (numbers, SIP details); Mishlav's users get its state only
+    const log = isAdmin(req.principal) ? line.recent.filter((l) => l.seq > since) : [];
+    return { ok: true, available: true, reason: null, status: line.status(), log };
+  });
+
+  // ---- a test call to the logged-in user's own phone (Mishlav's people; admins can use it too)
+  const mine = new Map<string, string>(); // call_id -> the user who placed it (for their hangup)
+  const now = deps.now ?? (() => new Date());
+  const upcomingDays = () => {
+    const kb = deps.knowledge?.();
+    if (!kb) return [];
+    const today = todayIso(now());
+    return [...kb.days.values()]
+      .filter((d) => (d.end_date ?? d.date) >= today)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((d) => ({ id: d.id, label: `${d.title} · ${FORMAT_HE[d.format]} · ${datesHe(d)}` }));
+  };
+  app.get("/api/me/test-call", async (req, reply) => {
+    const user = req.principal?.user;
+    if (!user) return reply.code(409).send({ ok: false, error: "not_a_user", message_he: "שיחה אליי זמינה רק למשתמש מחובר" });
+    const line = holder.line;
+    return {
+      ok: true,
+      phone: user.phone.replace(/^\+972/, "0"),
+      line: { available: !!line, reason: line ? null : holder.reason, busy: !!line?.status().busy },
+      days: upcomingDays(),
+    };
+  });
+  app.post("/api/me/test-call", async (req, reply) => {
+    const user = req.principal?.user;
+    if (!user) return reply.code(409).send({ ok: false, error: "not_a_user", message_he: "שיחה אליי זמינה רק למשתמש מחובר" });
+    const parsed = SelfDial.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
+    const day = parsed.data.day_id;
+    if (day && !upcomingDays().some((d) => d.id === day)) {
+      return reply.code(400).send({ ok: false, error: "unknown_day_id", message_he: "אין יום עיון כזה" });
+    }
+    if (!holder.line) {
+      return reply.code(409).send({ ok: false, error: "no_phone_line", message_he: `קו הטלפון לא פעיל: ${holder.reason ?? "לא ידוע"}` });
+    }
+    try {
+      const r = await holder.line.dial(user.phone, {
+        name: firstName(user.name) ?? undefined,
+        ...(day ? { day } : {}),
+        ringTimeoutMs: ringTimeoutMs(deps.settings),
+      });
+      mine.set(r.call_id, user.id);
+      if (mine.size > 200) mine.delete(mine.keys().next().value!);
+      return { ok: true, call_id: r.call_id };
+    } catch (err) {
+      return reply.code(409).send({ ok: false, error: "dial_failed", message_he: (err as Error).message });
+    }
+  });
+  app.post("/api/me/hangup", async (req) => {
+    const current = holder.line?.status().call?.id;
+    const own = current && (isAdmin(req.principal) || mine.get(current) === req.principal?.user?.id);
+    return { ok: true, hung_up: own ? ((await holder.line?.hangup()) ?? false) : false };
   });
 
   app.post("/test/phone/call", async (req, reply) => {

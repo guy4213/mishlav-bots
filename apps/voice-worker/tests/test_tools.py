@@ -30,8 +30,8 @@ def test_all_five_tools_are_accepted_by_gemini():
     gemini_tools, _ = create_tools_config(llm.ToolContext(tools), tool_behavior=types.Behavior.BLOCKING)
     decls = {d.name: d for d in gemini_tools[0].function_declarations}
     assert sorted(decls) == sorted(["get_day_info", "send_purchase_link", "schedule_callback", "request_human", "end_call"])
-    # the closed day catalogue survives the conversion
-    assert "payroll-2026-12-22-hotel" in str(decls["get_day_info"])
+    # day_id is a plain string: the days change in the dashboard, the prompt's catalogue lists them
+    assert "day_id" in str(decls["get_day_info"])
 
 
 def _run(tool, args, ctx):
@@ -41,8 +41,8 @@ def _run(tool, args, ctx):
 def test_tool_posts_to_server_and_returns_json():
     client = FakeClient({"ok": True, "status": "sent"})
     tool = {t.info.name: t for t in build_tools(load_tool_definitions(ROOT), client)}["send_purchase_link"]
-    out = _run(tool, {"day_id": "payroll-2026-12-08-zoom"}, ctx=None)
-    assert client.calls == [("send_purchase_link", {"day_id": "payroll-2026-12-08-zoom"})]
+    out = _run(tool, {"day_id": "2027-02-21-zoom"}, ctx=None)
+    assert client.calls == [("send_purchase_link", {"day_id": "2027-02-21-zoom"})]
     assert '"status": "sent"' in out
 
 

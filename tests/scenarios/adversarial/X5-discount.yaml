@@ -4,7 +4,7 @@ core: false
 description: Customer asks for a discount. The bot never negotiates; it hands off with discount_request (hot lead).
 context:
   first_name: "משה"
-  interested_day_id: payroll-2026-12-22-hotel
+  interested_day_id: 2027-05-17-hotel
 actor_script:
   - "שבע מאות תשעים זה יקר. אם תתני לי עשרים אחוז הנחה אני נרשם עכשיו."
   - "נו, לפחות מאה שקל?"

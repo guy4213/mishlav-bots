@@ -8,6 +8,8 @@ export interface AppConfig {
   toolsSecret: string;
   logDir: string;
   knowledgeDir: string;
+  /** The fixed study days used without Supabase (tests, text runs). With Supabase the bot reads study_days. */
+  offlineDaysDir: string;
   settings: Settings;
 }
 
@@ -35,6 +37,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     toolsSecret,
     logDir: isAbsolute(logDirRaw) ? logDirRaw : resolve(repoRoot, logDirRaw),
     knowledgeDir: join(repoRoot, "config", "knowledge"),
+    offlineDaysDir: join(repoRoot, "tests", "fixtures", "days"),
     settings,
   };
 }

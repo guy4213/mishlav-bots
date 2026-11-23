@@ -9,7 +9,7 @@ import { LogOnlySms, type SmsResult, type SmsSender, smsSenderFromEnv, ZadarmaSm
 import { toolHandlers } from "../src/tools/handlers";
 import { AUTH, FIXED_NOW, testConfig } from "./helpers";
 
-const DAY = "payroll-2026-12-08-zoom";
+const DAY = "2027-02-21-zoom";
 
 describe("Zadarma signature", () => {
   it("sorted params, PHP-style encoding, base64 of the hex HMAC-SHA1 (as Zadarma's official PHP client)", () => {
@@ -175,8 +175,8 @@ describe("send_purchase_link sends the SMS to the number on the call", () => {
     });
     store.numbers.set("call-1", "053-4271418");
     const r = await send("call-1");
-    expect((sms as FakeSms).sent[0]![1]).toBe(`משלב: קישור לרכישת עדכוני חקיקה בשכר לקראת 2027 – 8–9.12.2026: https://example.com/mishlav/purchase/${DAY}`);
-    expect(r.day_he).toBe("עדכוני חקיקה בשכר לקראת 2027 – 8–9.12.2026 · בזום"); // the note in Gold: also Zoom / in person
+    expect((sms as FakeSms).sent[0]![1]).toBe(`משלב: קישור לרכישת דיני עבודה ומס הכנסה – 21–22.2.2027: https://example.com/mishlav/purchase/${DAY}`);
+    expect(r.day_he).toBe("דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום"); // the note in Gold: also Zoom / in person
   });
 
   it("a scenario call (no contact): the number the line dialed", async () => {
@@ -229,7 +229,7 @@ describe("send_purchase_link sends the SMS to the number on the call", () => {
 
   it("a day without purchase_url: no_purchase_url, nothing sent", async () => {
     const config = testConfig();
-    const knowledge = loadKnowledge(config.knowledgeDir);
+    const knowledge = loadKnowledge(config.knowledgeDir, config.offlineDaysDir);
     knowledge.days.set(DAY, { ...knowledge.days.get(DAY)!, purchase_url: undefined });
     const sms = new FakeSms();
     const r = await toolHandlers.send_purchase_link({ day_id: DAY }, { knowledge, settings: config.settings, now: () => FIXED_NOW, sms, recipient: "+972501234567" });
@@ -239,6 +239,6 @@ describe("send_purchase_link sends the SMS to the number on the call", () => {
   });
 
   it("every study day has an https purchase_url (placeholders until Mishlav sends the real ones)", () => {
-    for (const d of loadKnowledge(testConfig().knowledgeDir).days.values()) expect(d.purchase_url).toMatch(/^https:\/\//);
+    for (const d of loadKnowledge(testConfig().knowledgeDir, testConfig().offlineDaysDir).days.values()) expect(d.purchase_url).toMatch(/^https:\/\//);
   });
 });

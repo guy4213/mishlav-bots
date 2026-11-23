@@ -26,11 +26,16 @@
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
+    <div class="user-box" id="userBox" hidden></div>
     <div class="sidebar-foot" id="sidebarFoot"></div>
   </aside>
   <div class="scrim" id="scrim" hidden></div>
 
   <div class="main">
+    <div class="view-as-bar" id="viewAsBar" hidden>
+      <span>אתה רואה את הדשבורד בדיוק כמו משתמש של משלב</span>
+      <button class="btn sm" id="viewAsExit">חזרה לאדמין</button>
+    </div>
     <header class="topbar" id="topbar">
       <button class="icon-btn only-mobile" id="menuBtn" aria-label="תפריט"></button>
       <h1 class="page-title" id="pageTitle">סקירה</h1>
@@ -67,13 +72,30 @@
   </form>
 </dialog>
 
-<!-- the server secret (TOOLS_SECRET), when missing or wrong -->
-<dialog class="modal" id="secretModal">
-  <form method="dialog" class="modal-box" id="secretForm">
-    <h2 class="modal-title">כניסה לדשבורד</h2>
-    <p class="modal-text">הכנס את סיסמת השרת (<code>TOOLS_SECRET</code>). היא נשמרת בדפדפן הזה בלבד. <code>npm run lab</code> פותח את הדף כבר עם הסיסמה.</p>
-    <label class="field"><span>סיסמת השרת</span><input type="password" id="secretInput" autocomplete="current-password" required></label>
-    <div class="modal-actions"><button class="btn primary" value="ok">כניסה</button></div>
+<!-- logging in: a phone + a password; or the server secret (TOOLS_SECRET, the project team) -->
+<dialog class="modal" id="loginModal">
+  <form class="modal-box" id="loginForm" novalidate>
+    <div class="login-brand"><div class="brand-mark" aria-hidden="true">מ</div><h2 class="modal-title">כניסה לדשבורד משלב</h2></div>
+    <label class="field"><span>מספר טלפון</span><input type="tel" id="loginPhone" class="ltr" inputmode="tel" autocomplete="username" placeholder="0501234567"></label>
+    <label class="field"><span>סיסמה</span><input type="password" id="loginPassword" autocomplete="current-password"></label>
+    <p class="small login-error" id="loginError" hidden></p>
+    <div class="modal-actions"><button class="btn primary" type="submit" id="loginBtn">כניסה</button></div>
+    <details class="small muted login-secret">
+      <summary>כניסה עם סיסמת השרת</summary>
+      <label class="field"><span>סיסמת השרת (<code>TOOLS_SECRET</code>)</span><input type="password" id="secretInput" autocomplete="off"></label>
+      <button class="btn" type="button" id="secretBtn">כניסה עם סיסמת השרת</button>
+    </details>
+  </form>
+</dialog>
+
+<!-- the logged-in user's own password -->
+<dialog class="modal" id="pwModal">
+  <form class="modal-box" id="pwForm" novalidate>
+    <h2 class="modal-title">החלפת סיסמה</h2>
+    <label class="field"><span>הסיסמה הנוכחית</span><input type="password" id="pwCurrent" autocomplete="current-password"></label>
+    <label class="field"><span>סיסמה חדשה (8 תווים לפחות)</span><input type="password" id="pwNew" autocomplete="new-password"></label>
+    <p class="small login-error" id="pwError" hidden></p>
+    <div class="modal-actions"><button class="btn" type="button" id="pwCancel">ביטול</button><button class="btn primary" type="submit">שמירה</button></div>
   </form>
 </dialog>
 

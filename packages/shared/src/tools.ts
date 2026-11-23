@@ -102,14 +102,16 @@ export interface ToolDefinition {
   parameters: Record<string, unknown>;
 }
 
-/** JSON-Schema tool definitions for providers (ElevenLabs webhooks, LiveKit function tools). */
-export function toolDefinitions(opts: ToolSchemaOptions & { dayIds: string[] }): ToolDefinition[] {
+/**
+ * JSON-Schema tool definitions for providers (ElevenLabs webhooks, LiveKit function tools).
+ * day_id has no enum: the study days change in the dashboard while the bot runs; the prompt's catalogue
+ * ({{day_catalog}}) lists the ids, and an unknown id gets unknown_day_id with the ids that exist.
+ */
+export function toolDefinitions(opts: ToolSchemaOptions): ToolDefinition[] {
   const schemas = buildToolInputSchemas(opts);
   return (Object.keys(schemas) as ToolName[]).map((name) => {
     const json = z.toJSONSchema(schemas[name], { target: "draft-7" }) as Record<string, unknown>;
     delete json.$schema;
-    const props = json.properties as Record<string, Record<string, unknown>> | undefined;
-    if (props?.day_id && opts.dayIds.length > 0) props.day_id.enum = [...opts.dayIds];
     return { name, description: TOOL_DESCRIPTIONS[name], parameters: json };
   });
 }

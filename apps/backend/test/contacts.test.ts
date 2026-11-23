@@ -205,7 +205,7 @@ describe("Supabase contacts: which record, when", () => {
 
   it("a call that is not a contact's (no x-call-id) writes nothing", async () => {
     const { store, post } = await setup();
-    await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" });
+    await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom" });
     await settle();
     expect(store.log).toEqual([]);
   });
@@ -213,7 +213,7 @@ describe("Supabase contacts: which record, when", () => {
   it("Supabase down: the bot still gets its answer, the failure is logged", async () => {
     const { app, store, post, config } = await setup();
     store.failTools = true;
-    const r = await post("/tools/send_purchase_link", { day_id: "payroll-2026-12-08-zoom" }, { "x-call-id": "call-9" });
+    const r = await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom" }, { "x-call-id": "call-9" });
     expect(r.json()).toMatchObject({ ok: true, status: "sent" });
     expect(r.json().day_he).toMatch(/^[^A-Za-z]*[א-ת][^A-Za-z]*$/); // the note on the lead names the day in Hebrew, not its id
     await settle();
