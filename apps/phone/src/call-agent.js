@@ -18,7 +18,7 @@ const MAX_CALL_MS = 15 * 60 * 1000;
 // (short gaps between words don't break it).
 const HOLD_MS = 2000; // the last 2 s the caller said are kept, and sent when they cut in
 const BARGE_MS = 600; // 600 ms of continuous speech cuts the bot off (a lone "מעולה" is ~0.5 s)
-const WORD_GAP_MS = 250; // a shorter pause is still the same sentence
+const WORD_GAP_MS = 400; // a shorter pause is still the same sentence ("רגע... רגע" cuts in too)
 const ANSWER_MS = 1000; // speech in the last second before the bot finished is sent when it finishes
 const ECHO_TAIL_MS = 250; // keep holding a moment after the bot stops being audible
 const START_BUFFER = 3 * FRAME_SAMPLES; // 60 ms of audio before playback starts, against network jitter
@@ -88,6 +88,8 @@ export class CallAgent extends EventEmitter {
     this.holding = false;
     this.seg = null; // the caller's current speech while the bot is audible: { start, last, peak, noted }
     this.bargedIn = false; // the caller cut in: until the next answer, the caller reaches Gemini at once
+    // cut in while Gemini was still sending that answer: the rest of it is dropped until its turn ends
+    this.droppingCutTurn = false;
     this.audibleUntil = 0;
     this.agentTurnActive = false;
     this.turnText = '';
@@ -204,6 +206,7 @@ export class CallAgent extends EventEmitter {
     const a = this.live;
     a.on('audio', (buf) => {
       if (this.warming) return; // the warm-up's reply is never played
+      if (this.droppingCutTurn) return; // the rest of the answer the caller cut
       if (this.ended || this.ending?.voicemail || this.ending?.mute) return; // voicemail: the bot says nothing
       const now = performance.now();
       if (this.ending) this.ending.replyAudio = true;
@@ -225,6 +228,7 @@ export class CallAgent extends EventEmitter {
         this.warming.said += text; // not the transcript: only the call log, to check its language
         return;
       }
+      if (this.droppingCutTurn) return;
       this.turnText += text;
       this.saidSinceLead += text;
     });
@@ -245,6 +249,7 @@ export class CallAgent extends EventEmitter {
     });
     a.on('interrupted', () => {
       if (this.warming) return this._endWarmUp(); // the callee answered and spoke: the warm-up is over
+      this.droppingCutTurn = false; // Gemini dropped the cut answer itself
       // The caller cut in: stop playing at once
       this._flush();
       this.agentTurnActive = false;
@@ -253,6 +258,14 @@ export class CallAgent extends EventEmitter {
     });
     a.on('turnComplete', () => {
       if (this.warming) return this._endWarmUp();
+      if (this.droppingCutTurn) {
+        // the end of the answer the caller cut: nothing of it was played, nothing to log
+        this.droppingCutTurn = false;
+        this.agentTurnActive = false;
+        this.turnHadAudio = false;
+        this.turnText = '';
+        return;
+      }
       this.agentTurnActive = false;
       if (this.turnHadAudio) this.answeredSinceLead = true;
       // The fixed goodbye was said without end_call (R2: it said it 4 times - the silence checks asked again):
@@ -370,6 +383,7 @@ export class CallAgent extends EventEmitter {
       if (this._leadTalking(now, voiced, level)) {
         this.bargedIn = true;
         this.emit('line', { who: 'note', text: `caller talked ${this._segMs()}ms over the bot: bot stopped` });
+        this._cutIn();
         this._releaseHeld();
         return;
       }
@@ -382,6 +396,20 @@ export class CallAgent extends EventEmitter {
       Object.assign(this, { holding: false, held: [], seg: null });
     }
     this._toAgent(frame);
+  }
+
+  /**
+   * The caller cut in: stop playing now, ourselves. Gemini makes its answer faster than it plays, so it has often
+   * finished it already and sends no 'interrupted': waiting for it left seconds of the old answer playing over the
+   * caller. If Gemini is still sending it, the rest is dropped until that turn ends.
+   */
+  _cutIn() {
+    const stillSending = this.agentTurnActive;
+    this._flush();
+    this._logAgent(true);
+    this.turnHadAudio = false;
+    if (stillSending) this.droppingCutTurn = true;
+    else this.agentTurnActive = false;
   }
 
   /** Tracks the caller's speech while the bot is audible. True once it is long enough to cut in. */
