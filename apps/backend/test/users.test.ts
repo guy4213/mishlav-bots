@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mayCall } from "../src/access";
+import { mayCall, viewAs } from "../src/access";
 import { SupabaseContacts } from "../src/contacts";
 import { buildServer } from "../src/server";
 import { LogOnlySms } from "../src/sms";
@@ -168,6 +168,33 @@ describe("what Mishlav's users may do", () => {
     const dana = as((await login(DANA, "dana-pass-1")).cookie);
     expect((await dana.get("/test/phone")).json()).toMatchObject({ available: true, log: [] });
     expect((await app.inject({ method: "GET", url: "/test/phone", headers: AUTH })).json().log).toHaveLength(1);
+  });
+
+  it("an admin can view as Mishlav (x-view-as: the same 403s); the header never raises anyone", async () => {
+    const { login, app } = await setup();
+    const VIEW = { "x-view-as": "mishlav" };
+    const guy = (await login(GUY, "guy-pass-12")).cookie;
+    const dana = (await login(DANA, "dana-pass-1")).cookie;
+    const req = (method: "GET" | "POST", url: string, headers: Record<string, string>) => app.inject({ method, url, headers, payload: method === "POST" ? {} : undefined });
+
+    // Guy viewing as Mishlav: who am I says so, and the closed screens are closed to him too
+    expect((await req("GET", "/auth/me", { cookie: guy, ...VIEW })).json()).toMatchObject({ role: "mishlav", viewing_as: true, user: { name: "גיא" } });
+    for (const [m, url] of [["GET", "/api/admin/users"], ["GET", "/api/admin/logs"], ["POST", "/api/admin/dialer/stop"], ["POST", "/test/phone/call"]] as const) {
+      expect((await req(m, url, { cookie: guy, ...VIEW })).statusCode, `${m} ${url}`).toBe(403);
+    }
+    expect((await req("GET", "/api/admin/dialer", { cookie: guy, ...VIEW })).statusCode).toBe(200);
+    expect((await req("GET", "/test/phone", { cookie: guy, ...VIEW })).json().log).toEqual([]); // the log hidden, as for them
+    // the same with TOOLS_SECRET; without the header he is an admin again
+    expect((await req("GET", "/api/admin/logs", { ...AUTH, ...VIEW })).statusCode).toBe(403);
+    expect((await req("GET", "/auth/me", { cookie: guy })).json()).toMatchObject({ role: "admin", viewing_as: false });
+    expect((await req("GET", "/api/admin/users", { cookie: guy })).statusCode).toBe(200);
+
+    // a Mishlav user can't use it to go up
+    for (const v of ["admin", "mishlav", "ADMIN"]) {
+      expect((await req("GET", "/api/admin/users", { cookie: dana, "x-view-as": v })).statusCode, v).toBe(403);
+      expect((await req("GET", "/auth/me", { cookie: dana, "x-view-as": v })).json()).toMatchObject({ role: "mishlav", viewing_as: false });
+    }
+    expect(viewAs({ role: "mishlav", via: "session", user: null }, "admin").role).toBe("mishlav");
   });
 
   it("a route nobody opened is closed to them", () => {

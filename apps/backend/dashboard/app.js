@@ -1,7 +1,7 @@
 // The dashboard shell: logging in, navigation (#/screen) by role, the top bar (server, dialer, line, live call), theme.
 // Mishlav's users (role "mishlav") see the work screens and a test call to themselves; the rest is ours (admin). The
 // server enforces the same split (apps/backend/src/access.ts): hiding a tab here is only for a clean screen.
-import { get, isAdmin, login, loadSecret, logout, post, session, setSecret, whoAmI } from "./api.js";
+import { get, isAdmin, login, loadSecret, logout, post, session, setSecret, setViewAs, whoAmI } from "./api.js";
 import { live, liveCall, refreshLive, startLive, subscribe } from "./live.js";
 import { $, closeDrawer, confirmDialog, DIALER_STATE_HE, esc, fmtDateTime, fmtDuration, icon, ls, toast } from "./ui.js";
 import calls, { openCall } from "./views/calls.js";
@@ -200,8 +200,13 @@ function renderUser() {
   box.hidden = false;
   box.innerHTML = `<div class="user-name">${esc(u?.name ?? "סיסמת השרת")}</div>
     <div class="user-sub">${esc(ROLE_HE[session.role] ?? session.role)}${u ? ` · <span class="ltr">${esc(u.phone.replace(/^\+972/, "0"))}</span>` : ""}</div>
-    <div class="row user-actions">${u ? `<button class="btn sm" id="pwBtn">החלפת סיסמה</button>` : ""}<button class="btn sm" id="logoutBtn">יציאה</button></div>`;
+    <div class="row user-actions">${u ? `<button class="btn sm" id="pwBtn">החלפת סיסמה</button>` : ""}<button class="btn sm" id="logoutBtn">יציאה</button></div>
+    ${isAdmin() ? `<button class="btn sm view-as-btn" id="viewAsBtn" title="לראות בדיוק מה שאנשי משלב רואים">${icon("eye")} צפייה כמו משלב</button>` : ""}`;
   $("logoutBtn").onclick = async () => { await logout(); location.reload(); };
+  // an admin seeing what Mishlav sees (this tab only; the server answers as it would them: api.js)
+  if (isAdmin()) $("viewAsBtn").onclick = () => { setViewAs(true); location.reload(); };
+  $("viewAsBar").hidden = !session.viewingAs;
+  $("viewAsExit").onclick = () => { setViewAs(false); location.reload(); };
   if (u) $("pwBtn").onclick = () => {
     $("pwCurrent").value = $("pwNew").value = "";
     $("pwError").hidden = true;

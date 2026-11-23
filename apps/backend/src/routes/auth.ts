@@ -3,7 +3,8 @@
  *
  *   POST /auth/login     {phone, password} -> sets the session cookie; { ok, user }     (public)
  *   POST /auth/logout    -> clears it                                                  (public)
- *   GET  /auth/me        -> { ok, role, via: "secret" | "session", user | null }
+ *   GET  /auth/me        -> { ok, role, via: "secret" | "session", user | null, viewing_as }
+ *                           (viewing_as: an admin seeing the dashboard as Mishlav does, header x-view-as: access.ts)
  *   POST /auth/password  {current, password} -> the logged-in user's own password (other sessions end; a new cookie)
  *
  *   GET  /api/admin/users                  -> every user (no hashes)                     (admin)
@@ -87,7 +88,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
 
   app.get("/auth/me", async (req) => {
     const p = req.principal as Principal;
-    return { ok: true, role: p.role, via: p.via, user: p.user };
+    return { ok: true, role: p.role, via: p.via, user: p.user, viewing_as: !!p.viewingAs };
   });
 
   app.post("/auth/password", async (req, reply) => {

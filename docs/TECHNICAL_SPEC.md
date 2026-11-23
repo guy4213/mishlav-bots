@@ -183,6 +183,9 @@ time on every server. 5 wrong passwords per phone (20 per address) in 15 min →
   state (without its log), `/auth/me`, `/auth/password`, and a test call to **their own phone only**
   (`/api/me/test-call` `{day_id?}` → the line dials the phone they logged in with, as the customer of that day,
   under their first name; touches no contact; `/api/me/hangup` ends only a call they placed). Everything else → 403.
+- **View as Mishlav** (admins): the dashboard's "צפייה כמו משלב" sends `x-view-as: mishlav` on every request of that
+  tab (sessionStorage); the server then treats the admin exactly as a Mishlav user (`access.ts viewAs`: the same
+  allowlist and 403s, `/auth/me` → `viewing_as: true`). It only ever lowers the role: from a Mishlav user it is ignored.
 
 ### 4.3 Call metadata
 

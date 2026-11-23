@@ -8,9 +8,20 @@
 const KEY = "mishlav_secret";
 let secret = null;
 
-/** Who is logged in (GET /auth/me): role "admin" | "mishlav", via "secret" | "session", user (session only). */
-export const session = { role: null, via: null, user: null };
+/** Who is logged in (GET /auth/me): role "admin" | "mishlav", via "secret" | "session", user (session only),
+ * viewingAs: an admin seeing the dashboard exactly as Mishlav's users do (role is then "mishlav"). */
+export const session = { role: null, via: null, user: null, viewingAs: false };
 export const isAdmin = () => session.role === "admin";
+
+// "view as Mishlav": this tab only (sessionStorage); every request carries x-view-as and the server answers as it
+// would a Mishlav user. The server takes it from admins only.
+const VIEW_KEY = "mishlav_view_as";
+let viewAs = false;
+try { viewAs = sessionStorage.getItem(VIEW_KEY) === "mishlav"; } catch {}
+export function setViewAs(on) {
+  viewAs = !!on;
+  try { on ? sessionStorage.setItem(VIEW_KEY, "mishlav") : sessionStorage.removeItem(VIEW_KEY); } catch {}
+}
 
 export function loadSecret() {
   const m = /[#&]k=([^&]+)/.exec(location.hash);
@@ -37,7 +48,11 @@ export async function api(method, path, body) {
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
-    headers: { ...(secret ? { "x-tools-secret": secret } : {}), ...(body ? { "content-type": "application/json" } : {}) },
+    headers: {
+      ...(secret ? { "x-tools-secret": secret } : {}),
+      ...(viewAs ? { "x-view-as": "mishlav" } : {}),
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401 && !path.startsWith("/auth/")) {
@@ -61,7 +76,8 @@ export const post = (path, body = {}) => api("POST", path, body);
 export async function whoAmI() {
   try {
     const me = await api("GET", "/auth/me");
-    Object.assign(session, { role: me.role, via: me.via, user: me.user });
+    Object.assign(session, { role: me.role, via: me.via, user: me.user, viewingAs: !!me.viewing_as });
+    if (viewAs && !me.viewing_as) setViewAs(false); // not an admin: nothing to view as
     return me;
   } catch (e) {
     if (e.status === 401) {
@@ -74,10 +90,12 @@ export async function whoAmI() {
 
 export async function login(phone, password) {
   setSecret(null); // a session replaces the secret in this browser
+  setViewAs(false);
   return api("POST", "/auth/login", { phone, password });
 }
 
 export async function logout() {
   setSecret(null);
+  setViewAs(false);
   await api("POST", "/auth/logout").catch(() => {});
 }

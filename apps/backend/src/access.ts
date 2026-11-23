@@ -14,6 +14,8 @@ export interface Principal {
   via: "secret" | "session";
   /** the logged-in person (via a session); null with TOOLS_SECRET */
   user: PublicUser | null;
+  /** an admin looking at the dashboard as Mishlav's users see it (role is then "mishlav") */
+  viewingAs?: boolean;
 }
 
 declare module "fastify" {
@@ -46,3 +48,11 @@ export function mayCall(role: Role, method: string, path: string): boolean {
 }
 
 export const isAdmin = (p: Principal | null | undefined) => p?.role === "admin";
+
+/** The header an admin's dashboard sends to see exactly what Mishlav's users see. It only ever lowers the role:
+ * from anyone else it is ignored. */
+export const VIEW_AS_HEADER = "x-view-as";
+
+export function viewAs(p: Principal, header: unknown): Principal {
+  return p.role === "admin" && header === "mishlav" ? { ...p, role: "mishlav", viewingAs: true } : p;
+}

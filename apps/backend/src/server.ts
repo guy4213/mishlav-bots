@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { LOG_FILES } from "@mishlav/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
-import { mayCall } from "./access";
+import { mayCall, type Principal, VIEW_AS_HEADER, viewAs } from "./access";
 import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
 import { type AdminStore, ContactEvents, type ContactStore, type DialerStore } from "./contacts";
@@ -128,24 +128,27 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   app.addHook("onRequest", async (req, reply) => {
     if (isPublic(req.url)) return;
     const path = req.url.split("?")[0]!;
+    let principal: Principal;
     if (secretMatches(presentedSecret(req), config.toolsSecret)) {
-      req.principal = { role: "admin", via: "secret", user: null };
-      return;
+      principal = { role: "admin", via: "secret", user: null };
+    } else {
+      let user = null;
+      try {
+        user = users ? await users.fromRequest(req) : null;
+      } catch {
+        return reply.code(503).send({ ok: false, error: "users_unavailable", message_he: "לא ניתן לבדוק את הכניסה כרגע (Supabase). נסה שוב בעוד דקה." });
+      }
+      if (!user) {
+        toolLog.append({ type: "auth_failure", ts: now().toISOString(), path, ip: req.ip });
+        return reply.code(401).send({ ok: false, error: "unauthorized" });
+      }
+      principal = { role: user.role, via: "session", user: publicUser(user) };
     }
-    let user = null;
-    try {
-      user = users ? await users.fromRequest(req) : null;
-    } catch {
-      return reply.code(503).send({ ok: false, error: "users_unavailable", message_he: "לא ניתן לבדוק את הכניסה כרגע (Supabase). נסה שוב בעוד דקה." });
-    }
-    if (!user) {
-      toolLog.append({ type: "auth_failure", ts: now().toISOString(), path, ip: req.ip });
-      return reply.code(401).send({ ok: false, error: "unauthorized" });
-    }
-    if (!mayCall(user.role, req.method, path)) {
+    principal = viewAs(principal, req.headers[VIEW_AS_HEADER]); // an admin seeing exactly what Mishlav sees
+    if (!mayCall(principal.role, req.method, path)) {
       return reply.code(403).send({ ok: false, error: "forbidden", message_he: "אין לך הרשאה לפעולה הזו" });
     }
-    req.principal = { role: user.role, via: "session", user: publicUser(user) };
+    req.principal = principal;
   });
 
   const phone = opts.phone ?? { line: null, reason: "not started" };
