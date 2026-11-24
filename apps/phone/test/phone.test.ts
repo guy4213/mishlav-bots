@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JS module (apps/phone is not type-checked)
 import { decodeG711, Downsampler, encodeG711, FRAME_SAMPLES } from "../src/audio.js";
 // @ts-expect-error plain JS module
-import { CallAgent, CUES } from "../src/call-agent.js";
+import { CallAgent, CUES, isHebrewOpening } from "../src/call-agent.js";
 // @ts-expect-error plain JS module
 import { buildSetup, DEFAULT_PHONE_MODEL } from "../src/gemini-live.js";
 // @ts-expect-error plain JS module
@@ -335,7 +335,69 @@ describe("call agent", () => {
     agent.end();
   });
 
-  it("warm-up while ringing: Gemini reads the instructions; its reply is never played or written", async () => {
+  describe("the opening made while ringing", () => {
+    const OPENING = "היי גיא, כאן נועה, נציגת הבינה המלאכותית של מכללת מישלב. מה נשמע?";
+    const voice = new Int16Array(160).fill(3000);
+    const setup = async (openAfterSilenceMs = 2500) => {
+      const live = new FakeLive();
+      const heard: Buffer[] = [];
+      live.sendAudio = ((b: Buffer) => heard.push(b)) as never;
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs });
+      const lines: string[] = [];
+      agent.on("line", (l: { who: string; text: string }) => lines.push(`${l.who}: ${l.text}`));
+      const warmed = agent.warmUp();
+      live.emit("audio", Buffer.alloc(24000 * 2, 1)); // 0.5 s of the opening, at 24 kHz
+      live.emit("outputTranscript", OPENING);
+      live.emit("turnComplete");
+      await warmed;
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      const callerHeard = () => heard.some((b) => b.some((x) => x !== 0));
+      return { live, agent, rtp, lines, callerHeard };
+    };
+
+    it("plays 0.3 s after the callee's 'הלו' - Gemini doesn't make it then, and doesn't hear the 'הלו'", async () => {
+      const { live, agent, rtp, lines, callerHeard } = await setup();
+      for (let i = 0; i < 20; i++) rtp.emit("audio", voice); // 0.4 s of "הלו"
+      await wait(100);
+      expect(agent.queued).toBe(0); // the callee may still be talking
+      await wait(400);
+      expect(agent.queued).toBeGreaterThan(0); // the opening is playing
+      expect(live.sent).toEqual([CUES.warmUp]); // no opening cue: Gemini isn't asked to make it again
+      expect(callerHeard()).toBe(false);
+      expect(lines).toContain(`agent: ${OPENING}`);
+      expect(lines.some((l) => l.includes("opening made while ringing, played"))).toBe(true);
+      agent.end();
+    });
+
+    it("the callee says nothing: it plays after the short silence", async () => {
+      const { live, agent } = await setup(100);
+      await wait(250);
+      expect(agent.queued).toBeGreaterThan(0);
+      expect(live.sent).toEqual([CUES.warmUp]);
+      agent.end();
+    });
+
+    it("the callee talks at length first (a voicemail greeting): Gemini hears it all, the opening isn't played", async () => {
+      const { agent, rtp, lines, callerHeard } = await setup();
+      for (let i = 0; i < 85; i++) {
+        rtp.emit("audio", voice); // 1.7 s of talk (85 frames of 20 ms), with no pause the opening would wait for
+        await wait(5);
+      }
+      expect(callerHeard()).toBe(true);
+      expect(agent.queued).toBe(0);
+      expect(lines.some((l) => l.includes("opening made while ringing not played"))).toBe(true);
+      agent.end();
+    });
+
+    it("only a Hebrew opening is played (it once answered in English)", () => {
+      expect(isHebrewOpening(OPENING)).toBe(true);
+      expect(isHebrewOpening("OK, I'm ready.")).toBe(false);
+      expect(isHebrewOpening("בסדר")).toBe(false);
+    });
+  });
+
+  it("a warm-up that calls a tool: refused, never played - the opening cue as before", async () => {
     const live = new FakeLive();
     const calls: string[] = [];
     const agent = new CallAgent({ live, tools: { callTool: async (n: string) => (calls.push(n), { ok: true }) }, openAfterSilenceMs: 2500 });

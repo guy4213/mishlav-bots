@@ -280,7 +280,7 @@ export class PhoneLine extends EventEmitter {
     ready
       .then(() => prep.agent.warmUp())
       .then((w) => {
-        if (w) this.log(`🔥 bot read its instructions while ringing (${w.ms}ms), it answered: «${w.said || '-'}» (not played)`, prep.callId);
+        if (w) this.log(`🔥 bot made its opening while ringing (${w.ms}ms): «${w.said || '-'}»`, prep.callId);
       })
       .catch(() => {});
   }

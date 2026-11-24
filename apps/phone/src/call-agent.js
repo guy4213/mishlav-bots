@@ -28,6 +28,11 @@ const SILENCE_CHECK_MS = 6000; // quiet line this long -> the bot checks the lin
 // The callee said "הלו" and the bot hasn't said a word this long after: Gemini missed it (a "הלו" right at pick-up
 // is often clipped), so it gets the opening cue. Only before the bot's first word: mid-call it never comes again.
 const OPEN_AFTER_CALLER_MS = 800; // + the bot starting to speak: about 1.5 s after the "הלו" (was 2.4 s)
+// The opening is made while the phone rings (the warm-up turn) and played the moment the callee answers, instead of
+// Gemini making it after the "הלו" (2-3 s of silence, and a "הלו" said just as it started cut it). See _playOpening.
+const PLAY_AFTER_HELLO_MS = 300; // the callee's "הלו" ended this long ago: the opening plays
+const LONG_HELLO_MS = 1500; // the callee talked this long before the opening: not a "הלו" (a voicemail greeting...)
+const OPENING_WAIT_MS = 3000; // no opening audio yet this long after the answer: the opening cue, as before
 const SILENCE_GOODBYE_MAX_MS = 9000; // the no-answer goodbye can't run longer than this
 // end_call (as the worker's tools.py): the words before it play out; then the reply to its result (the goodbye,
 // only if none was said yet) plays, and the line drops.
@@ -55,8 +60,9 @@ export const CUES = {
   // Gemini Live picks the reply language itself, and the warm-up's reply stays in the session as the bot's own
   // turn: a first try ("say nothing") was answered in English and the call went on in English. So it is told the
   // exact Hebrew word to say, and that the call starts from the opening when the callee answers.
-  warmUp: '(הודעת מערכת: הטלפון מצלצל והלקוח עוד לא ענה. השיחה כולה בעברית. לענות עכשיו רק במילה אחת בעברית: "בסדר". לא להפעיל כלים. כשהלקוח יענה – זו תחילת השיחה: לפתוח במשפט הפתיחה המלא מהשלב הראשון בזרימת השיחה.)',
-  open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, אבל עוד לא אמר כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
+  // The warm-up makes the opening itself: it is played to the callee the moment they answer (_playOpening).
+  warmUp: '(הודעת מערכת: הטלפון מצלצל והלקוח עוד לא ענה. השיחה כולה בעברית. לומר עכשיו רק את משפט הפתיחה מהשלב הראשון בזרימת השיחה, עד "מה נשמע?", ולעצור שם. לא להפעיל כלים. המשפט יושמע ללקוח ברגע שיענה.)',
+  open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, ועוד לא שמע ממך כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
   hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
 };
@@ -121,17 +127,23 @@ export class CallAgent extends EventEmitter {
     this.ended = false;
     this.rec = null; // recording: { lead: [], agent: [] }
     this.warming = null; // while the warm-up turn runs: { at, done }
+    // the opening made by the warm-up: { frames (8 kHz), text, failed, dropped, played } (_playOpening)
+    this.opening = null;
+    this.preVoicedMs = 0; // how long the callee talked before the opening played
+    this.preHeld = []; // what they said meanwhile (Gemini got silence)
     this.firstAnswerNoted = false;
     this.geminiHeard = false; // Gemini heard the caller (its transcript or its voice detection)
     this._wire();
   }
 
   /**
-   * While the phone rings: one text turn so Gemini reads the instructions before the callee answers. Its audio,
-   * words and tool calls are dropped. Resolves with { ms, said } (null: skipped, the call is already up).
+   * While the phone rings: one text turn in which Gemini reads the instructions and says the opening. Its audio is
+   * kept and played the moment the callee answers (_playOpening); its tool calls are refused. Resolves with
+   * { ms, said } (null: skipped, the call is already up).
    */
   warmUp() {
     if (this.rtp || this.ended || this.warming) return Promise.resolve(null);
+    this.opening = { frames: [], text: '', failed: false, dropped: false, played: false };
     return new Promise((resolve) => {
       const at = performance.now();
       const timer = setTimeout(() => this._endWarmUp(), WARM_UP_MAX_MS);
@@ -151,7 +163,53 @@ export class CallAgent extends EventEmitter {
     const w = this.warming;
     this._warmSaid = w?.said ?? '';
     this.warming = null;
+    const o = this.opening;
+    if (o && !o.played) {
+      // the opening is ready: Hebrew words and its audio (once it answered "OK" in English: never played)
+      o.text = this._warmSaid.trim();
+      if (!o.frames.length || !isHebrewOpening(o.text)) o.failed = true;
+    }
     w?.done();
+  }
+
+  _openingUsable() {
+    const o = this.opening;
+    return !!o && !o.failed && !o.dropped && !o.played;
+  }
+
+  /**
+   * The callee answered: the opening made while ringing plays now, Gemini doesn't make it after the "הלו". Gemini
+   * already "said" it (its warm-up turn): the "הלו" said before it stays here, and Gemini hears what comes next.
+   * If the warm-up is still sending it, the rest streams in as a normal answer.
+   */
+  _playOpening(now) {
+    const o = this.opening;
+    o.played = true;
+    this.opened = true;
+    this.preHeld = [];
+    const when = this.callerSpoke
+      ? `${Math.round(now - this.lastVoice)}ms after the callee's hello`
+      : `${Math.round(now - this.startedAt)}ms after the answer (the callee said nothing)`;
+    this.emit('line', { who: 'note', text: `opening made while ringing, played ${when}` });
+    const streaming = !!this.warming;
+    const said = streaming ? this.warming.said : o.text;
+    if (streaming) this._endWarmUp();
+    this.turnText = said;
+    this.saidSinceLead += said;
+    Object.assign(this, { agentSpoke: true, agentTurnActive: streaming, turnHadAudio: streaming, lastAudioAt: now, waitingSince: 0, bargedIn: false });
+    for (const f of o.frames) this._play(f);
+    o.frames = [];
+    if (!streaming) {
+      this.answeredSinceLead = true;
+      this._logAgent(false);
+    }
+  }
+
+  /** The opening made while ringing won't play (not ready, or the callee talked at length): as before it. */
+  _dropOpening(why) {
+    this.opening.dropped = true;
+    this.opening.frames = [];
+    this.emit('line', { who: 'note', text: `opening made while ringing not played: ${why}` });
   }
 
   /** Connects to Gemini (before the call is answered, so the bot is ready at once). */
@@ -168,7 +226,7 @@ export class CallAgent extends EventEmitter {
     this.startedAt = this.quietSince = performance.now();
     this.openAt = this.startedAt + Math.max(0, this.openAfterSilenceMs);
     this._watchTimer = setInterval(() => this._watch(), 50);
-    if (this.openAfterSilenceMs <= 0) this._open();
+    if (this.openAfterSilenceMs <= 0 && !this._openingUsable()) this._open();
   }
 
   end() {
@@ -205,7 +263,11 @@ export class CallAgent extends EventEmitter {
   _wire() {
     const a = this.live;
     a.on('audio', (buf) => {
-      if (this.warming) return; // the warm-up's reply is never played
+      if (this.warming) {
+        // the warm-up's reply is the opening: kept, played when the callee answers (_playOpening)
+        if (this._openingUsable()) this.opening.frames.push(this.down.push(pcmView(buf)));
+        return;
+      }
       if (this.droppingCutTurn) return; // the rest of the answer the caller cut
       if (this.ended || this.ending?.voicemail || this.ending?.mute) return; // voicemail: the bot says nothing
       const now = performance.now();
@@ -292,7 +354,8 @@ export class CallAgent extends EventEmitter {
   /** The tools run on the tools server (validation, logging, answers); the result goes back to the model. */
   async _onToolCall(calls) {
     if (this.warming) {
-      // nothing happens before the callee answers: the tools server never hears of it
+      // nothing happens before the callee answers: the tools server never hears of it (and no opening came of it)
+      if (this.opening) this.opening.failed = true;
       const output = JSON.stringify({ ok: false, error: 'not_started', message_he: 'השיחה עוד לא התחילה – לא להפעיל כלים.' });
       this.live.sendToolResponse(calls.map((fc) => ({ id: fc.id, name: fc.name, response: { output } })));
       return;
@@ -374,6 +437,24 @@ export class CallAgent extends EventEmitter {
     } else this.voicedRun = 0;
     this.rec?.lead.push(samples);
     const frame = level < SILENCE_RMS ? new Int16Array(samples.length) : samples;
+
+    if (!this.opened && this._openingUsable()) {
+      // Before the opening made while ringing plays, Gemini hears silence: it already "said" the opening, so it must
+      // not answer the "הלו" by itself. Talking at length isn't a "הלו" (a voicemail greeting, a question): Gemini
+      // gets it all, as before this opening existed.
+      if (voiced) this.preVoicedMs += 20;
+      this.preHeld.push(frame);
+      if (this.preHeld.length > HOLD_MS / 20) this.preHeld.shift();
+      if (this.preVoicedMs < LONG_HELLO_MS) {
+        this._toAgent(new Int16Array(samples.length));
+        return;
+      }
+      this._dropOpening(`the callee talked ${this.preVoicedMs}ms first`);
+      this.held = this.preHeld;
+      this.preHeld = [];
+      this._releaseHeld();
+      return;
+    }
 
     const audible = this.queued > 0 || now < this.audibleUntil;
     if (audible && !this.bargedIn) {
@@ -551,7 +632,14 @@ export class CallAgent extends EventEmitter {
       }
     }
 
-    if (!this.opened) {
+    if (!this.opened && this._openingUsable()) {
+      // the opening made while ringing: right after the "הלו", or after the short silence if the callee says nothing
+      const o = this.opening;
+      if (o.frames.length && (this.callerSpoke ? now - this.lastVoice >= PLAY_AFTER_HELLO_MS : now >= this.openAt)) {
+        this._playOpening(now);
+      } else if (!o.frames.length && now - this.startedAt >= OPENING_WAIT_MS) this._dropOpening('not ready in time');
+    }
+    if (!this.opened && !this._openingUsable()) {
       // Gemini answers the "הלו" by itself; if it missed it (no word from the bot 1.5 s after the caller stopped), or
       // the callee says nothing (openAt), the opening cue. Once the bot spoke, the opening is never cued again.
       // Gemini heard the caller: it answers by itself (a cue now could make it open twice).
@@ -603,4 +691,11 @@ export class CallAgent extends EventEmitter {
     this.turnText = '';
     if (text) this.emit('line', { who: 'agent', text: interrupted ? `${text} — נקטע` : text });
   }
+}
+
+/** The warm-up's words are the opening only if they are Hebrew (it once answered in English). */
+export function isHebrewOpening(text) {
+  const he = (text.match(/[֐-׿]/g) ?? []).length;
+  const en = (text.match(/[A-Za-z]/g) ?? []).length;
+  return he >= 10 && he > en * 3;
 }
