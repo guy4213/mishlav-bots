@@ -51,7 +51,7 @@ const CLOSE_WAIT_MS = 2000;
 // The caller talking this long after the goodbye is a new request ("רגע, עוד שאלה"), not a "תודה, ביי":
 // the call goes on.
 const CLOSE_CANCEL_MS = 1500;
-// Every fixed closing sentence ends with "יום נעים, להתראות!" (apps/backend/src/tools/closings.ts): once the bot
+// Every fixed closing sentence ends with "יום נעים, להתראות." (apps/backend/src/tools/closings.ts): once the bot
 // said it since the caller last spoke, the reply to end_call is not played (it repeated the goodbye).
 const GOODBYE_WORD = 'להתראות'; // a caller turn for the latency metric: at least 200 ms of voice
 
@@ -68,7 +68,7 @@ export const CUES = {
   warmUp: '(הודעת מערכת: הטלפון מצלצל והלקוח עוד לא ענה. השיחה כולה בעברית. לומר עכשיו רק את משפט הפתיחה מהשלב הראשון בזרימת השיחה, עד "מה נשמע?", ולעצור שם. לא להפעיל כלים. המשפט יושמע ללקוח ברגע שיענה.)',
   open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, ועוד לא שמע ממך כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
-  hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
+  hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות.")',
   // The caller cut in and we stopped the bot's voice ourselves: Gemini had already made the whole answer and thinks
   // it was all said. On a call (24.11) the cut answer ended with "לשלוח לך קישור?", the caller never heard it, and
   // his "סבבה" to the details was taken as a yes - the link went out unasked. So Gemini is told what was heard.

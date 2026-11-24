@@ -33,9 +33,9 @@ export const todayIso = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZo
  *   2. by topic: each topic of the titles, with its days in date order and where they are.
  * e.g.
  *   בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):
- *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע"מ
+ *   - `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מַעַם
  *   במלון – יום מלא (הקרוב ראשון):
- *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17 במאי · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע"מ
+ *   - `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17 במאי · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מַעַם
  *   לפי נושא (הקרוב ראשון):
  *   - ביטוח לאומי: 17 ו-18 במרץ בזום · 21 ו-22 ביוני בזום (רק בזום)
  * Dates and hours as they are said (spokenDatesHe, timeRangeHe): given "13:15" the bot read the digits out.
@@ -53,7 +53,7 @@ export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
       when(d),
       d.end_date ? `${timeRangeHe(d.start, d.end)} בכל מפגש` : timeRangeHe(d.start, d.end),
       ...(d.format === "hotel" && d.location ? [d.location] : []),
-      `${d.price_ils} ₪ ${d.vat_included ? "כולל" : "לפני"} מע"מ`,
+      `${d.price_ils} ₪ ${d.vat_included ? "כולל" : "לפני"} מַעַם`, // as said: "מע\"מ" was read letter by letter
       // the lecturers here too: asked for them, the bot said "I'm checking", called no tool and made two up
       ...(d.lecturers.length ? [`מרצים: ${d.lecturers.join(", ")}`] : []),
       ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),

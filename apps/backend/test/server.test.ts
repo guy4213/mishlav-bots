@@ -150,7 +150,7 @@ describe("tools", () => {
     for (const res of closing) expect(res.json()).toMatchObject({ closing: true, message_he: CLOSE_NEXT });
     expect(closing[0]!.json().say_he).toBe(SAY_LINK_SENT);
     expect(closing[2]!.json().say_he).toBe(`בסדר גמור, נדבר ביום שלישי, 10 בנובמבר, בעשר בבוקר. ${GOODBYE}`);
-    for (const res of closing) expect(res.json().say_he).toMatch(/יום נעים, להתראות!$/);
+    for (const res of closing) expect(res.json().say_he).toMatch(/יום נעים, להתראות\.$/);
     // nothing to be said aloud about "ending the call" (the bot once told a customer it was ending the call)
     for (const res of closing) expect(res.json().message_he).not.toMatch(/מסיימת|מסתיימת|לסיים את השיחה/);
     const alt = (await post("/tools/schedule_callback", { requested_time: "2026-11-13T10:00:00" })).json();

@@ -6,7 +6,8 @@
  */
 import { addDays, dateKey, toLocalParts, type EndCallReason } from "@mishlav/shared";
 
-export const GOODBYE = "יום נעים, להתראות!";
+// a period, not "!": with "!" the bot said "להתראות" rising, like a question (Guy, 24.11)
+export const GOODBYE = "יום נעים, להתראות.";
 
 export const SAY_LINK_SENT = `הקישור נשלח עכשיו במסרון. ${GOODBYE}`;
 export const SAY_HANDED_TO_REP = `העברתי את הבקשה, נציג יחזור בהקדם. ${GOODBYE}`;
