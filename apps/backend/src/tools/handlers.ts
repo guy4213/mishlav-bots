@@ -251,8 +251,10 @@ function resolveTime(
  * tells the phone line to hang up after that sentence even if end_call never comes (it often didn't).
  * The words here are instructions only - nothing in them is meant to be said ("I'm ending the call" was).
  */
+// No end_call after it: speech and a tool call in the same answer made Gemini Live say the sentence twice (Nov
+// 2026, twice on real calls); the line hangs up by itself once the sentence played (`closing`).
 export const CLOSE_NEXT =
-  "לומר ללקוח את המשפט שב-say_he, מילה במילה, בלי להוסיף ובלי לשנות, ולקרוא ל-end_call (completed) באותה תשובה. אם הלקוח מבקש עוד משהו – לענות לו.";
+  "לומר ללקוח רק את המשפט שב-say_he, מילה במילה, בלי להוסיף ובלי לשנות. לא לקרוא ל-end_call – הקו מנתק לבד אחרי המשפט. אם הלקוח מבקש עוד משהו – לענות לו.";
 
 const closing = (say_he: string) => ({ closing: true, say_he, message_he: CLOSE_NEXT });
 
