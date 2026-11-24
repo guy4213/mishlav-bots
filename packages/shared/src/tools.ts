@@ -11,6 +11,17 @@ const dayId = () =>
 
 const requestedTime = () => z.string().trim().min(10).max(40).optional();
 const inMinutes = () => z.number().int().min(1).max(600).optional();
+// what the next person (a rep, or the bot on the next call) should know: goes into the contact's notes in Gold
+const note = () =>
+  z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .describe(
+      "A short note in Hebrew of what the customer asked or said that the next caller should know, beyond the reason " +
+        "(e.g. \"מוכן לשלם 590 במקום 790\", \"מעדיף יום במלון\"). Omit when there is nothing to add. Never a card number",
+    );
 
 /** Strict zod input schemas for the 5 tools. Unknown fields are rejected. */
 export function buildToolInputSchemas(opts: ToolSchemaOptions) {
@@ -29,6 +40,7 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
       .literal(true)
       .optional()
       .describe("Only after the customer ANSWERED that any time is fine (\"לא משנה\", \"מתי שנוח\"). Never before they answered"),
+    note: note(),
   };
   const atMostOne = (v: { requested_time?: string; in_minutes?: number; asap?: true }) =>
     [v.requested_time, v.in_minutes, v.asap].filter((x) => x !== undefined).length <= 1;
@@ -59,6 +71,7 @@ export function buildToolInputSchemas(opts: ToolSchemaOptions) {
         in_minutes: inMinutes().describe(
           "When the customer says \"in N minutes\": just N. The server computes the time. Use instead of requested_time",
         ),
+        note: note(),
       })
       .refine((v) => (v.requested_time === undefined) !== (v.in_minutes === undefined), {
         message: "pass exactly one of requested_time or in_minutes",
@@ -74,10 +87,9 @@ export type ToolInputSchemas = ReturnType<typeof buildToolInputSchemas>;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   get_day_info:
-    "Get what the catalogue doesn't hold for one study day: the lecturers and the agenda. " +
-    "The dates, hours, place and price are already in the catalogue - say those at once, without this tool. " +
-    "Before calling it, say one short sentence in the same turn (e.g. that you are checking), so the line is never silent. " +
-    "Use only a day_id from the catalogue.",
+    "Get the agenda of one study day (the only thing the catalogue doesn't hold). " +
+    "The dates, hours, place, price and lecturers are in the catalogue - say those at once, without this tool. " +
+    "Call it without saying anything first; never make up an answer it didn't give. Use only a day_id from the catalogue.",
   send_purchase_link:
     "Send the customer a purchase link for one study day, to the phone number on file. " +
     "Call it as soon as the customer agrees to receive a link, saying nothing before it (never that the link is on its way): " +

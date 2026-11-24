@@ -21,7 +21,23 @@ export interface DialDeps {
   transcriptsDir?: string;
 }
 
-export interface DialOptions extends Omit<CallOptions, "gender" | "ringTimeoutMs"> {
+/**
+ * The end of the contact's Gold notes (the latest lines: the bot's from earlier calls, the reps' own), whole lines,
+ * at most ~600 characters - what the bot is told on a follow-up call.
+ */
+export function recentNotes(notes: string | null | undefined, max = 600): string | undefined {
+  const lines = (notes ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const kept: string[] = [];
+  let size = 0;
+  for (const line of lines.reverse()) {
+    if (kept.length && size + line.length > max) break;
+    kept.unshift(line.length > max ? line.slice(-max) : line);
+    size += line.length + 3;
+  }
+  return kept.length ? kept.join(" | ") : undefined;
+}
+
+export interface DialOptions extends Omit<CallOptions, "gender" | "ringTimeoutMs" | "notes"> {
   origin: CallOrigin;
   /** dial this number instead of the contact's (dashboard tests) */
   number?: string;
@@ -71,6 +87,7 @@ export async function dialContact(deps: DialDeps, goldRecordId: string, opts: Di
       name: callOpts.name ?? firstName(contact.full_name) ?? undefined,
       day: callOpts.day ?? contact.bot_state?.interested_day_id ?? undefined,
       gender: contact.bot_state?.customer_gender ?? undefined,
+      notes: recentNotes(contact.notes), // what earlier calls (the bot, the reps) wrote: the bot picks up from there
       ringTimeoutMs: ringTimeoutMs(deps.settings),
     }));
   } catch (err) {

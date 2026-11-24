@@ -54,6 +54,8 @@ export function buildDayCatalog(kb: KnowledgeBase, now: Date): string {
       d.end_date ? `${timeRangeHe(d.start, d.end)} בכל מפגש` : timeRangeHe(d.start, d.end),
       ...(d.format === "hotel" && d.location ? [d.location] : []),
       `${d.price_ils} ₪ ${d.vat_included ? "כולל" : "לפני"} מע"מ`,
+      // the lecturers here too: asked for them, the bot said "I'm checking", called no tool and made two up
+      ...(d.lecturers.length ? [`מרצים: ${d.lecturers.join(", ")}`] : []),
       ...(d.open_for_registration ? [] : ["ההרשמה סגורה"]),
     ].join(" · ");
   const byFormat = CATALOG_GROUPS.flatMap(({ format, heading }) => {
@@ -157,18 +159,20 @@ export function buildCustomerContext(kb: KnowledgeBase, interestedDayId: string 
 
 export function buildCallVariables(
   kb: KnowledgeBase,
-  input: { first_name?: string; interested_day_id?: string; bot_name?: string; gender?: Gender },
+  input: { first_name?: string; interested_day_id?: string; bot_name?: string; gender?: Gender; notes?: string },
   now: Date,
 ): CallVariables {
   const dayId = input.interested_day_id && kb.days.has(input.interested_day_id) ? input.interested_day_id : "";
   const firstName = input.first_name || DEFAULT_FIRST_NAME;
   const gender = input.gender ?? "unknown";
+  // a follow-up call: the contact's notes in Gold (the bot's lines from earlier calls, the reps' own)
+  const notes = input.notes?.trim() ? ` הערות על הלקוח מהשיחות הקודמות (מגולד, האחרונה בסוף): ${input.notes.trim()}` : "";
   return {
     first_name: firstName,
     bot_name: input.bot_name || DEFAULT_BOT_NAME,
     interested_day_id: dayId || "לא ידוע", // display value, as the worker rendered it before
     current_datetime: currentDatetimeHe(now),
-    customer_context: `${genderFactHe(firstName, gender)} ${buildCustomerContext(kb, dayId || undefined, now)}`,
+    customer_context: `${genderFactHe(firstName, gender)} ${buildCustomerContext(kb, dayId || undefined, now)}${notes}`,
     day_catalog: buildDayCatalog(kb, now),
     customer_gender: gender,
   };

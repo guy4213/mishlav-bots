@@ -102,6 +102,7 @@ export async function registerTestRoutes(app: FastifyInstance, deps: TestRouteDe
         interested_day_id: str(q.day_id) ?? str(ctx.interested_day_id),
         bot_name: deps.botName,
         gender,
+        notes: str(q.notes) ?? str(ctx.notes), // a follow-up call: the contact's notes (dial.ts)
       },
       deps.now(),
     );

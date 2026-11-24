@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { findRepoRoot } from "@mishlav/shared";
 import { describe, expect, it } from "vitest";
-import { buildCustomerContext, currentDatetimeHe } from "../src/context";
+import { buildCallVariables, buildCustomerContext, currentDatetimeHe } from "../src/context";
+import { recentNotes } from "../src/dial";
 import { loadKnowledge, type KnowledgeBase, type StudyDay } from "../src/knowledge";
 import { AUTH, FIXED_NOW, testServer } from "./helpers";
 
@@ -63,5 +64,23 @@ describe("GET /test/context", () => {
 
     expect((await app.inject({ method: "GET", url: "/test/context?scenario=NOPE", headers: AUTH })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/test/context" })).statusCode).toBe(401);
+  });
+});
+
+describe("a follow-up call: the contact's notes reach the bot", () => {
+  it("the latest whole lines of the Gold notes, at most ~600 characters", () => {
+    expect(recentNotes(null)).toBeUndefined();
+    expect(recentNotes("שורה ראשונה\n\n[הערת הבוט] ביקש הנחה · מוכן לשלם 590")).toBe("שורה ראשונה | [הערת הבוט] ביקש הנחה · מוכן לשלם 590");
+    const many = Array.from({ length: 40 }, (_, i) => `[הערת הבוט] שיחה מספר ${i} – ביקש שנחזור אליו`).join("\n");
+    const kept = recentNotes(many)!;
+    expect(kept.length).toBeLessThanOrEqual(650);
+    expect(kept.endsWith("שיחה מספר 39 – ביקש שנחזור אליו")).toBe(true); // the newest stays
+  });
+
+  it("they end customer_context; without notes nothing is added", () => {
+    const kb = loadKnowledge(join(findRepoRoot(__dirname), "config", "knowledge"), join(findRepoRoot(__dirname), "tests", "fixtures", "days"));
+    const v = buildCallVariables(kb, { first_name: "גיא", gender: "male", notes: "ביקש הנחה · מוכן לשלם 590" }, FIXED_NOW);
+    expect(v.customer_context.endsWith("הערות על הלקוח מהשיחות הקודמות (מגולד, האחרונה בסוף): ביקש הנחה · מוכן לשלם 590")).toBe(true);
+    expect(buildCallVariables(kb, { first_name: "גיא" }, FIXED_NOW).customer_context).not.toContain("הערות");
   });
 });

@@ -48,6 +48,8 @@ export interface CallOptions {
   voice?: string;
   /** no answer by then: cancel (ends like any unanswered call). Outgoing calls only. */
   ringTimeoutMs?: number;
+  /** a follow-up call: the contact's recent notes (Gold), so the bot knows what was said before */
+  notes?: string;
 }
 
 export function phoneEnv(env: NodeJS.ProcessEnv, root: string): PhoneEnv;

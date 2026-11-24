@@ -141,7 +141,7 @@ describe("Supabase contacts: which record, when", () => {
     const r = await post("/test/phone/call", { contact_id: ID });
     expect(r.json()).toMatchObject({ ok: true, call_id: "call-1", contact_id: ID });
     // every call rings at most dialing.ring_timeout_s, then ends like a no-answer
-    expect(line.dialed).toEqual([["+972534271418", { name: "רועי", ringTimeoutMs: 40_000 }]]);
+    expect(line.dialed).toEqual([["+972534271418", { name: "רועי", notes: "ביקש שיחזרו אחרי 16:00", ringTimeoutMs: 40_000 }]]); // its notes reach the bot
     await settle();
     expect(store.log).toEqual([["started", "call-1", ID, "manual"]]);
   });
@@ -150,7 +150,7 @@ describe("Supabase contacts: which record, when", () => {
     const { store, line, post } = await setup();
     store.contacts.set(ID, { ...CONTACT, bot_state: { ...CONTACT.bot_state!, phone_index: 2 } });
     await post("/test/phone/call", { contact_id: ID });
-    expect(line.dialed).toEqual([["+972541112222", { name: "רועי", ringTimeoutMs: 40_000 }]]);
+    expect(line.dialed).toEqual([["+972541112222", { name: "רועי", notes: "ביקש שיחזרו אחרי 16:00", ringTimeoutMs: 40_000 }]]); // its notes reach the bot
   });
 
   it("every tool of that call updates the same contact, in order, and the end closes it", async () => {

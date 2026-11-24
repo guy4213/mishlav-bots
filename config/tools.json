@@ -14,7 +14,7 @@
   "tools": [
     {
       "name": "get_day_info",
-      "description": "Get what the catalogue doesn't hold for one study day: the lecturers and the agenda. The dates, hours, place and price are already in the catalogue - say those at once, without this tool. Before calling it, say one short sentence in the same turn (e.g. that you are checking), so the line is never silent. Use only a day_id from the catalogue.",
+      "description": "Get the agenda of one study day (the only thing the catalogue doesn't hold). The dates, hours, place, price and lecturers are in the catalogue - say those at once, without this tool. Call it without saying anything first; never make up an answer it didn't give. Use only a day_id from the catalogue.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -67,6 +67,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 600
+          },
+          "note": {
+            "description": "A short note in Hebrew of what the customer asked or said that the next caller should know, beyond the reason (e.g. \"מוכן לשלם 590 במקום 790\", \"מעדיף יום במלון\"). Omit when there is nothing to add. Never a card number",
+            "type": "string",
+            "maxLength": 200
           }
         },
         "additionalProperties": false
@@ -112,6 +117,11 @@
             "description": "Only after the customer ANSWERED that any time is fine (\"לא משנה\", \"מתי שנוח\"). Never before they answered",
             "type": "boolean",
             "const": true
+          },
+          "note": {
+            "description": "A short note in Hebrew of what the customer asked or said that the next caller should know, beyond the reason (e.g. \"מוכן לשלם 590 במקום 790\", \"מעדיף יום במלון\"). Omit when there is nothing to add. Never a card number",
+            "type": "string",
+            "maxLength": 200
           }
         },
         "required": [
