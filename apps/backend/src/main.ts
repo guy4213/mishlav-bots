@@ -69,6 +69,7 @@ async function startPhoneLine(config: AppConfig, holder: PhoneHolder): Promise<v
   }
   const line = new PhoneLine({ root: config.repoRoot, env });
   line.on("log", ({ text }) => console.log(`[phone] ${text}`));
+  holder.onLine?.(line); // incoming calls are kept in the call history (routes/phone.ts)
   const attempt = async () => {
     try {
       await line.start();

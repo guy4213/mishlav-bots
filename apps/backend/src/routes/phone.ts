@@ -16,13 +16,15 @@ import type { PhoneLine } from "../../../phone/src/line.js";
 import { isAdmin } from "../access";
 import { todayIso } from "../context";
 import { type ContactEvents, firstName } from "../contacts";
-import { type DialError, dialContact, ringTimeoutMs } from "../dial";
+import { type DialError, dialContact, dialTestCall, ringTimeoutMs, trackIncomingCall } from "../dial";
 import { datesHe, FORMAT_HE, type KnowledgeBase } from "../knowledge";
 
 export interface PhoneHolder {
   line: PhoneLine | null;
   /** Why there is no line (missing settings, registration failed). */
   reason: string | null;
+  /** main.ts calls it with the line it made (before it registers): incoming calls are followed from then on */
+  onLine?: (line: PhoneLine) => void;
 }
 
 const DialRequest = z
@@ -52,6 +54,21 @@ export interface PhoneRouteDeps {
 const SelfDial = z.strictObject({ day_id: z.string().trim().max(100).optional() });
 
 export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHolder, deps: PhoneRouteDeps): Promise<void> {
+  // a test call without a contact (a typed number, "שיחה אליי") is kept in calls too: number, name, recording
+  const testDeps = (line: PhoneLine) => ({ line, contacts: deps.contacts, settings: deps.settings, transcriptsDir: deps.transcriptsDir });
+  // someone called the line (it answers with the active test session): kept in calls the same way
+  const followIncoming = (line: PhoneLine) => {
+    if (!deps.contacts) return;
+    const contacts = deps.contacts;
+    line.on("call", (s: ReturnType<PhoneLine["status"]>) => {
+      const c = s.call;
+      // status() masks the number; the line gives the running call's own
+      if (c?.direction === "in") void trackIncomingCall({ ...testDeps(line), contacts }, c.id, line.numberFor(c.id) ?? "", c.scenario);
+    });
+  };
+  holder.onLine = followIncoming;
+  if (holder.line) followIncoming(holder.line);
+
   // the contacts to dial from the dashboard
   app.get("/test/contacts", async (_req, reply) => {
     if (!deps.contacts) return { ok: true, available: false, contacts: [] };
@@ -111,11 +128,12 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
       return reply.code(409).send({ ok: false, error: "no_phone_line", message_he: `קו הטלפון לא פעיל: ${holder.reason ?? "לא ידוע"}` });
     }
     try {
-      const r = await holder.line.dial(user.phone, {
-        name: firstName(user.name) ?? undefined,
-        ...(day ? { day } : {}),
-        ringTimeoutMs: ringTimeoutMs(deps.settings),
-      });
+      const r = await dialTestCall(
+        testDeps(holder.line),
+        user.phone,
+        { name: firstName(user.name) ?? undefined, ...(day ? { day } : {}), ringTimeoutMs: ringTimeoutMs(deps.settings) },
+        { contact_name: user.name },
+      );
       mine.set(r.call_id, user.id);
       if (mine.size > 200) mine.delete(mine.keys().next().value!);
       return { ok: true, call_id: r.call_id };
@@ -144,7 +162,7 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
       return { ok: true, call_id: r.call_id, contact_id: r.contact.gold_record_id };
     }
     try {
-      return { ok: true, ...(await line.dial(number!, { ...opts, ringTimeoutMs: ringTimeoutMs(deps.settings) })) };
+      return { ok: true, ...(await dialTestCall(testDeps(line), number!, { ...opts, ringTimeoutMs: ringTimeoutMs(deps.settings) })) };
     } catch (err) {
       return reply.code(409).send({ ok: false, error: "dial_failed", message_he: (err as Error).message });
     }

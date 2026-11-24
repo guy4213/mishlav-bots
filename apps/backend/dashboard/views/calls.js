@@ -1,16 +1,24 @@
-// שיחות: every call (the dialer's and the tests), the live one pinned on top; a call opens with its transcript and
-// the bot's actions in one timeline.
+// שיחות: every call (the dialer's, the tests - also to a typed number, "שיחה אליי" - and incoming ones), the live one
+// pinned on top; each row says who and which phone, and plays its recording right there. A call opens with its
+// transcript and the bot's actions in one timeline.
 import { get } from "../api.js";
 import { liveCall, subscribe } from "../live.js";
 import {
-  chip, conversationHtml, emptyState, errorState, esc, every, fmtCost, fmtDateTime, fmtDuration, fmtRel, icon, loadingState, ls,
-  openDrawer, originChip, outcomeChip, outcomeLabel, REASON_HE, setFollowing,
+  callName, callOriginChip, chip, conversationHtml, emptyState, errorState, esc, every, fmtCost, fmtDateTime, fmtDuration, fmtPhone,
+  fmtRel, icon, loadingState, ls, openDrawer, outcomeChip, outcomeLabel, REASON_HE, setFollowing,
 } from "../ui.js";
 import { openContact } from "./contacts.js";
 
 const ORIGINS = [["all", "הכול"], ["dialer", "אוטומטי"], ["manual", "🧪 בדיקה"]];
 let stopPoll = null;
 let unsub = null;
+let stopAudio = null;
+
+/** The phone under the name: the number the call was on (older calls: the contact's record id). */
+const phoneLine = (c) => (c.number ? fmtPhone(c.number) : (c.gold_record_id ?? ""));
+
+/** A recording's link is valid for an hour: asked for only when someone presses play. */
+const recordingUrl = async (callId) => (await get(`/api/admin/calls/${encodeURIComponent(callId)}/recording`)).url;
 
 function liveBanner(c) {
   if (!c) return "";
@@ -25,24 +33,40 @@ function liveBanner(c) {
     </div></div>`;
 }
 
-function table(calls) {
+/** The play button of a row: the one playing now says so (pressing it again pauses). */
+const playButton = (c, playing) =>
+  c.recording_path
+    ? `<button class="btn sm rec-btn${playing ? " on" : ""}" data-play="${esc(c.call_id)}" title="${playing ? "עצור" : "השמע את ההקלטה"}">${icon(playing ? "pause" : "play")}<span>${playing ? "מתנגן" : "השמע"}</span></button>`
+    : `<span class="faint">—</span>`;
+
+function table(calls, playing) {
   if (!calls.length) return emptyState("אין שיחות עדיין", "שיחות של החיוג האוטומטי ושל הבדיקות יופיעו כאן.");
   return `<div class="table-wrap"><table class="data"><thead><tr>
-      <th>מתי</th><th>לקוח</th><th>משך</th><th>עלות AI</th><th>תוצאה</th><th>מקור</th><th>ענה</th>
+      <th>מתי</th><th>לקוח</th><th>הקלטה</th><th>משך</th><th>עלות AI</th><th>תוצאה</th><th>מקור</th><th>ענה</th>
     </tr></thead><tbody>${calls
       .map(
         (c) => `<tr class="click" data-open="${esc(c.call_id)}">
         <td class="nowrap"><div class="cell-main">${esc(fmtDateTime(c.started_at))}</div><div class="cell-sub">${esc(fmtRel(c.started_at))}</div></td>
-        <td><div class="cell-main">${esc(c.full_name ?? "—")}</div><div class="cell-sub ltr">${esc(c.gold_record_id)}</div></td>
+        <td><div class="cell-main">${esc(callName(c))}</div><div class="cell-sub ltr nowrap">${esc(phoneLine(c))}</div></td>
+        <td class="nowrap">${playButton(c, c.call_id === playing)}</td>
         <td class="num nowrap">${fmtDuration(c.duration_sec)}</td>
         <td class="num nowrap">${c.ai_cost_usd === null || c.ai_cost_usd === undefined ? "—" : `$${Number(c.ai_cost_usd).toFixed(3)}`}</td>
         <td>${outcomeChip(c.outcome)}${c.reason && c.reason.toUpperCase() !== c.outcome ? ` <span class="cell-sub">${esc(REASON_HE[c.reason] ?? c.reason)}</span>` : ""}</td>
-        <td>${originChip(c.origin)}</td>
+        <td>${callOriginChip(c)}${c.scenario ? ` <span class="cell-sub">תרחיש ${esc(c.scenario)}</span>` : ""}</td>
         <td>${c.answered ? chip("ענה", "success") : chip("לא ענה", "muted")}</td>
       </tr>`,
       )
       .join("")}</tbody></table></div>`;
 }
+
+/** The player above the list: who, which phone, when - and the recording. */
+const playerHtml = (c, url) => `<div class="player-bar">
+    <span class="player-ic">${icon("play")}</span>
+    <div class="player-who"><div class="cell-main">${esc(callName(c))} <span class="ltr faint">${esc(phoneLine(c))}</span></div>
+      <div class="cell-sub">${esc(fmtDateTime(c.started_at))} · ${fmtDuration(c.duration_sec)}</div></div>
+    <audio controls autoplay preload="auto" src="${esc(url)}"></audio>
+    <button class="icon-btn" data-player-close title="סגור">${icon("x")}</button>
+  </div>`;
 
 export default {
   id: "calls",
@@ -50,27 +74,91 @@ export default {
   icon: "phone",
   mount(root) {
     let origin = ls.get("mishlav_calls_origin", "all");
+    let recOnly = ls.get("mishlav_calls_rec_only", false);
+    let calls = [];
+    let playing = null; // the call whose recording plays now
     root.innerHTML = `
       <div id="callsLive"></div>
       <div class="card">
         <div class="card-head">
           <h2>היסטוריית שיחות</h2><span class="sub" id="callsCount"></span>
           <div class="actions">
+            <button class="btn sm${recOnly ? " on" : ""}" id="callsRecOnly" aria-pressed="${recOnly}">${icon("play")}<span>רק עם הקלטה</span></button>
             <div class="seg" id="callsOrigin">${ORIGINS.map(([v, l]) => `<button data-v="${v}" class="${v === origin ? "on" : ""}">${l}</button>`).join("")}</div>
             <button class="icon-btn" id="callsRefresh" title="רענון">${icon("refresh")}</button>
           </div>
         </div>
+        <div id="callsPlayer"></div>
         <div id="callsBody">${loadingState(6)}</div>
       </div>`;
     const body = root.querySelector("#callsBody");
+    const player = root.querySelector("#callsPlayer");
+    const audio = () => player.querySelector("audio");
+    stopAudio = () => audio()?.pause();
+    const render = () => {
+      const a = audio();
+      const now = playing && a && !a.paused ? playing : null;
+      const shown = recOnly ? calls.filter((c) => c.recording_path) : calls;
+      body.innerHTML = recOnly && !shown.length && calls.length
+        ? emptyState("אין הקלטות ברשימה", "שיחות שענו בהן נשמרות עם הקלטה, גם שיחות בדיקה.", "phone")
+        : table(shown, now);
+      root.querySelector("#callsCount").textContent = `${shown.length} שיחות${recOnly ? " עם הקלטה" : ""}`;
+    };
     const load = async () => {
       try {
         const r = await get(`/api/admin/calls?limit=300&origin=${origin}`);
-        body.innerHTML = table(r.calls);
-        root.querySelector("#callsCount").textContent = `${r.calls.length} שיחות`;
+        calls = r.calls;
+        render();
       } catch (e) {
         body.innerHTML = errorState(e.message);
       }
+    };
+    // the recording plays in the bar above the list (the list refreshes every 15 s; the bar stays)
+    const stopPlayer = () => {
+      audio()?.pause();
+      player.innerHTML = "";
+      playing = null;
+      render();
+    };
+    const play = async (callId, btn) => {
+      if (playing === callId && audio()) {
+        const a = audio();
+        if (a.paused) void a.play();
+        else a.pause();
+        return;
+      }
+      const c = calls.find((x) => x.call_id === callId);
+      if (!c) return;
+      btn.disabled = true;
+      try {
+        player.innerHTML = playerHtml(c, await recordingUrl(callId));
+        playing = callId;
+        const a = audio();
+        const mark = () => {
+          const b = body.querySelector(`[data-play="${CSS.escape(callId)}"]`);
+          if (!b) return;
+          b.classList.toggle("on", !a.paused);
+          b.innerHTML = `${icon(a.paused ? "play" : "pause")}<span>${a.paused ? "השמע" : "מתנגן"}</span>`;
+        };
+        a.addEventListener("play", mark);
+        a.addEventListener("pause", mark);
+        render();
+      } catch (e) {
+        player.innerHTML = `<div class="banner bad small" style="margin:10px 16px">${esc(e.message)}</div>`;
+        playing = null;
+      } finally {
+        btn.disabled = false;
+      }
+    };
+    player.addEventListener("click", (e) => {
+      if (e.target.closest("[data-player-close]")) stopPlayer();
+    });
+    root.querySelector("#callsRecOnly").onclick = (e) => {
+      recOnly = !recOnly;
+      ls.set("mishlav_calls_rec_only", recOnly);
+      e.currentTarget.classList.toggle("on", recOnly);
+      e.currentTarget.setAttribute("aria-pressed", String(recOnly));
+      render();
     };
     root.querySelector("#callsOrigin").addEventListener("click", (e) => {
       const b = e.target.closest("button");
@@ -83,6 +171,8 @@ export default {
     });
     root.querySelector("#callsRefresh").onclick = load;
     root.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-play]");
+      if (btn) { void play(btn.dataset.play, btn); return; } // plays here, without opening the call
       const row = e.target.closest("[data-open]");
       if (row) openCall(row.dataset.open);
     });
@@ -99,6 +189,7 @@ export default {
   unmount() {
     stopPoll?.();
     unsub?.();
+    stopAudio?.();
   },
 };
 
@@ -107,19 +198,32 @@ export function openCall(callId) {
   let stop = null;
   const d = openDrawer({ title: "שיחה", sub: `<span class="ltr">${esc(callId)}</span>`, onClose: () => stop?.() });
   let first = true;
+  // the recording is uploaded right after the call ends: until it is there, the drawer keeps asking (a minute and a half)
+  const saving = (r) => {
+    const c = r.call;
+    if (r.live || !c || c.recording_path) return false;
+    return Date.now() - new Date(c.started_at).getTime() - (c.duration_sec ?? 0) * 1000 < 90_000;
+  };
   const render = (r) => {
     const c = r.call;
-    d.setTitle(`${esc(c?.full_name ?? "שיחת בדיקה")} ${r.live ? chip("שיחה חיה", "live", { dot: true, cls: "pulse" }) : c ? outcomeChip(c.outcome) : ""}`);
+    d.setTitle(`${esc(c ? callName(c) : "שיחת בדיקה")} ${r.live ? chip("שיחה חיה", "live", { dot: true, cls: "pulse" }) : c ? outcomeChip(c.outcome) : ""}`);
     d.setSub(`${c ? `${esc(fmtDateTime(c.started_at))} · ` : ""}<span class="ltr faint">${esc(callId)}</span>`);
     const src = { db: "התמלול נשמר במסד", file: "התמלול מהדיסק של השרת הזה (יישמר במסד בסוף השיחה)", none: "" }[r.transcript_source];
+    const who = c?.gold_record_id
+      ? `<a href="#" data-contact="${esc(c.gold_record_id)}">${esc(c.full_name ?? c.gold_record_id)}</a>`
+      : `${esc(c ? callName(c) : "")} <span class="faint small">(לא לקוח מהמסד)</span>`;
+    const recording = c?.recording_path
+      ? `<button class="btn sm" data-rec>${icon("play")}<span>השמע הקלטה</span></button>`
+      : r.live ? "תישמר בסוף השיחה" : saving(r) ? "נשמרת…" : "אין";
     const meta = c
       ? `<dl class="kv">
-          <dt>לקוח</dt><dd><a href="#" data-contact="${esc(c.gold_record_id)}">${esc(c.full_name ?? c.gold_record_id)}</a></dd>
-          <dt>מקור</dt><dd>${originChip(c.origin)}</dd>
+          <dt>לקוח</dt><dd>${who}</dd>
+          <dt>טלפון</dt><dd>${c.number ? `<span class="ltr num">${esc(fmtPhone(c.number))}</span>` : "—"}</dd>
+          <dt>מקור</dt><dd>${callOriginChip(c)}${c.scenario ? ` <span class="faint small">· תרחיש ${esc(c.scenario)}</span>` : ""}</dd>
           <dt>משך</dt><dd class="num">${r.live ? "בשיחה…" : fmtDuration(c.duration_sec)}</dd>
           <dt>ענה</dt><dd>${c.answered ? "כן" : "לא"}</dd>
           <dt>עלות AI</dt><dd class="num">${fmtCost(c.ai_cost_usd, c.duration_sec)}</dd>
-          <dt>הקלטה</dt><dd data-rec-box>${c.recording_path ? `<button class="btn sm" data-rec>▶ השמע הקלטה</button>` : r.live ? "תישמר בסוף השיחה" : "אין"}</dd>
+          <dt>הקלטה</dt><dd data-rec-box>${recording}</dd>
           <dt>תוצאה</dt><dd>${esc(outcomeLabel(c.outcome))}${c.reason ? ` · ${esc(REASON_HE[c.reason] ?? c.reason)}` : ""}</dd>
           ${c.summary ? `<dt>סיכום</dt><dd>${esc(c.summary)}</dd>` : ""}
         </dl>`
@@ -138,8 +242,9 @@ export function openCall(callId) {
   const load = async () => {
     try {
       const r = await get(`/api/admin/calls/${encodeURIComponent(callId)}`);
-      render(r);
-      if (!r.live) stop?.(); // a finished call (or the last read after the end): no more polling
+      // a playing recording stays (the read that found it was the last one)
+      if (!d.body.querySelector("[data-rec-box] audio")) render(r);
+      if (!r.live && !saving(r)) stop?.(); // a finished call with its recording (or none to wait for): no more polling
     } catch (e) {
       if (first) d.body.innerHTML = errorState(e.message);
     }

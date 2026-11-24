@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
+  type CallInfo,
   type CallLimits,
   type Contact,
   ContactEvents,
@@ -94,6 +97,15 @@ class FakeStore implements ContactStore {
   async saveRecording(callId: string, file: string) {
     this.recordings.push([callId, file]);
   }
+  /** test calls without a contact (calls rows of their own), and each call's own details */
+  testCalls: [string, CallInfo][] = [];
+  callInfo: [string, CallInfo][] = [];
+  async testCallStarted(callId: string, info: CallInfo) {
+    this.testCalls.push([callId, info]);
+  }
+  async saveCallInfo(callId: string, info: CallInfo) {
+    this.callInfo.push([callId, info]);
+  }
   async goldChanges(since?: string) {
     this.log.push(["gold", since]);
     return { until: "2026-11-08T08:00:00+00:00", contacts: this.changes };
@@ -110,7 +122,10 @@ class FakeLine extends EventEmitter {
   status() {
     return { registered: true, busy: false };
   }
+  /** someone calling the line: call id -> their number */
+  callers = new Map<string, string>();
   numberFor(callId: string) {
+    if (this.callers.has(callId)) return this.callers.get(callId)!;
     const last = this.dialed.at(-1) as [string, unknown] | undefined;
     return callId === "call-1" ? (last?.[0] ?? null) : null;
   }
@@ -174,6 +189,44 @@ describe("Supabase contacts: which record, when", () => {
     expect(nextCallAt).toHaveLength(3);
     expect(nextCallAt.every((t) => t.getTime() > Date.now())).toBe(true);
     expect(limits).toEqual({ noAnswerStreakMax: 4, maxTotalCalls: 8 });
+  });
+
+  it("a contact's call keeps the number it was on (and its scenario) in calls", async () => {
+    const { store, post } = await setup();
+    await post("/test/phone/call", { contact_id: ID, scenario: "S2" });
+    await settle();
+    expect(store.callInfo).toEqual([["call-1", { number: "+972534271418", direction: "out", scenario: "S2" }]]);
+    expect(store.testCalls).toEqual([]); // a contact's call is no test row of its own
+  });
+
+  it("a test call to a typed number is kept in calls without a contact: number, name, its end and its recording", async () => {
+    const { store, line, post, config } = await setup();
+    const r = await post("/test/phone/call", { number: "053-4271418", name: "גיא", scenario: "S1" });
+    expect(r.json()).toMatchObject({ ok: true, call_id: "call-1" });
+    await settle();
+    expect(store.testCalls).toEqual([["call-1", { number: "+972534271418", direction: "out", contact_name: "גיא", scenario: "S1" }]]);
+    // the line wrote the transcript (someone answered and spoke), then says the call ended with its recording
+    mkdirSync(join(config.logDir, "transcripts"), { recursive: true });
+    const lines = [{ ts: "t1", role: "assistant", text: "היי גיא" }, { ts: "t2", role: "user", text: "הלו" }];
+    writeFileSync(join(config.logDir, "transcripts", "call-1.jsonl"), `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`);
+    line.emit("ended", { call_id: "call-1", reason: "remote", recording: "/tmp/logs/recordings/call-1.mp3" });
+    await settle();
+    expect(store.callInfo).toEqual([["call-1", { duration_sec: expect.any(Number), answered: true }]]);
+    expect(store.recordings).toEqual([["call-1", "/tmp/logs/recordings/call-1.mp3"]]);
+    expect(store.log).toEqual([]); // nobody's record: no bot_call_started / bot_call_ended
+  });
+
+  it("an incoming call is kept too, under the caller's number; nobody answered = not answered", async () => {
+    const { store, line } = await setup();
+    line.callers.set("in-1", "972541112222");
+    // the line's status masks the number; an outgoing call's event makes nothing (its route keeps it)
+    line.emit("call", { call: { id: "call-9", direction: "out", number: "053***1418", scenario: null } });
+    line.emit("call", { call: { id: "in-1", direction: "in", number: "054***2222", scenario: null } });
+    await settle();
+    expect(store.testCalls).toEqual([["in-1", { number: "+972541112222", direction: "in", scenario: null }]]);
+    line.emit("ended", { call_id: "in-1", reason: "caller hung up" });
+    await settle();
+    expect(store.callInfo).toEqual([["in-1", { duration_sec: expect.any(Number), answered: false }]]);
   });
 
   it("the call's recording goes to the store when the call ends; a voice picked for the test reaches the line", async () => {
