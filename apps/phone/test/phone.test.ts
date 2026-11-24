@@ -233,7 +233,9 @@ describe("call agent", () => {
     live.emit("toolCall", [{ id: "1", name: "end_call", args: { reason: "not_interested" } }]);
     await wait(10);
     live.emit("audio", Buffer.alloc(4800, 1)); // the goodbye again: muted
+    live.emit("outputTranscript", "בסדר גמור, יום נעים, להתראות!"); // ...and not written (it showed twice)
     expect(agent.queued).toBe(0);
+    expect(agent.turnText).toBe("");
     await wait(1200);
     expect(reasons).toEqual(["end_call"]);
     agent.end();

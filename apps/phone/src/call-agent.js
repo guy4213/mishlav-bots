@@ -291,6 +291,9 @@ export class CallAgent extends EventEmitter {
         return;
       }
       if (this.droppingCutTurn) return;
+      // a reply that isn't played (voicemail, or the goodbye again after end_call) isn't written either: it showed
+      // the closing sentence twice in the transcript although the caller heard it once
+      if (this.ending?.voicemail || this.ending?.mute) return;
       this.turnText += text;
       this.saidSinceLead += text;
     });
