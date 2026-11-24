@@ -19,6 +19,8 @@ export interface PhoneEnv {
   logDir: string;
   /** record every call (PHONE_RECORD, default on) */
   record: boolean;
+  /** the caller's noise filter, RNNoise (PHONE_DENOISE, default on) */
+  denoise: boolean;
 }
 
 export interface PhoneLogLine {

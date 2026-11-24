@@ -13,6 +13,8 @@ describe("call recordings", () => {
   it("the line records every call unless PHONE_RECORD=0", () => {
     expect(phoneEnv({}, "/x").record).toBe(true);
     expect(phoneEnv({ PHONE_RECORD: "0" }, "/x").record).toBe(false);
+    expect(phoneEnv({}, "/x").denoise).toBe(true); // the noise filter is on unless PHONE_DENOISE=0
+    expect(phoneEnv({ PHONE_DENOISE: "0" }, "/x").denoise).toBe(false);
   });
 
   it("stereo (caller | bot) becomes one channel with both voices", () => {

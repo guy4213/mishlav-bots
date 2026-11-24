@@ -1,6 +1,6 @@
 {
   "name": "mishlav-bots",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
   "description": "Mishlav College study-day voice bot — provider test infrastructure (Part 1)",
@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@breezystack/lamejs": "1.2.7",
+    "@jitsi/rnnoise-wasm": "0.2.1",
     "@mishlav/shared": "*",
     "yaml": "^2.6.1",
     "zod": "^4.0.0"
