@@ -5,11 +5,11 @@ import { EventEmitter } from 'node:events';
 import { Downsampler, FRAME_SAMPLES, PHONE_RATE, pcmBuffer, pcmView, rms } from './audio.js';
 import { UsageMeter } from './usage.js';
 
-const VOICE_RMS = 0.02; // without the noise filter: above this level on the line, the caller is talking
-// With the noise filter (denoise.js): the caller is talking when RNNoise hears a person (vad) and it isn't a whisper.
-// Cars, a plane, wind: vad ~0.01, so they no longer cut the bot or count as the caller speaking.
+const VOICE_RMS = 0.02; // above this level on the line, the caller is talking (for the silence count)
+// The noise filter (denoise.js) only takes away: loud enough as before AND RNNoise hears a person (vad). Cars, a plane,
+// wind: vad ~0.01, so they no longer cut the bot. The level stays: the bot's own voice comes back faint on the line
+// (echo), and it IS a voice - with a lower level (0.005, v1.10) the bot cut itself off mid-sentence (24.11).
 const SPEECH_VAD = 0.5;
-const SPEECH_MIN_RMS = 0.005;
 // Silence on a real phone line is very faint noise (samples of ±8, about -72 dB) and Gemini's end-of-speech
 // detection thinks the caller is still talking: on a real call it detected the end only after 14 s and the bot
 // never answered. Such a frame is sent as clean silence, and the end of speech is detected at once.
@@ -457,7 +457,7 @@ export class CallAgent extends EventEmitter {
     const level = rms(samples);
     // the noise filter: a person talking (not cars / a plane), and the audio Gemini gets without the noise
     const clean = this.denoiser?.process(samples);
-    const voiced = clean ? clean.vad >= SPEECH_VAD && level > SPEECH_MIN_RMS : level > VOICE_RMS;
+    const voiced = level > VOICE_RMS && (!clean || clean.vad >= SPEECH_VAD);
     const heard = clean ? clean.samples : samples;
     if (voiced) {
       this.lastVoice = now;

@@ -635,6 +635,22 @@ describe("call agent", () => {
       agent.end();
     });
 
+    it("the bot's own voice coming back faint on the line (echo) doesn't stop it, with the filter too", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({
+        live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0, denoiser: await createDenoiser(),
+      });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      const k = 0.012 / rms(speech); // a voice, but at echo level (below the caller-talking level)
+      await play(rtp, Int16Array.from(speech, (x) => x * k), 1500);
+      expect(agent.queued).toBeGreaterThan(0);
+      agent.end();
+    });
+
     it("without the filter (PHONE_DENOISE=0) the same noise stopped the bot", async () => {
       const live = new FakeLive();
       const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
