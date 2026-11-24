@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JS module (apps/phone is not type-checked)
 import { decodeG711, Downsampler, encodeG711, FRAME_SAMPLES } from "../src/audio.js";
 // @ts-expect-error plain JS module
-import { CallAgent, CUES, isHebrewOpening } from "../src/call-agent.js";
+import { CallAgent, CUES, heardPart, isHebrewOpening } from "../src/call-agent.js";
 // @ts-expect-error plain JS module
 import { createDenoiser } from "../src/denoise.js";
 // @ts-expect-error plain JS module
@@ -542,6 +542,33 @@ describe("call agent", () => {
       agent.end();
     });
 
+    it("Gemini is told what the caller heard of the cut answer (the link went out after a question never heard)", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      const lines: { who: string; text: string }[] = [];
+      agent.on("line", (l: { who: string; text: string }) => lines.push(l));
+      const text = "היום עיון במלון הוא ב-21 בנובמבר, מתשע בבוקר עד ארבע. המחיר 790 שקלים. לשלוח לך קישור להרשמה?";
+      live.emit("outputTranscript", text);
+      live.emit("audio", Buffer.alloc(24000 * 6 * 2, 1)); // 6 s
+      live.emit("turnComplete");
+      for (let i = 0; i < 100; i++) rtp.nextFrame(); // 2 s of it played
+      await talk(rtp, 700);
+      expect(agent.queued).toBe(0);
+      const note = live.sent.at(-1)!;
+      expect(note).toContain("הוא שמע רק עד: «היום עיון במלון");
+      expect(note).not.toContain("לשלוח לך קישור");
+      expect(lines.some((l) => l.who === "note" && l.text.startsWith("the caller heard only: «היום עיון במלון"))).toBe(true); // the log too
+      agent.end();
+    });
+
+    it("heardPart: the share of the text that was played, cut at a word", () => {
+      expect(heardPart("אחת שתיים שלוש ארבע", 60, 100)).toBe("אחת שתיים…"); // a half-said word is left out
+      expect(heardPart("אחת שתיים", 99, 100)).toBe("אחת שתיים");
+      expect(heardPart("אחת שתיים", 0, 100)).toBe("");
+    });
+
     it("a short word (\"כן\") doesn't cut the bot; words with short pauses between them do", async () => {
       const live = new FakeLive();
       const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
@@ -605,6 +632,22 @@ describe("call agent", () => {
       expect(agent.queued).toBeGreaterThan(0); // the bot goes on
       await play(rtp, speech, 1500);
       expect(agent.queued).toBe(0); // the caller cut in
+      agent.end();
+    });
+
+    it("the bot's own voice coming back faint on the line (echo) doesn't stop it, with the filter too", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({
+        live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0, denoiser: await createDenoiser(),
+      });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      const k = 0.012 / rms(speech); // a voice, but at echo level (below the caller-talking level)
+      await play(rtp, Int16Array.from(speech, (x) => x * k), 1500);
+      expect(agent.queued).toBeGreaterThan(0);
       agent.end();
     });
 

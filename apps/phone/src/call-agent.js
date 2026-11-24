@@ -5,11 +5,11 @@ import { EventEmitter } from 'node:events';
 import { Downsampler, FRAME_SAMPLES, PHONE_RATE, pcmBuffer, pcmView, rms } from './audio.js';
 import { UsageMeter } from './usage.js';
 
-const VOICE_RMS = 0.02; // without the noise filter: above this level on the line, the caller is talking
-// With the noise filter (denoise.js): the caller is talking when RNNoise hears a person (vad) and it isn't a whisper.
-// Cars, a plane, wind: vad ~0.01, so they no longer cut the bot or count as the caller speaking.
+const VOICE_RMS = 0.02; // above this level on the line, the caller is talking (for the silence count)
+// The noise filter (denoise.js) only takes away: loud enough as before AND RNNoise hears a person (vad). Cars, a plane,
+// wind: vad ~0.01, so they no longer cut the bot. The level stays: the bot's own voice comes back faint on the line
+// (echo), and it IS a voice - with a lower level (0.005, v1.10) the bot cut itself off mid-sentence (24.11).
 const SPEECH_VAD = 0.5;
-const SPEECH_MIN_RMS = 0.005;
 // Silence on a real phone line is very faint noise (samples of ±8, about -72 dB) and Gemini's end-of-speech
 // detection thinks the caller is still talking: on a real call it detected the end only after 14 s and the bot
 // never answered. Such a frame is sent as clean silence, and the end of speech is detected at once.
@@ -69,7 +69,23 @@ export const CUES = {
   open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, ועוד לא שמע ממך כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
   hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות!")',
+  // The caller cut in and we stopped the bot's voice ourselves: Gemini had already made the whole answer and thinks
+  // it was all said. On a call (24.11) the cut answer ended with "לשלוח לך קישור?", the caller never heard it, and
+  // his "סבבה" to the details was taken as a yes - the link went out unasked. So Gemini is told what was heard.
+  cutIn: (heard) =>
+    heard
+      ? `(הודעת מערכת: הלקוח התחיל לדבר בזמן שדיברת, והקול שלך נעצר. הוא שמע רק עד: «${heard}». את ההמשך הוא לא שמע – אם הייתה שם שאלה, הוא לא ענה עליה.)`
+      : '(הודעת מערכת: הלקוח התחיל לדבר בזמן שדיברת, והקול שלך נעצר מיד. הוא לא שמע כלום מהתשובה האחרונה שלך.)',
 };
+
+/** The words of a cut answer the caller heard: its text in proportion to the audio played, up to a word's end. */
+export function heardPart(text, played, total) {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (!t || total <= 0 || played >= total * 0.95) return t;
+  const cut = t.slice(0, Math.floor((t.length * Math.max(0, played)) / total));
+  const end = cut.lastIndexOf(' ');
+  return end > 0 ? `${cut.slice(0, end)}…` : '';
+}
 
 /**
  * Events:
@@ -85,6 +101,10 @@ export class CallAgent extends EventEmitter {
   constructor({ live, tools, openAfterSilenceMs = 4000, genderReminder = null, denoiser = null }) {
     super();
     this.denoiser = denoiser; // the caller's noise filter (null: by volume, as before)
+    // the answer playing now: its words and audio (8 kHz), for what the caller heard when they cut in
+    this.playText = '';
+    this.turnSamples = 0;
+    this.answerDone = true;
     this.genderReminder = genderReminder; // added to every tool answer the bot gets (not logged by the server)
     this.usage = new UsageMeter(); // Gemini tokens of this call (what it cost)
     this.live = live;
@@ -285,6 +305,7 @@ export class CallAgent extends EventEmitter {
         this._logLead(); // the bot starts answering: what the caller said so far goes to the transcript
         this.bargedIn = false; // a new answer: a short word doesn't cut it again
       }
+      this._answerStarts();
       this.agentTurnActive = true;
       this.agentSpoke = true;
       this.waitingSince = 0;
@@ -301,8 +322,10 @@ export class CallAgent extends EventEmitter {
       // a reply that isn't played (voicemail, or the goodbye again after end_call) isn't written either: it showed
       // the closing sentence twice in the transcript although the caller heard it once
       if (this.ending?.voicemail || this.ending?.mute) return;
+      this._answerStarts();
       this.turnText += text;
       this.saidSinceLead += text;
+      this.playText += text; // kept after turnComplete: the answer may still be playing when the caller cuts in
     });
     a.on('inputTranscript', (text) => {
       this.leadText += text;
@@ -326,6 +349,7 @@ export class CallAgent extends EventEmitter {
       this._flush();
       this.agentTurnActive = false;
       this.turnHadAudio = false;
+      this.answerDone = true;
       this._logAgent(true);
     });
     a.on('turnComplete', () => {
@@ -347,6 +371,7 @@ export class CallAgent extends EventEmitter {
         this.emit('line', { who: 'note', text: 'goodbye said without end_call: hanging up when the line is quiet' });
       }
       this.turnHadAudio = false;
+      this.answerDone = true; // it may still be playing; the next words are a new answer
       this._logAgent(false);
     });
     a.on('toolCall', (calls) => this._onToolCall(calls));
@@ -432,7 +457,7 @@ export class CallAgent extends EventEmitter {
     const level = rms(samples);
     // the noise filter: a person talking (not cars / a plane), and the audio Gemini gets without the noise
     const clean = this.denoiser?.process(samples);
-    const voiced = clean ? clean.vad >= SPEECH_VAD && level > SPEECH_MIN_RMS : level > VOICE_RMS;
+    const voiced = level > VOICE_RMS && (!clean || clean.vad >= SPEECH_VAD);
     const heard = clean ? clean.samples : samples;
     if (voiced) {
       this.lastVoice = now;
@@ -500,6 +525,12 @@ export class CallAgent extends EventEmitter {
    */
   _cutIn() {
     const stillSending = this.agentTurnActive;
+    // what the caller heard of it: Gemini is told (CUES.cutIn), and the transcript shows only that
+    const heard = heardPart(this.playText, this.turnSamples - this.queued, this.turnSamples);
+    this.live.sendText(CUES.cutIn(heard));
+    if (this.turnText) this.turnText = heard; // still coming: its line is only what was heard
+    else this.emit('line', { who: 'note', text: `the caller heard only: «${heard}»` }); // its line is already written
+    this.answerDone = true;
     this._flush();
     this._logAgent(true);
     this.turnHadAudio = false;
@@ -551,10 +582,19 @@ export class CallAgent extends EventEmitter {
     if (this.live.ready) this.live.sendAudio(pcmBuffer(pcm), PHONE_RATE);
   }
 
+  /** The first audio or words of a new answer: what is played of it is counted from here (a cut-in tells Gemini). */
+  _answerStarts() {
+    if (!this.answerDone) return;
+    this.answerDone = false;
+    this.playText = '';
+    this.turnSamples = 0;
+  }
+
   _play(samples) {
     if (!samples?.length) return;
     this.queue.push(samples);
     this.queued += samples.length;
+    this.turnSamples += samples.length;
   }
 
   _flush() {
