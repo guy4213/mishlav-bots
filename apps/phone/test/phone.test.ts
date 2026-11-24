@@ -7,6 +7,8 @@ import { decodeG711, Downsampler, encodeG711, FRAME_SAMPLES } from "../src/audio
 // @ts-expect-error plain JS module
 import { CallAgent, CUES, isHebrewOpening } from "../src/call-agent.js";
 // @ts-expect-error plain JS module
+import { createDenoiser } from "../src/denoise.js";
+// @ts-expect-error plain JS module
 import { buildSetup, DEFAULT_PHONE_MODEL } from "../src/gemini-live.js";
 // @ts-expect-error plain JS module
 import { buildInstructions, findRepoRoot, knowledgeAppendix, loadToolDefinitions, render } from "../src/mishlav.js";
@@ -554,6 +556,67 @@ describe("call agent", () => {
       await talk(rtp, 300); // "רגע"
       await pause(rtp, 300);
       await talk(rtp, 300); // "רגע"
+      expect(agent.queued).toBe(0);
+      agent.end();
+    });
+  });
+
+  describe("street noise (the noise filter, RNNoise)", () => {
+    // a person talking (synthetic speech, 8 kHz) and car-like rumble (brown noise), as 20 ms frames
+    const pcm = readFileSync(join(__dirname, "fixtures", "speech-8k.pcm"));
+    const speech = new Int16Array(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.length - (pcm.length % 2)));
+    const rumble = (ms: number, amp = 1200) => {
+      let b = 0;
+      return Int16Array.from({ length: (8000 * ms) / 1000 }, () => (b = (b + (Math.random() * 2 - 1) * amp) * 0.995));
+    };
+    const play = async (rtp: FakeRtp, audio: Int16Array, ms: number) => {
+      for (let i = 0; i * 160 < (8000 * ms) / 1000 && (i + 1) * 160 <= audio.length; i++) {
+        rtp.emit("audio", audio.subarray(i * 160, (i + 1) * 160));
+        await wait(20);
+      }
+    };
+    const rms = (a: Int16Array) => Math.sqrt(a.reduce((e, x) => e + (x / 32768) ** 2, 0) / a.length);
+    const longAnswer = () => Buffer.alloc(24000 * 4 * 2, 1); // 4 s of the bot, at 24 kHz
+
+    it("tells a person from noise, and takes the noise out", async () => {
+      const d = await createDenoiser();
+      const frames = (a: Int16Array) => Array.from({ length: Math.floor(a.length / 160) }, (_, i) => d.process(a.subarray(i * 160, (i + 1) * 160)));
+      const noise = rumble(3000);
+      expect(rms(noise)).toBeGreaterThan(0.02); // loud: by volume alone this is "talking"
+      const n = frames(noise).slice(50); // after it learned the noise (1 s)
+      expect(Math.max(...n.map((f) => f.vad))).toBeLessThan(0.5);
+      expect(rms(Int16Array.from(n.flatMap((f) => [...f.samples])))).toBeLessThan(rms(noise) / 4);
+      const s = frames(speech);
+      expect(s.filter((f) => f.vad >= 0.5).length / s.length).toBeGreaterThan(0.4); // speech with its pauses
+      d.destroy();
+    });
+
+    it("loud street noise over the bot doesn't stop it; a person talking does", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({
+        live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0, denoiser: await createDenoiser(),
+      });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await play(rtp, rumble(1500), 1500);
+      expect(agent.queued).toBeGreaterThan(0); // the bot goes on
+      await play(rtp, speech, 1500);
+      expect(agent.queued).toBe(0); // the caller cut in
+      agent.end();
+    });
+
+    it("without the filter (PHONE_DENOISE=0) the same noise stopped the bot", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await play(rtp, rumble(1500), 1500);
       expect(agent.queued).toBe(0);
       agent.end();
     });

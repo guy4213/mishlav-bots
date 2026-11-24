@@ -6,6 +6,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { mixToMono, mp3, wav } from './audio.js';
+import { createDenoiser } from './denoise.js';
 import { CallAgent } from './call-agent.js';
 import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive, PHONE_VOICES } from './gemini-live.js';
 import { buildInstructions, loadToolDefinitions, ToolsClient } from './mishlav.js';
@@ -33,6 +34,8 @@ export function phoneEnv(env = process.env, root) {
     voice: env.PHONE_VOICE || env.GEMINI_VOICE || DEFAULT_VOICE,
     // every call is recorded (logs/recordings, then the tools server keeps it in Supabase); PHONE_RECORD=0: none
     record: env.PHONE_RECORD !== '0',
+    // the caller's noise filter (denoise.js): street noise doesn't cut the bot. PHONE_DENOISE=0: by volume, as before
+    denoise: env.PHONE_DENOISE !== '0',
     temperature: Number(env.GEMINI_TEMPERATURE ?? 0.6),
     // the callee answered and said nothing: the bot opens after this. 2.5 s + the bot starting to speak was 3.2 s
     // on calls (Nov 2026): 1.3 s makes it about 2 s (Guy / Yair)
@@ -316,13 +319,16 @@ export class PhoneLine extends EventEmitter {
       temperature: e.temperature,
     });
     const customerGender = ctx.variables.customer_gender ?? 'unknown'; // as decided for this call
+    const denoiser = e.denoise ? await createDenoiser() : null;
+    if (e.denoise && !denoiser) this.log('noise filter (RNNoise) did not load: this call works by volume', callId);
     const agent = new CallAgent({
       live: new GeminiLive({ apiKey: e.apiKey, setup }),
       tools,
       openAfterSilenceMs: e.openAfterSilenceMs,
       genderReminder: GENDER_REMINDER[customerGender],
+      denoiser,
     });
-    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}, voice ${callVoice}`, callId);
+    this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}, voice ${callVoice}, noise filter ${denoiser ? 'on' : 'off'}`, callId);
     return { callId, tools, session, agent, scenario: ctx.scenario };
   }
 

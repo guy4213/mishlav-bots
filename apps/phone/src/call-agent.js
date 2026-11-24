@@ -5,7 +5,11 @@ import { EventEmitter } from 'node:events';
 import { Downsampler, FRAME_SAMPLES, PHONE_RATE, pcmBuffer, pcmView, rms } from './audio.js';
 import { UsageMeter } from './usage.js';
 
-const VOICE_RMS = 0.02; // above this level on the line, the caller is talking (for the silence count)
+const VOICE_RMS = 0.02; // without the noise filter: above this level on the line, the caller is talking
+// With the noise filter (denoise.js): the caller is talking when RNNoise hears a person (vad) and it isn't a whisper.
+// Cars, a plane, wind: vad ~0.01, so they no longer cut the bot or count as the caller speaking.
+const SPEECH_VAD = 0.5;
+const SPEECH_MIN_RMS = 0.005;
 // Silence on a real phone line is very faint noise (samples of ±8, about -72 dB) and Gemini's end-of-speech
 // detection thinks the caller is still talking: on a real call it detected the end only after 14 s and the bot
 // never answered. Such a frame is sent as clean silence, and the end of speech is detected at once.
@@ -75,10 +79,12 @@ export const CUES = {
 export class CallAgent extends EventEmitter {
   /**
    * @param {{ live: import('./gemini-live.js').GeminiLive, tools: import('./mishlav.js').ToolsClient,
-   *           openAfterSilenceMs?: number, genderReminder?: string | null }} opts
+   *           openAfterSilenceMs?: number, genderReminder?: string | null,
+   *           denoiser?: import('./denoise.js').Denoiser | null }} opts
    */
-  constructor({ live, tools, openAfterSilenceMs = 4000, genderReminder = null }) {
+  constructor({ live, tools, openAfterSilenceMs = 4000, genderReminder = null, denoiser = null }) {
     super();
+    this.denoiser = denoiser; // the caller's noise filter (null: by volume, as before)
     this.genderReminder = genderReminder; // added to every tool answer the bot gets (not logged by the server)
     this.usage = new UsageMeter(); // Gemini tokens of this call (what it cost)
     this.live = live;
@@ -233,6 +239,7 @@ export class CallAgent extends EventEmitter {
     if (this.ended) return;
     this.ended = true;
     clearInterval(this._watchTimer);
+    this.denoiser?.destroy();
     this._logLead();
     this._logAgent(false);
     this.live.close();
@@ -423,7 +430,10 @@ export class CallAgent extends EventEmitter {
     if (this.ended) return;
     const now = performance.now();
     const level = rms(samples);
-    const voiced = level > VOICE_RMS;
+    // the noise filter: a person talking (not cars / a plane), and the audio Gemini gets without the noise
+    const clean = this.denoiser?.process(samples);
+    const voiced = clean ? clean.vad >= SPEECH_VAD && level > SPEECH_MIN_RMS : level > VOICE_RMS;
+    const heard = clean ? clean.samples : samples;
     if (voiced) {
       this.lastVoice = now;
       this.leadVoicedFrames++;
@@ -438,8 +448,9 @@ export class CallAgent extends EventEmitter {
         this.emit('line', { who: 'note', text: 'the caller went on talking after the goodbye: the call goes on' });
       }
     } else this.voicedRun = 0;
-    this.rec?.lead.push(samples);
-    const frame = level < SILENCE_RMS ? new Int16Array(samples.length) : samples;
+    this.rec?.lead.push(samples); // the recording keeps what the caller really sounded like
+    // noise only (filtered to near silence) or a quiet line: Gemini gets clean silence, so it hears the end of speech
+    const frame = (clean ? rms(heard) : level) < SILENCE_RMS ? new Int16Array(samples.length) : heard;
 
     if (!this.opened && this._openingUsable()) {
       // Before the opening made while ringing plays, Gemini hears silence: it already "said" the opening, so it must
