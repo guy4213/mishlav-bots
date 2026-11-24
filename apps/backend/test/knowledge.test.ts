@@ -88,10 +88,10 @@ describe("knowledge base", () => {
   it("the prompt's catalogue is built from the days: upcoming only, Zoom then the hotel, each by date, closed ones marked", () => {
     const catalog = buildDayCatalog(kb, FIXED_NOW).split("\n");
     expect(catalog[0]).toBe("בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):");
-    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ · מרצים: מיקי בן דב, אפי נדיב");
+    expect(catalog[1]).toBe("- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מַעַם · מרצים: מיקי בן דב, אפי נדיב");
     expect(catalog[2]).toContain("`2027-03-17-zoom`");
     expect(catalog[7]).toBe("במלון – יום מלא (הקרוב ראשון):");
-    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17 במאי · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מע\"מ · מרצים: מיקי בן דב, אפי נדיב");
+    expect(catalog[8]).toBe("- `2027-05-17-hotel` – דיני עבודה ומס הכנסה · 17 במאי · מתשע בבוקר עד ארבע אחר הצהריים · מלון דן פנורמה, תל אביב · 790 ₪ כולל מַעַם · מרצים: מיקי בן דב, אפי נדיב");
     expect(catalog[9]).toContain("`2027-11-21-hotel`");
     // by topic: the answer to "what about national insurance?" is one line - and no hotel day has it
     expect(catalog[10]).toBe("לפי נושא (הקרוב ראשון):");
@@ -113,7 +113,7 @@ describe("knowledge base", () => {
     };
     expect(buildDayCatalog(k, FIXED_NOW).split("\n").slice(0, 2)).toEqual([
       "בזום – יום עיון אחד בשני מפגשים (הקרוב ראשון):",
-      "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מע\"מ · מרצים: מיקי בן דב, אפי נדיב · ההרשמה סגורה",
+      "- `2027-02-21-zoom` – דיני עבודה ומס הכנסה · 21 ו-22 בפברואר · מעשר בבוקר עד אחת ורבע בצהריים בכל מפגש · 370 ₪ כולל מַעַם · מרצים: מיקי בן דב, אפי נדיב · ההרשמה סגורה",
     ]);
     expect(buildDayCatalog({ days: new Map(), general: "" }, FIXED_NOW)).toBe("אין כרגע ימי עיון בקטלוג.");
   });
