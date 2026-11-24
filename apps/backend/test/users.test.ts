@@ -228,6 +228,22 @@ describe("what Mishlav's users may do", () => {
   });
 });
 
+describe("an admin with the system key", () => {
+  it("logged in with phone + password too: 'call me' calls their phone, also when viewing as Mishlav", async () => {
+    const { app, login, line } = await setup();
+    const { cookie } = await login(GUY, "guy-pass-12");
+    const req = (method: "GET" | "POST", headers: Record<string, string>) =>
+      app.inject({ method, url: "/api/me/test-call", headers: { ...AUTH, ...headers }, ...(method === "POST" ? { payload: {} } : {}) });
+    expect((await req("GET", { cookie, "x-view-as": "mishlav" })).json()).toMatchObject({ ok: true, phone: GUY });
+    expect((await req("POST", { cookie, "x-view-as": "mishlav" })).json()).toMatchObject({ ok: true });
+    expect(line.dialed[0]).toMatchObject({ number: "+972547777777" });
+    // the key alone: no phone to call, and it says how to get one
+    const keyOnly = await req("GET", {});
+    expect(keyOnly.statusCode).toBe(409);
+    expect(keyOnly.json().message_he).toContain("טלפון וסיסמה");
+  });
+});
+
 describe("managing users (admins)", () => {
   it("add, duplicate phone 409, rename; the new user logs in", async () => {
     const { login, as } = await setup();

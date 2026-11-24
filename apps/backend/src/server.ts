@@ -131,7 +131,15 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     const path = req.url.split("?")[0]!;
     let principal: Principal;
     if (secretMatches(presentedSecret(req), config.toolsSecret)) {
-      principal = { role: "admin", via: "secret", user: null };
+      // The key is ours (admin). A browser that also logged in with phone + password says who it is: "call me" dials
+      // that person's phone (Guy's browser kept the key from `npm run lab`, and "call me" said "only for a user").
+      let user = null;
+      try {
+        user = users ? await users.fromRequest(req) : null;
+      } catch {
+        // users unreachable: the key alone still works
+      }
+      principal = { role: "admin", via: "secret", user: user ? publicUser(user) : null };
     } else {
       let user = null;
       try {
