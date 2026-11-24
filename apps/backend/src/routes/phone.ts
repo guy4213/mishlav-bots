@@ -74,6 +74,8 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
   });
 
   // ---- a test call to the logged-in user's own phone (Mishlav's people; admins can use it too)
+  // the system key (from `npm run lab`) says "admin" but not who: there is no phone to call
+  const NOT_A_USER_HE = "שיחה אליי צריכה כניסה עם מספר טלפון וסיסמה (נכנסת עם המפתח של המערכת): צא והיכנס עם הטלפון והסיסמה שלך.";
   const mine = new Map<string, string>(); // call_id -> the user who placed it (for their hangup)
   const now = deps.now ?? (() => new Date());
   const upcomingDays = () => {
@@ -87,7 +89,7 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
   };
   app.get("/api/me/test-call", async (req, reply) => {
     const user = req.principal?.user;
-    if (!user) return reply.code(409).send({ ok: false, error: "not_a_user", message_he: "שיחה אליי זמינה רק למשתמש מחובר" });
+    if (!user) return reply.code(409).send({ ok: false, error: "not_a_user", message_he: NOT_A_USER_HE });
     const line = holder.line;
     return {
       ok: true,
@@ -98,7 +100,7 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
   });
   app.post("/api/me/test-call", async (req, reply) => {
     const user = req.principal?.user;
-    if (!user) return reply.code(409).send({ ok: false, error: "not_a_user", message_he: "שיחה אליי זמינה רק למשתמש מחובר" });
+    if (!user) return reply.code(409).send({ ok: false, error: "not_a_user", message_he: NOT_A_USER_HE });
     const parsed = SelfDial.safeParse(req.body ?? {});
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
     const day = parsed.data.day_id;
