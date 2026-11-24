@@ -75,6 +75,21 @@ export interface GoldChanges {
 /** Where a call came from: the automatic dialer, or a test from the dashboard (calls.origin). */
 export type CallOrigin = "dialer" | "manual";
 
+/**
+ * A call's own details in calls: the number it was on and who the bot talked to (a test call has no contact), and
+ * at a test call's end how long it was and whether someone answered (a contact's call: bot_call_ended does that).
+ */
+export interface CallInfo {
+  /** +972...: the number dialed, or the caller's on an incoming call */
+  number?: string | null;
+  /** the name the bot was given, on a call without a contact */
+  contact_name?: string | null;
+  direction?: "in" | "out";
+  scenario?: string | null;
+  duration_sec?: number;
+  answered?: boolean;
+}
+
 /** The dialer's on/off switch (table dialer_control): it survives restarts and deploys. */
 export interface DialerControl {
   enabled: boolean;
@@ -130,6 +145,10 @@ export interface ContactStore {
   saveRecording?(callId: string, file: string): Promise<void>;
   /** Stores the call's Gemini tokens and their cost (calls.ai_usage / ai_cost_usd). */
   saveUsage?(callId: string, usage: AiUsage, costUsd: number | null): Promise<void>;
+  /** A test call without a contact (a typed number, "שיחה אליי", an incoming call): a calls row of its own. */
+  testCallStarted?(callId: string, info: CallInfo): Promise<void>;
+  /** The call's number, name, direction, scenario; a test call's length and whether someone answered. */
+  saveCallInfo?(callId: string, info: CallInfo): Promise<void>;
   /** The voice the team picked in the dashboard for every call (dialer_control.voice); null: PHONE_VOICE. */
   botVoice?(): Promise<string | null>;
   setBotVoice?(voice: string | null): Promise<void>;
@@ -138,7 +157,8 @@ export interface ContactStore {
 /** One row of calls (the list leaves the transcript out). */
 export interface CallRow {
   call_id: string;
-  gold_record_id: string;
+  /** null: a test call without a contact (a typed number, "שיחה אליי", an incoming call) */
+  gold_record_id: string | null;
   started_at: string;
   duration_sec: number | null;
   outcome: string | null;
@@ -150,6 +170,12 @@ export interface CallRow {
   ai_cost_usd?: number | null;
   /** its recording in Storage (bucket "recordings"), when it was recorded */
   recording_path?: string | null;
+  /** the number the call was on (+972...); null on calls from before it was kept */
+  number?: string | null;
+  /** who the bot talked to on a call without a contact */
+  contact_name?: string | null;
+  direction?: "in" | "out";
+  scenario?: string | null;
   /** the contact's name (contacts.full_name) */
   full_name: string | null;
 }
@@ -246,7 +272,8 @@ function normalise(c: ContactRecord): ContactRecord {
 }
 
 /** Supabase over its REST API (PostgREST), with the service role key - the only role the tables let in. */
-const CALL_FIELDS = "call_id,gold_record_id,started_at,duration_sec,outcome,reason,summary,answered,origin,ai_cost_usd,recording_path";
+const CALL_FIELDS =
+  "call_id,gold_record_id,started_at,duration_sec,outcome,reason,summary,answered,origin,ai_cost_usd,recording_path,number,contact_name,direction,scenario";
 const TASK_FIELDS = "id,gold_record_id,call_id,reason,callback_at,note,done,created_at";
 type Embedded<T> = T | T[] | null;
 const one = <T>(v: Embedded<T> | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
@@ -411,6 +438,14 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
 
   async saveTranscript(callId: string, lines: TranscriptLine[]) {
     await this.req("PATCH", `/calls?call_id=eq.${encodeURIComponent(callId)}`, { transcript: lines });
+  }
+
+  async testCallStarted(callId: string, info: CallInfo) {
+    await this.req("POST", "/calls", { call_id: callId, origin: "manual", ...info }, { prefer: "return=minimal" });
+  }
+
+  async saveCallInfo(callId: string, info: CallInfo) {
+    await this.req("PATCH", `/calls?call_id=eq.${encodeURIComponent(callId)}`, info);
   }
 
   // ---- the management dashboard (AdminStore)

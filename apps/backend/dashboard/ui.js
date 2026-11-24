@@ -69,6 +69,16 @@ export const statusChip = (s) => chip(CONTACT_STATUS_HE[s] ?? s ?? "—", STATUS
 export const outcomeLabel = (o) => (Array.isArray(o) ? o.map((x) => OUTCOME_HE[x] ?? x).join(" / ") : (OUTCOME_HE[o ?? "NO_RESULT"] ?? o));
 export const outcomeChip = (o) => chip(outcomeLabel(o), OUTCOME_TONE[o ?? "NO_RESULT"] ?? "muted");
 export const originChip = (o) => chip(ORIGIN_HE[o] ?? o ?? "—", o === "dialer" ? "info" : "outline");
+/** +972534271418 / 0534271418 -> 053-4271418 (as written in Israel); anything else as it is */
+export const fmtPhone = (n) => {
+  const d = String(n ?? "").replace(/\D/g, "");
+  const local = d.startsWith("972") ? `0${d.slice(3)}` : d;
+  return /^0\d{8,9}$/.test(local) ? `${local.slice(0, -7)}-${local.slice(-7)}` : String(n ?? "");
+};
+/** Who a call was with: the contact, else the name the test call gave the bot (an incoming call: who called). */
+export const callName = (c) => c?.full_name ?? c?.contact_name ?? (c?.direction === "in" ? "שיחה נכנסת" : "שיחת בדיקה");
+/** Where a call came from: the dialer, a dashboard test, or someone calling the line. */
+export const callOriginChip = (c) => (c?.direction === "in" ? chip("📞 נכנסת", "outline") : originChip(c?.origin));
 export const statusTone = (s) => STATUS_TONE[s] ?? "muted";
 
 // ------------------------------------------------------------------ formatting (always Israel time)

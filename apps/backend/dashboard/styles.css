@@ -445,6 +445,17 @@ pre.json { direction: ltr; text-align: left; background: var(--surface-2); borde
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
 .form-grid .full { grid-column: 1 / -1; }
 
+/* ---------------------------------------------------------------- recordings (שיחות) */
+.rec-btn svg.i, #callsRecOnly svg.i { width: 14px; height: 14px; }
+.cell-sub.nowrap { white-space: nowrap; } /* a phone number on one line */
+.rec-btn.on, #callsRecOnly.on { border-color: var(--primary); color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, var(--surface)); }
+.rec-btn svg.i, #callsRecOnly svg.i { fill: currentColor; }
+.player-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.player-ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: var(--on-primary); flex: none; }
+.player-ic svg.i { width: 14px; height: 14px; fill: currentColor; }
+.player-who { min-width: 0; flex: 0 1 auto; }
+.player-bar audio { flex: 1 1 280px; min-width: 0; height: 36px; }
+
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 1200px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }

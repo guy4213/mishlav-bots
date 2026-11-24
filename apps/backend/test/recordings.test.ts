@@ -51,6 +51,24 @@ describe("call recordings", () => {
     expect(await s.recordingUrl("call-1")).toBe("https://x.supabase.co/storage/v1/object/sign/recordings/call-1.mp3?token=t");
   });
 
+  it("a test call without a contact is a calls row of its own; the list brings each call's number and name", async () => {
+    const sent: { url: string; method: string; body?: unknown }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      sent.push({ url, method: init.method!, body: init.body });
+      if (init.method === "GET") return new Response(JSON.stringify([{ call_id: "call-1", gold_record_id: null, number: "+972534271418", contact_name: "גיא", contacts: null }]));
+      return new Response("", { status: 201 });
+    }) as unknown as typeof fetch;
+    const s = new SupabaseContacts("https://x.supabase.co", "service-key", fetchImpl);
+    await s.testCallStarted("call-1", { number: "+972534271418", direction: "out", contact_name: "גיא", scenario: null });
+    expect(sent[0]).toMatchObject({ url: "https://x.supabase.co/rest/v1/calls", method: "POST" });
+    expect(JSON.parse(String(sent[0]!.body))).toEqual({ call_id: "call-1", origin: "manual", number: "+972534271418", direction: "out", contact_name: "גיא", scenario: null });
+    await s.saveCallInfo("call-1", { duration_sec: 42, answered: true });
+    expect(sent[1]).toMatchObject({ url: "https://x.supabase.co/rest/v1/calls?call_id=eq.call-1", method: "PATCH", body: JSON.stringify({ duration_sec: 42, answered: true }) });
+    const [row] = await s.calls(50, null);
+    expect(decodeURIComponent(sent[2]!.url)).toContain("recording_path,number,contact_name,direction,scenario,contacts(full_name)");
+    expect(row).toMatchObject({ call_id: "call-1", gold_record_id: null, number: "+972534271418", contact_name: "גיא", full_name: null });
+  });
+
   it("kept for good by default (retention_days 0); a number deletes older ones", async () => {
     const calls: Date[] = [];
     const admin = { pruneRecordings: async (before: Date) => (calls.push(before), 0) };

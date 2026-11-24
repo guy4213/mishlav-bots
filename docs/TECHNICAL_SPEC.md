@@ -404,6 +404,15 @@ events, one sequence). Transcripts survive deploys: at the end of a contact's ca
 user/assistant lines in `calls.transcript` (jsonb) with 13–19 digit runs redacted (`redact.ts`). Migration
 `20261118010000_dashboard`.
 
+**Test calls and recordings in the history.** A test call without a contact (בדיקות with a typed number, a team
+member's "שיחה אליי", an incoming call) is a `calls` row too: `gold_record_id` null, `origin = 'manual'`
+(`dialTestCall` / `trackIncomingCall`, dial.ts), so its transcript, AI cost and recording outlive a deploy like a
+contact's call. Every call keeps `calls.number` (the number dialed, or the caller's), `direction`, `scenario`, and
+on a call without a contact `contact_name` (the name the bot was given); a test call's end writes `duration_sec` and
+`answered` (the caller said something). The calls screen lists name + phone per call and plays a recording in a bar
+above the list (an hour-long signed link, asked for on play), with a "only with a recording" filter. Migration
+`20261127000000_test_calls`.
+
 **Branches.** A: `ElevenLabsAgentsProvider` (outbound API, post-call webhook with HMAC verification),
 agent-as-code via ElevenLabs CLI. B/C: `LiveKitProvider` (`CreateSIPParticipant` via Voice Center
 outbound trunk), production worker, post-call LLM extraction into `CallResult`.
