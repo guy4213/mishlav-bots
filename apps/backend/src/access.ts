@@ -31,6 +31,7 @@ const MISHLAV: [method: string, path: RegExp][] = [
   ["GET", /^\/api\/admin\/summary$/],
   ["GET", /^\/api\/admin\/dialer$/], // its state; start / stop stay ours
   ["GET", new RegExp(`^/api/admin/contacts(/${SEG})?$`)],
+  ["GET", /^\/api\/admin\/stream$/], // "the contacts changed": the screens they see re-read
   ["GET", new RegExp(`^/api/admin/calls(/${SEG}(/recording)?)?$`)],
   ["GET", /^\/api\/admin\/rep-tasks$/],
   ["POST", new RegExp(`^/api/admin/rep-tasks/${SEG}/done$`)],

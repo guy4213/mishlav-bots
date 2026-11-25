@@ -55,6 +55,8 @@ export interface DialerDeps {
   log?: (text: string, kind?: "error") => void;
   /** logs/transcripts: each call's transcript is stored in Supabase at its end */
   transcriptsDir?: string;
+  /** it changed a contact without a call (no phone, another phone, a duplicate): the dashboard's push channel */
+  onChange?: () => void;
 }
 
 export const FAILURE_WAIT_MS = 60_000;
@@ -233,10 +235,12 @@ export class Dialer {
         if (!phone) return await this.noPhone(due.gold_record_id);
         if (phone.index !== (c.bot_state?.phone_index ?? 1)) {
           await store.usePhone(due.gold_record_id, phone.index);
+          this.deps.onChange?.();
           this.log(`${due.gold_record_id}: phone ${c.bot_state?.phone_index ?? 1} is no good -> phone ${phone.index}`);
         }
         const other = await store.markDuplicate(due.gold_record_id, phone.number);
         if (other) {
+          this.deps.onChange?.();
           this.log(`${due.gold_record_id}: its number was already called on ${other} -> duplicate, not called`);
           this.skipped.add(due.gold_record_id);
           return 0;
@@ -284,6 +288,7 @@ export class Dialer {
   private async noPhone(goldRecordId: string): Promise<number> {
     try {
       const status = await this.deps.store.markNoPhone(goldRecordId);
+      this.deps.onChange?.();
       this.log(`${goldRecordId}: no valid phone -> ${status}`);
     } catch (err) {
       return this.failure(err as Error);

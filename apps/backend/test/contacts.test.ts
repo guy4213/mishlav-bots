@@ -330,6 +330,34 @@ describe("Supabase contacts: which record, when", () => {
     });
   });
 
+  it("SupabaseContacts for the contacts screen: a counted page, the queue in its order, the latest activity", async () => {
+    const urls: string[] = [];
+    const row = (id: string, s: Record<string, unknown> = {}) => ({ gold_record_id: id, full_name: id, bot_state: { bot_status: "new", ...s } });
+    const fetchImpl = (async (url: string) => {
+      urls.push(decodeURIComponent(url));
+      const u = decodeURIComponent(url);
+      if (u.includes("/rpc/bot_queue")) return Response.json([{ gold_record_id: "b", due: true }, { gold_record_id: "a", due: false }]);
+      if (u.includes("/bot_state?") && u.includes("last_call_at=not.is.null"))
+        return Response.json([{ gold_record_id: "old", bot_status: "queued", last_call_at: "2026-11-25T08:00:00Z", gold_changed_at: null }]);
+      if (u.includes("/bot_state?"))
+        return Response.json([{ gold_record_id: "dup", bot_status: "duplicate", last_call_at: null, gold_changed_at: "2026-11-25T09:00:00Z" },
+          { gold_record_id: "now", bot_status: "in_call", last_call_at: null, gold_changed_at: "2026-11-25T07:00:00Z" }]);
+      if (u.includes("gold_record_id=in.")) return Response.json([row("a"), row("b"), row("old"), row("dup"), row("now")]);
+      return new Response(JSON.stringify([row("a")]), { headers: { "content-range": "100-149/5298" } });
+    }) as unknown as typeof fetch;
+    const s = new SupabaseContacts("https://x.supabase.co", "k", fetchImpl);
+
+    expect(await s.contactsPage({ q: "רועי", status: "new", page: 3, size: 50 })).toMatchObject({ total: 5298, contacts: [{ gold_record_id: "a" }] });
+    expect(urls[0]).toContain("bot_state!inner(bot_status,"); // the table's columns only, not the notes
+    expect(urls[0]).not.toContain("notes");
+    expect(urls[0]).toContain("&bot_state.bot_status=eq.new&or=(full_name.ilike.\"*רועי*\"");
+    expect(urls[0]).toContain("&limit=50&offset=100");
+
+    expect((await s.queue(new Date(), ["יום עיון חשבונאות"], 50)).map((c) => [c.gold_record_id, c.due])).toEqual([["b", true], ["a", false]]);
+    // the call in progress first, then the newest of a call or a change
+    expect((await s.recentContacts(50)).map((c) => c.gold_record_id)).toEqual(["now", "dup", "old"]);
+  });
+
   it("phone and name come from Gold's columns at dial time", () => {
     expect(["053-4271418", "053 4271418", "0534271418", "+972-53-4271418", "972534271418"].map(toE164)).toEqual(Array(5).fill("+972534271418"));
     expect(toE164("03-1234567")).toBe("+97231234567");

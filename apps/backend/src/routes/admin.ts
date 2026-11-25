@@ -5,12 +5,16 @@
  *   GET  /api/admin/dialer              -> { ok, available, dialer: DialerStatus | null }
  *   POST /api/admin/dialer/start|stop   {reason?} -> { ok, dialer }   (stop: a call in progress goes on to its end)
  *   GET  /api/admin/summary             -> today's dialer calls, the contacts' funnel, the queue (dashboard_summary)
- *   GET  /api/admin/contacts            -> every contact with bot_state and rep tasks
+ *   GET  /api/admin/contacts?view=activity -> what the bot did last (the call in progress first), 50 rows
+ *   GET  /api/admin/contacts?view=queue -> the next 50 the dialer will call, in its order (only its courses)
+ *   GET  /api/admin/contacts?q=&status=&page= -> all contacts by name, searched in the database, 50 a page
+ *   GET  /api/admin/stream              -> Server-Sent Events: "contacts" when a contact changed (re-read the screen)
  *   GET  /api/admin/contacts/:id        -> one contact + all its rep tasks + its calls, newest first
- *   GET  /api/admin/calls?limit=&origin=dialer|manual|all -> calls newest first, with the contact's name
+ *   GET  /api/admin/calls?origin=dialer|manual|all&recorded=1&page= -> calls newest first, with the contact's name, 50 a page
  *   GET  /api/admin/calls/:call_id      -> the call + its transcript (database, else this server's disk) + tool actions
  *   GET  /api/admin/calls/:call_id/recording -> { url }: the recording, playable for an hour (404: not recorded)
- *   GET  /api/admin/rep-tasks?open=1    -> rep tasks by callback time, with the contact's name and phone
+ *   GET  /api/admin/rep-tasks?open=1&page= -> rep tasks by callback time, with the contact's name and phone, 50 a page
+ * Every paged list answers { total, page, page_size, pages } next to its rows.
  *   POST /api/admin/rep-tasks/:id/done  -> { ok, task }
  *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / SMS / server)
  *   GET  /api/admin/logs/history?call_id=&limit= -> the log of earlier server starts (Supabase server_logs, 14 days)
@@ -19,6 +23,8 @@
 import { fromLocal, type Settings, toLocalParts } from "@mishlav/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
+import type { ServerResponse } from "node:http";
+import type { Changes } from "../changes";
 import { type AdminStore, type CallOrigin, type ContactStore, toE164 } from "../contacts";
 import type { Dialer } from "../dialer";
 import type { JsonlFile } from "../jsonl";
@@ -43,7 +49,19 @@ export interface AdminRouteDeps {
   env?: NodeJS.ProcessEnv;
   sms?: SmsSender;
   now?: () => Date;
+  /** the push channel: contact updates on this server */
+  changes?: Changes;
 }
+
+/** "כל הלקוחות": rows a page. "פעילות הבוט" / "הבאים בתור": that many rows, no pages. */
+export const PAGE_SIZE = 50;
+export const VIEW_ROWS = 50;
+export const STREAM_PING_MS = 25_000;
+
+/** ?page= -> a page number from 1 (anything else: 1). */
+const pageOf = (raw: string | undefined) => Math.max(1, Math.floor(Number(raw) || 1));
+/** What every paged list answers with, so the dashboard draws the same pager everywhere. */
+const paging = (total: number, page: number) => ({ total, page, page_size: PAGE_SIZE, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)) });
 
 const Reason = z.strictObject({ reason: z.string().trim().max(200).optional() });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -151,20 +169,63 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
     if (!deps.admin) return reply.code(409).send(noSupabase);
     try {
       const tz = deps.settings?.business_hours.timezone ?? "Asia/Jerusalem";
-      return { ok: true, summary: await deps.admin.summary(dayStart(now(), tz)) };
+      return { ok: true, summary: await deps.admin.summary(dayStart(now(), tz), deps.settings?.dialing.requested_courses ?? []) };
     } catch (err) {
       return supabaseError(reply, err);
     }
   });
 
-  // ---- contacts
-  app.get("/api/admin/contacts", async (_req, reply) => {
-    if (!deps.contacts) return { ok: true, available: false, contacts: [] };
+  // ---- contacts: three views, so nobody pages through 5,000 rows to see what the bot does
+  app.get("/api/admin/contacts", async (req, reply) => {
+    if (!deps.contacts || !deps.admin) return { ok: true, available: false, view: "all", contacts: [], total: 0 };
+    const q = query(req.query);
+    const view = q.view === "activity" || q.view === "queue" ? q.view : "all";
     try {
-      return { ok: true, available: true, contacts: await deps.contacts.list() };
+      if (view === "activity") {
+        const contacts = await deps.admin.recentContacts(VIEW_ROWS);
+        return { ok: true, available: true, view, contacts, total: contacts.length };
+      }
+      if (view === "queue") {
+        const contacts = await deps.admin.queue(now(), deps.settings?.dialing.requested_courses ?? [], VIEW_ROWS);
+        return { ok: true, available: true, view, contacts, total: contacts.length };
+      }
+      const page = pageOf(q.page);
+      const search = q.q?.trim().slice(0, 100) || undefined;
+      const status = q.status && /^[a-z_]{1,32}$/.test(q.status) ? q.status : undefined;
+      const { contacts, total } = await deps.admin.contactsPage({ q: search, status, page, size: PAGE_SIZE });
+      return { ok: true, available: true, view, contacts, ...paging(total, page) };
     } catch (err) {
       return supabaseError(reply, err);
     }
+  });
+
+  // ---- the push channel (Server-Sent Events): "contacts" whenever a contact changed on this server (changes.ts);
+  // the page then re-reads what it shows. A comment every 25 s keeps proxies (Render) from closing an idle stream.
+  const streams = new Set<ServerResponse>();
+  app.get("/api/admin/stream", (req, reply) => {
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    res.write("retry: 3000\n\nevent: hello\ndata: {}\n\n");
+    const off = deps.changes?.subscribe(() => res.write("event: contacts\ndata: {}\n\n")) ?? (() => {});
+    const ping = setInterval(() => res.write(": ping\n\n"), STREAM_PING_MS);
+    ping.unref?.();
+    const close = () => {
+      off();
+      clearInterval(ping);
+      streams.delete(res);
+    };
+    streams.add(res);
+    req.raw.on("close", close);
+  });
+  // a shutdown (deploy, tests) ends the open streams: the browsers reconnect to the new server by themselves
+  app.addHook("onClose", async () => {
+    for (const res of streams) res.end();
   });
 
   app.get("/api/admin/contacts/:id", async (req, reply) => {
@@ -188,10 +249,12 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
   app.get("/api/admin/calls", async (req, reply) => {
     if (!deps.admin) return reply.code(409).send(noSupabase);
     const q = query(req.query);
-    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
     const origin: CallOrigin | null = q.origin === "dialer" || q.origin === "manual" ? q.origin : null;
+    const recorded = q.recorded === "1";
+    const page = pageOf(q.page);
     try {
-      return { ok: true, origin: origin ?? "all", calls: await deps.admin.calls(limit, origin) };
+      const { calls, total } = await deps.admin.calls({ origin, recorded, page, size: PAGE_SIZE });
+      return { ok: true, origin: origin ?? "all", recorded, calls, ...paging(total, page) };
     } catch (err) {
       return supabaseError(reply, err);
     }
@@ -250,9 +313,12 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
   // ---- rep tasks
   app.get("/api/admin/rep-tasks", async (req, reply) => {
     if (!deps.admin) return reply.code(409).send(noSupabase);
-    const open = query(req.query).open !== "0";
+    const q = query(req.query);
+    const open = q.open !== "0";
+    const page = pageOf(q.page);
     try {
-      return { ok: true, open, tasks: await deps.admin.repTasks(open) };
+      const { tasks, total } = await deps.admin.repTasks({ openOnly: open, page, size: PAGE_SIZE });
+      return { ok: true, open, tasks, ...paging(total, page) };
     } catch (err) {
       return supabaseError(reply, err);
     }
@@ -265,6 +331,7 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
     try {
       const task = await deps.admin.repTaskDone(id);
       if (!task) return reply.code(404).send({ ok: false, error: "unknown_task", message_he: "אין משימה כזו" });
+      deps.changes?.notify();
       return { ok: true, task };
     } catch (err) {
       return supabaseError(reply, err);

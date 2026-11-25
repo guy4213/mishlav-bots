@@ -225,15 +225,53 @@ export function closeDrawer() {
   c?.();
 }
 
-/** setInterval that also runs now, and stops itself when `alive()` turns false. Returns a stop function. */
+/**
+ * The pager under every long list (contacts, calls, rep tasks, Gold): "הקודם · עמוד 2 מתוך 9 · הבא". The server
+ * pages (each list answers { page, pages }); `onGo(page)` loads that page. Hidden while there is one page only.
+ * Returns { set(page, pages) } to call after each load.
+ */
+export function pager(el, onGo) {
+  el.classList.add("pager");
+  el.hidden = true;
+  el.innerHTML = `<button class="btn sm" data-p="-1">הקודם</button><span class="small muted num"></span><button class="btn sm" data-p="1">הבא</button>`;
+  let cur = 1;
+  let last = 1;
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-p]");
+    if (!b) return;
+    const p = cur + Number(b.dataset.p);
+    if (p >= 1 && p <= last) onGo(p);
+  });
+  return {
+    set(page, pages) {
+      cur = page;
+      last = Math.max(1, pages);
+      el.hidden = last <= 1;
+      el.querySelector("span").textContent = `עמוד ${cur} מתוך ${last}`;
+      el.querySelector('[data-p="-1"]').disabled = cur <= 1;
+      el.querySelector('[data-p="1"]').disabled = cur >= last;
+    },
+  };
+}
+
+/**
+ * setInterval that also runs now, and stops itself when `alive()` turns false. Returns a stop function.
+ * A tab in the background skips its ticks and runs one as soon as it is in front again: seven people with the
+ * dashboard open somewhere don't read the database all day (Supabase's free plan).
+ */
 export function every(ms, fn, alive = () => true) {
   let t = null;
+  let missed = false;
   const tick = async () => {
     if (!alive()) return stop();
+    if (document.hidden) { missed = true; return; }
+    missed = false;
     try { await fn(); } catch { /* shown by fn; try again next time */ }
   };
-  const stop = () => { clearInterval(t); t = null; };
+  const onVisible = () => { if (!document.hidden && missed) tick(); };
+  const stop = () => { clearInterval(t); t = null; document.removeEventListener("visibilitychange", onVisible); };
   t = setInterval(tick, ms);
+  document.addEventListener("visibilitychange", onVisible);
   tick();
   return stop;
 }
