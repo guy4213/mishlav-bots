@@ -7,12 +7,12 @@ export const CONTACT_STATUS_HE = {
   new: "חדש", queued: "בתור", in_call: "בשיחה", link_sent: "נשלח קישור", callback: "שיחה חוזרת", hot_lead: "ליד חם לנציג",
   company: "דרך החברה", human_followup: "שאלה לנציג", not_interested: "לא מעוניין", already_registered: "כבר רשום",
   do_not_call: "לא להתקשר", wrong_number: "מספר שגוי", voicemail: "תא קולי", no_answer: "לא ענה",
-  closed_max_attempts: "נסגר – מקסימום ניסיונות",
+  closed_max_attempts: "נסגר – מקסימום ניסיונות", duplicate: "כפול",
 };
 export const OUTCOME_HE = {
   LINK_SENT: "נשלח קישור", CALLBACK: "שיחה חוזרת", HOT_LEAD: "ליד חם לנציג", DO_NOT_CALL: "הסרה מהרשימה", VOICEMAIL: "תא קולי",
   HUMAN_FOLLOWUP: "מעקב נציג", NOT_INTERESTED: "לא מעוניין", COMPANY: "רכישת חברה", ALREADY_REGISTERED: "כבר רשום",
-  WRONG_NUMBER: "מספר שגוי", UNKNOWN: "לא זוהתה תוצאה", NO_RESULT: "בלי תוצאה", NO_PHONE: "אין מספר תקין", COMPLETED: "הסתיים",
+  WRONG_NUMBER: "מספר שגוי", UNKNOWN: "לא זוהתה תוצאה", NO_RESULT: "בלי תוצאה", NO_PHONE: "אין מספר תקין", DUPLICATE: "כפול", COMPLETED: "הסתיים",
 };
 export const REP_REASON_HE = {
   wants_human: "רוצה נציג", pay_via_rep: "תשלום דרך נציג", company_purchase: "רכישה דרך החברה", discount_request: "בקשת הנחה",
@@ -46,7 +46,7 @@ export const PHONE_COL = ["phone", "phone2", "phone3"];
 const STATUS_TONE = {
   new: "info", queued: "info", callback: "violet", in_call: "live", link_sent: "success", hot_lead: "warning", company: "teal",
   human_followup: "warning", not_interested: "muted", already_registered: "success", do_not_call: "danger", wrong_number: "danger",
-  voicemail: "muted", no_answer: "muted", closed_max_attempts: "muted",
+  voicemail: "muted", no_answer: "muted", closed_max_attempts: "muted", duplicate: "muted",
 };
 const OUTCOME_TONE = {
   LINK_SENT: "success", CALLBACK: "violet", HOT_LEAD: "warning", COMPANY: "teal", HUMAN_FOLLOWUP: "warning", NOT_INTERESTED: "muted",

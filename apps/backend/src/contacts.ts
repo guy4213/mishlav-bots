@@ -122,6 +122,13 @@ export interface DialerStore {
   nextScheduled(now: Date, courses?: string[]): Promise<QueuedContact | null>;
   /** No valid phone: out of the queue as a wrong number. Returns the contact's status after it. */
   markNoPhone(goldRecordId: string): Promise<string | null>;
+  /** The phone at phone_index is no good: dial phone `index` from now on (a note in Gold says so). */
+  usePhone(goldRecordId: string, index: number): Promise<void>;
+  /**
+   * One call per number: `number` (+972...) was already called on another contact -> this one is closed as
+   * 'duplicate' (a note in Gold) and that contact's id is returned; null: not called before, dial it.
+   */
+  markDuplicate(goldRecordId: string, number: string): Promise<string | null>;
   /** How many calls of this origin started since `since`. */
   callsSince(since: Date, origin: CallOrigin): Promise<number>;
 }
@@ -235,12 +242,43 @@ export interface AdminStore {
   repTaskDone(id: string): Promise<RepTask | null>;
 }
 
-/** Israeli number as dialed: 053-4271418 / 053 4271418 / 0534271418 / +972-53-... -> +972534271418. */
+/**
+ * Israeli number as dialed: 053-4271418 / 053 4271418 / 0534271418 / +972-53-... -> +972534271418.
+ * A mobile (05x) or VoIP (07x) number has 9 digits after the 0, a landline (02/03/04/08/09) 8: Gold has
+ * "05-4344607" (a digit missing) and "025-2281098" (one too many), which no line can reach.
+ */
 export function toE164(phone: string | null | undefined): string | null {
   let digits = (phone ?? "").replace(/\D/g, "");
   if (digits.startsWith("972")) digits = digits.slice(3);
   digits = digits.replace(/^0+/, "");
-  return digits.length >= 8 && digits.length <= 9 ? `+972${digits}` : null;
+  return /^[57]\d{8}$/.test(digits) || /^[23489]\d{7}$/.test(digits) ? `+972${digits}` : null;
+}
+
+/**
+ * A number typed into Gold for want of a real one: the 7 digits after the area code all the same (050-0000000,
+ * 03-5555555) or 1234567. Only a contact's phones are checked (pickPhone); test numbers typed in the dashboard are not.
+ */
+export function isPlaceholderPhone(e164: string): boolean {
+  const local = e164.slice(-7);
+  return /^(\d)\1{6}$/.test(local) || local === "1234567";
+}
+
+/** The contact's phone at phone_index (1 = phone, 2 = phone2, 3 = phone3), as +972...; null: empty, invalid or a placeholder. */
+function phoneAt(c: Contact, index: number): string | null {
+  const n = toE164([c.phone, c.phone2, c.phone3][index - 1]);
+  return n && !isPlaceholderPhone(n) ? n : null;
+}
+
+/**
+ * The phone the dialer should use: the one at phone_index, or else the next valid one after it (phone2, phone3).
+ * Never goes back: a phone the customer said was wrong stays behind. null: none left to dial.
+ */
+export function pickPhone(c: ContactRecord): { index: number; number: string } | null {
+  for (let index = c.bot_state?.phone_index ?? 1; index <= 3; index++) {
+    const number = phoneAt(c, index);
+    if (number) return { index, number };
+  }
+  return null;
 }
 
 /** The name the bot calls the customer by: the first word of Gold's full name. */
@@ -248,10 +286,9 @@ export function firstName(fullName: string | null | undefined): string | null {
   return fullName?.trim().split(/\s+/)[0] || null;
 }
 
-/** The phone the bot dials now (bot_state.phone_index), normalised; null when that phone is empty or invalid. */
+/** The phone the bot dials now (bot_state.phone_index), normalised; null when that phone is empty, invalid or a placeholder. */
 export function dialNumber(c: ContactRecord): string | null {
-  const phones = [c.phone, c.phone2, c.phone3];
-  return toE164(phones[(c.bot_state?.phone_index ?? 1) - 1]);
+  return phoneAt(c, c.bot_state?.phone_index ?? 1);
 }
 
 /**
@@ -622,6 +659,14 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
 
   markNoPhone(goldRecordId: string) {
     return this.req<string | null>("POST", "/rpc/bot_mark_no_phone", { p_gold_record_id: goldRecordId });
+  }
+
+  async usePhone(goldRecordId: string, index: number) {
+    await this.req("POST", "/rpc/bot_use_phone", { p_gold_record_id: goldRecordId, p_phone_index: index });
+  }
+
+  markDuplicate(goldRecordId: string, number: string) {
+    return this.req<string | null>("POST", "/rpc/bot_mark_duplicate", { p_gold_record_id: goldRecordId, p_number: number });
   }
 
   async callsSince(since: Date, origin: CallOrigin) {

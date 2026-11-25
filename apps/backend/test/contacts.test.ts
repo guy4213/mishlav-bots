@@ -11,6 +11,7 @@ import {
   type ContactStore,
   firstName,
   SupabaseContacts,
+  isPlaceholderPhone,
   toE164,
   toGoldRecord,
 } from "../src/contacts";
@@ -333,6 +334,11 @@ describe("Supabase contacts: which record, when", () => {
     expect(["053-4271418", "053 4271418", "0534271418", "+972-53-4271418", "972534271418"].map(toE164)).toEqual(Array(5).fill("+972534271418"));
     expect(toE164("03-1234567")).toBe("+97231234567");
     expect([toE164(null), toE164(""), toE164("123")]).toEqual([null, null, null]);
+    // the length by kind: mobile / VoIP 9 digits after the 0, landline 8 (real Gold rows)
+    expect(["077-1234567", "08-6355777"].map(toE164)).toEqual(["+972771234567", "+97286355777"]);
+    expect(["05-4344607", "025-2281098", "05444742137", "03-12345678"].map(toE164)).toEqual([null, null, null, null]);
+    expect(["+972500000000", "+97235555555", "+972521234567"].map(isPlaceholderPhone)).toEqual([true, true, true]);
+    expect(["+972503333312", "+972586577777", "+972534271418"].map(isPlaceholderPhone)).toEqual([false, false, false]);
     expect([firstName("  רועי   כהן "), firstName("דנה"), firstName(null), firstName(" ")]).toEqual(["רועי", "דנה", null, null]);
   });
 });
