@@ -12,6 +12,7 @@ import {
 import { Dialer, FAILURE_WAIT_MS, parseOnlyNumbers } from "../src/dialer";
 import { buildServer } from "../src/server";
 import { AUTH, FIXED_NOW, testConfig } from "./helpers";
+import { mayCall } from "../src/access";
 
 const settings = testConfig().settings;
 
@@ -92,8 +93,11 @@ class FakeDb implements ContactStore, DialerStore {
     return { ...this.control };
   }
   async setDialer(enabled: boolean, reason: string | null) {
-    this.control = { enabled, reason, changed_at: new Date().toISOString() };
+    this.control = { ...this.control, enabled, reason, changed_at: new Date().toISOString() };
     return { ...this.control };
+  }
+  async setDailyLimit(limit: number | null) {
+    this.control = { ...this.control, daily_limit: limit };
   }
   courses: string[][] = [];
   async nextDue(now: Date, skip: string[], courses: string[] = []): Promise<QueuedContact | null> {
@@ -196,6 +200,29 @@ describe("dialer", () => {
     line.end();
     expect(await t).toBe(settings.dialing.pause_between_calls_s * 1000);
     expect(restarted.status()).toMatchObject({ state: "running", current_call: null, calls_today: 1 });
+  });
+
+  it("the pilot's daily limit: after that many calls today, no more until tomorrow", async () => {
+    const db = new FakeDb(contact("a", "053-1111111"), contact("b", "053-2222222"), contact("c", "053-3333333"));
+    const { line, dialer } = setup(db);
+    await dialer.start();
+    await dialer.setDailyLimit(2);
+    for (let i = 0; i < 2; i++) {
+      const t = dialer.tick();
+      await flush();
+      line.end();
+      await t;
+    }
+    expect(line.dialed).toHaveLength(2);
+    await dialer.tick();
+    expect(line.dialed).toHaveLength(2); // the third waits for tomorrow
+    expect(dialer.status()).toMatchObject({ state: "daily_limit", calls_today: 2, daily_limit: 2 });
+    await dialer.setDailyLimit(null); // no limit: it goes on
+    const t = dialer.tick();
+    await flush();
+    line.end();
+    await t;
+    expect(line.dialed).toHaveLength(3);
   });
 
   it("stopped: no call", async () => {
@@ -408,6 +435,12 @@ describe("dialer routes (/api/admin/dialer)", () => {
     expect(stop.json()).toMatchObject({ ok: true, dialer: { enabled: false, reason: "סוף יום", state: "stopped" } });
     const bad = await app.inject({ method: "POST", url: "/api/admin/dialer/stop", headers: AUTH, payload: { why: 1 } });
     expect(bad.statusCode).toBe(400);
+    // the pilot's daily limit: admins set it; Mishlav's users may not (access.ts doesn't open the route)
+    const limit = await app.inject({ method: "POST", url: "/api/admin/dialer/limit", headers: AUTH, payload: { daily_limit: 20 } });
+    expect(limit.json()).toMatchObject({ ok: true, dialer: { daily_limit: 20 } });
+    expect(db.control.daily_limit).toBe(20);
+    expect((await app.inject({ method: "POST", url: "/api/admin/dialer/limit", headers: AUTH, payload: { daily_limit: 0 } })).statusCode).toBe(400);
+    expect(mayCall("mishlav", "POST", "/api/admin/dialer/limit")).toBe(false);
   });
 
   it("without the dialer (no Supabase): unavailable", async () => {

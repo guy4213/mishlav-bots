@@ -95,6 +95,8 @@ export interface DialerControl {
   enabled: boolean;
   changed_at: string;
   reason: string | null;
+  /** pilot: at most this many dialer calls a day; null / missing = no limit */
+  daily_limit?: number | null;
 }
 
 /** A contact in the dialing queue (bot_next_due). */
@@ -109,6 +111,8 @@ export interface DialerStore {
   get(goldRecordId: string): Promise<ContactRecord | null>;
   dialerControl(): Promise<DialerControl>;
   setDialer(enabled: boolean, reason: string | null): Promise<DialerControl>;
+  /** The pilot's daily call limit (null: none). */
+  setDailyLimit?(limit: number | null): Promise<void>;
   /**
    * The next contact to dial at `now` (callbacks, then retries, then new), skipping `skip`; only contacts whose
    * requested course is in `courses` (settings dialing.requested_courses; empty = everyone).
@@ -512,7 +516,7 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
   }
 
   async dialerControl() {
-    const rows = await this.req<DialerControl[]>("GET", "/dialer_control?select=enabled,changed_at,reason");
+    const rows = await this.req<DialerControl[]>("GET", "/dialer_control?select=enabled,changed_at,reason,daily_limit");
     if (!rows[0]) throw new Error("dialer_control has no row (supabase/migrations)");
     return rows[0];
   }
@@ -583,6 +587,10 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
       prefer: "return=representation",
     });
     return rows[0] ?? null;
+  }
+
+  async setDailyLimit(limit: number | null) {
+    await this.req("PATCH", "/dialer_control?id=eq.true", { daily_limit: limit });
   }
 
   setDialer(enabled: boolean, reason: string | null) {
