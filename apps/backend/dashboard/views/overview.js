@@ -10,10 +10,7 @@ import { openContact } from "./contacts.js";
 
 let stops = [];
 
-// Gemini's female voices (apps/phone/src/voices.js), with Google's own description of each
-const VOICE_HE = {
-  Kore: "תקיף", Leda: "צעיר", Zephyr: "בהיר", Aoede: "קליל", Laomedeia: "שמח", Autonoe: "בהיר", Callirrhoe: "רגוע", Despina: "חלק",
-};
+// the voices' Hebrew words come with the list (GET /api/admin/voice: labels)
 
 /** קול הבוט: the team picks the voice for every call; it is kept in Supabase and used from the next call. */
 async function voiceCard(el) {
@@ -25,7 +22,7 @@ async function voiceCard(el) {
     el.innerHTML = head + errorState(e.message, true);
     return;
   }
-  const opt = (v, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(v)} – ${esc(VOICE_HE[v] ?? "")}</option>`;
+  const opt = (v, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(v)} – ${esc(r.labels?.[v] ?? "")}</option>`;
   el.innerHTML = `${head}<div class="card-body stack">
       <label class="field full">הקול בכל השיחות <select id="ovVoiceSel">
         <option value=""${r.voice ? "" : " selected"}>ברירת המחדל של השרת (${esc(r.server_voice)})</option>

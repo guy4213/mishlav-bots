@@ -12,11 +12,7 @@ let stops = [];
 const savedNumber = () => ls.get("mishlav_phone", "");
 const saveNumber = (n) => ls.set("mishlav_phone", n);
 
-// Gemini's female voices (apps/phone/src/voices.js), to try one on a test call before picking it in סקירה; Google's own words
-const VOICES = [
-  ["Kore", "תקיף (ברירת המחדל עד היום)"], ["Leda", "צעיר"], ["Zephyr", "בהיר"], ["Aoede", "קליל"],
-  ["Laomedeia", "שמח"], ["Autonoe", "בהיר"], ["Callirrhoe", "רגוע"], ["Despina", "חלק"],
-];
+// the bot's voices come from the server (apps/phone/src/voices.js, GET /api/admin/voice), with Google's words in Hebrew
 
 export default {
   id: "testing",
@@ -39,7 +35,6 @@ export default {
                 <label class="field full">תרחיש <select id="phScenario"><option value="">ללא תרחיש (שם ויום ברירת מחדל)</option></select></label>
                 <label class="field full">קול הבוט <select id="phVoice">
                   <option value="">הקול שנבחר בסקירה</option>
-                  ${VOICES.map(([v, he]) => `<option value="${v}">${v} – ${he}</option>`).join("")}
                 </select></label>
               </div>
               <div class="row">
@@ -70,6 +65,9 @@ export default {
       </div>
       <div class="card" id="phGold" style="margin-top:16px"></div>`;
     const $ = (id) => root.querySelector(`#${id}`);
+    get("/api/admin/voice")
+      .then((r) => $("phVoice")?.insertAdjacentHTML("beforeend", r.voices.map((v) => `<option value="${esc(v)}">${esc(v)} – ${esc(r.labels?.[v] ?? "")}</option>`).join("")))
+      .catch(() => {}); // no Supabase: the server's voice only
     const reloadGold = mountGoldCard($("phGold"));
     // a test SMS, without a call
     $("smsNumber").value = $("smsNumber").value || (() => { try { return localStorage.getItem("mishlav_phone") ?? ""; } catch { return ""; } })();

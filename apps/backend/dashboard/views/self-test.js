@@ -25,13 +25,16 @@ export default {
       $("stCard").innerHTML = errorState(e.message);
       return;
     }
-    const { phone, days } = S.info;
+    const { phone, days, voices = [], voice } = S.info;
     $("stCard").innerHTML = `<div class="card-head"><h2>📞 הבוט יתקשר אליך</h2></div>
       <div class="card-body stack">
         <div id="stLine"></div>
         <p style="margin:0">הבוט יתקשר למספר שלך, <b class="ltr">${esc(phone)}</b>, ויתנהג כאילו השארת פרטים על יום העיון שתבחר. אפשר לשאול אותו שאלות, לבקש קישור, לבקש נציג – כמו לקוח.</p>
         <label class="field full">יום העיון שהתעניינת בו
           <select id="stDay"><option value="">לא ידוע (הבוט ישאל)</option>${days.map((d) => `<option value="${esc(d.id)}">${esc(d.label)}</option>`).join("")}</select>
+        </label>
+        <label class="field full">קול הבוט בשיחה הזאת
+          <select id="stVoice">${voices.map((v) => `<option value="${esc(v.id)}"${v.id === voice ? " selected" : ""}>${esc(v.id)} – ${esc(v.he)}${v.id === voice ? " (הקול הנוכחי)" : ""}</option>`).join("")}</select>
         </label>
         <div class="row">
           <button class="btn success lg" id="stDial">📞 התקשרו אליי</button>
@@ -73,7 +76,8 @@ export default {
       $("stNote").textContent = "מחייג…";
       try {
         const day = $("stDay").value;
-        const r = await post("/api/me/test-call", day ? { day_id: day } : {});
+        const voice = $("stVoice")?.value;
+        const r = await post("/api/me/test-call", { ...(day ? { day_id: day } : {}), ...(voice ? { voice } : {}) });
         S.callId = r.call_id;
         S.following = true;
         $("stConvo").innerHTML = `<p class="muted small">מחכה שתענה…</p>`;

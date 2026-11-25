@@ -216,6 +216,13 @@ describe("what Mishlav's users may do", () => {
     const r = await dana.post("/api/me/test-call", { day_id: "2027-05-17-hotel", number: "0509999999" });
     expect(r.statusCode).toBe(400); // no number field at all
     expect((await dana.post("/api/me/test-call", { day_id: "nope" })).statusCode).toBe(400);
+    expect(info.voices).toContainEqual({ id: "Sulafat", he: "חם" }); // a voice to try on her own call
+    expect((await dana.post("/api/me/test-call", { voice: "Nobody" })).statusCode).toBe(400);
+    const v = await dana.post("/api/me/test-call", { voice: "Erinome" });
+    expect(v.json()).toMatchObject({ ok: true });
+    expect(line.dialed.at(-1)).toMatchObject({ opts: { voice: "Erinome" } });
+    await dana.post("/api/me/hangup");
+    line.dialed.length = 0;
     const ok = await dana.post("/api/me/test-call", { day_id: "2027-05-17-hotel" });
     expect(ok.json()).toMatchObject({ ok: true, call_id: "call-1" });
     expect(line.dialed[0]).toMatchObject({ number: "+972521111111", opts: { name: "דנה", day: "2027-05-17-hotel" } });

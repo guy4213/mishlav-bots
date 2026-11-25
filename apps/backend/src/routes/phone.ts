@@ -10,6 +10,7 @@
  *   POST /api/me/hangup      -> only a call they placed
  */
 import type { Settings } from "@mishlav/shared";
+import { PHONE_VOICES, VOICE_HE } from "../../../phone/src/voices.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PhoneLine } from "../../../phone/src/line.js";
@@ -51,7 +52,11 @@ export interface PhoneRouteDeps {
   now?: () => Date;
 }
 
-const SelfDial = z.strictObject({ day_id: z.string().trim().max(100).optional() });
+// "שיחה אליי": the day the caller is interested in, and a voice to try on this call (any of the bot's voices)
+const SelfDial = z.strictObject({
+  day_id: z.string().trim().max(100).optional(),
+  voice: z.enum(PHONE_VOICES as [string, ...string[]]).optional(),
+});
 
 export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHolder, deps: PhoneRouteDeps): Promise<void> {
   // a test call without a contact (a typed number, "שיחה אליי") is kept in calls too: number, name, recording
@@ -113,6 +118,9 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
       phone: user.phone.replace(/^\+972/, "0"),
       line: { available: !!line, reason: line ? null : holder.reason, busy: !!line?.status().busy },
       days: upcomingDays(),
+      // the bot's voices to try; voice = the one every call uses now (picked in סקירה, else the server's)
+      voices: PHONE_VOICES.map((id) => ({ id, he: VOICE_HE[id] })),
+      voice: (await deps.contacts?.store.botVoice?.().catch(() => null)) ?? holder.line?.status().voice ?? null,
     };
   });
   app.post("/api/me/test-call", async (req, reply) => {
@@ -131,7 +139,12 @@ export async function registerPhoneRoutes(app: FastifyInstance, holder: PhoneHol
       const r = await dialTestCall(
         testDeps(holder.line),
         user.phone,
-        { name: firstName(user.name) ?? undefined, ...(day ? { day } : {}), ringTimeoutMs: ringTimeoutMs(deps.settings) },
+        {
+          name: firstName(user.name) ?? undefined,
+          ...(day ? { day } : {}),
+          ...(parsed.data.voice ? { voice: parsed.data.voice } : {}),
+          ringTimeoutMs: ringTimeoutMs(deps.settings),
+        },
         { contact_name: user.name },
       );
       mine.set(r.call_id, user.id);

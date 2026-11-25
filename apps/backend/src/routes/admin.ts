@@ -24,7 +24,7 @@ import type { Dialer } from "../dialer";
 import type { JsonlFile } from "../jsonl";
 import type { ServerLog } from "../serverlog";
 import type { SmsSender } from "../sms";
-import { DEFAULT_VOICE, PHONE_VOICES } from "../../../phone/src/voices.js";
+import { DEFAULT_VOICE, PHONE_VOICES, VOICE_HE } from "../../../phone/src/voices.js";
 import { CALL_ID, readTranscript } from "../transcripts";
 import type { PhoneHolder } from "./phone";
 import { toolCallsWhere } from "./test";
@@ -115,7 +115,7 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
   app.get("/api/admin/voice", async (_req, reply) => {
     if (!deps.contacts?.botVoice) return reply.code(409).send(noSupabase);
     try {
-      return { ok: true, voice: await deps.contacts.botVoice(), server_voice: serverVoice(), voices: PHONE_VOICES };
+      return { ok: true, voice: await deps.contacts.botVoice(), server_voice: serverVoice(), voices: PHONE_VOICES, labels: VOICE_HE };
     } catch (err) {
       return supabaseError(reply, err);
     }
