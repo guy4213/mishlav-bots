@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { type AppConfig, loadAppConfig } from "./config";
 import { contactStoreFromEnv } from "./contacts";
 import { geminiGenderClassifier } from "./gender";
+import { startKeepAlive } from "./keepalive";
 import type { PhoneHolder } from "./routes/phone";
 import { buildServer } from "./server";
 
@@ -131,6 +132,9 @@ async function main() {
   console.log(`  gold:    ${base}/api/gold/changes?since=<ISO> ${process.env.GOLD_API_KEY ? "(header X-Api-Key: <GOLD_API_KEY>)" : "off (GOLD_API_KEY not set)"}`);
   console.log(`  dashboard: ${base}/dashboard`);
   console.log(`  phone:   ${phone.line ? "Zadarma line registered" : (phone.reason ?? "off")}`);
+  // Render's free plan sleeps after 15 min without a visitor: the server knocks on its own address every 10 min
+  const keepAlive = startKeepAlive(process.env);
+  console.log(`  awake:   ${keepAlive ? `keep-alive every 10 min (${keepAlive.url})` : "no keep-alive (not on Render; KEEPALIVE_URL to set one)"}`);
   const only = process.env.DIALER_ONLY_NUMBERS?.trim() ? " · only DIALER_ONLY_NUMBERS" : "";
   console.log(`  dialer:  ${contacts ? `on/off from the dashboard (${base}/api/admin/dialer)${only}` : "off (no Supabase)"}\n`);
 

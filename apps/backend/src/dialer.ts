@@ -15,10 +15,12 @@ import { type ContactEvents, type DialerControl, type DialerStore, type QueuedCo
 import { dialContact } from "./dial";
 import type { PhoneHolder } from "./routes/phone";
 
-export type DialerState = "running" | "stopped" | "outside_hours" | "queue_empty" | "in_call" | "error";
+export type DialerState = "running" | "stopped" | "outside_hours" | "queue_empty" | "in_call" | "error" | "daily_limit";
 
 export interface DialerStatus {
   state: DialerState;
+  /** pilot: at most this many dialer calls a day (null: no limit) */
+  daily_limit: number | null;
   /** the switch in the database (null until it was read once) */
   enabled: boolean | null;
   changed_at: string | null;
@@ -102,6 +104,16 @@ export class Dialer {
     return this.status();
   }
 
+  /** The pilot's daily limit (admins): at most this many dialer calls a day; null = none. Takes effect at once. */
+  async setDailyLimit(limit: number | null): Promise<DialerStatus> {
+    if (!this.deps.store.setDailyLimit) throw new Error("the store can't keep a daily limit");
+    await this.deps.store.setDailyLimit(limit);
+    this.control = this.control ? { ...this.control, daily_limit: limit } : this.control;
+    this.log(`daily limit: ${limit ?? "none"}`);
+    this.wake();
+    return this.status();
+  }
+
   /** Turns the dialer off in the database: no new calls. A call in progress is not hung up. */
   async stop(reason?: string | null): Promise<DialerStatus> {
     this.control = await this.deps.store.setDialer(false, reason?.trim() || "נעצר מהדשבורד");
@@ -119,6 +131,7 @@ export class Dialer {
       current_call: this.current,
       next_due: this.next && { gold_record_id: this.next.gold_record_id, next_call_at: this.next.next_call_at },
       calls_today: this.callsToday,
+      daily_limit: this.control?.daily_limit ?? null,
       last_error: this.lastError,
       failures: this.failures,
       only_numbers: !!this.deps.onlyNumbers,
@@ -173,6 +186,12 @@ export class Dialer {
     if (!isWithinBusinessHours(now, settings.business_hours)) {
       this.state = "outside_hours";
       await this.peekNext(now);
+      return idle;
+    }
+    // the pilot's daily limit: today's calls are done, the next ones go out tomorrow (calls_today counts from midnight)
+    const limit = this.control.daily_limit;
+    if (limit && this.callsToday >= limit) {
+      this.state = "daily_limit";
       return idle;
     }
     // The line registers in the background and retries by itself (main.ts): wait for it, it's not our failure

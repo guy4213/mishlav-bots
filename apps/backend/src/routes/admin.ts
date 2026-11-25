@@ -97,6 +97,19 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
     deps.dialer ? { ok: true, available: true, dialer: deps.dialer.status() } : { ok: true, available: false, dialer: null },
   );
 
+  // the pilot's daily limit: admins only (access.ts doesn't open it to Mishlav's users)
+  const DailyLimit = z.strictObject({ daily_limit: z.number().int().min(1).max(1000).nullable() });
+  app.post("/api/admin/dialer/limit", async (req, reply) => {
+    if (!deps.dialer) return reply.code(409).send(unavailable);
+    const parsed = DailyLimit.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_params", details: z.prettifyError(parsed.error) });
+    try {
+      return { ok: true, dialer: await deps.dialer.setDailyLimit(parsed.data.daily_limit) };
+    } catch (err) {
+      return supabaseError(reply, err);
+    }
+  });
+
   for (const action of ["start", "stop"] as const) {
     app.post(`/api/admin/dialer/${action}`, async (req, reply) => {
       if (!deps.dialer) return reply.code(409).send(unavailable);

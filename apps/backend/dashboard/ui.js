@@ -30,6 +30,7 @@ export const REASON_HE = {
 };
 export const DIALER_STATE_HE = {
   running: "פעיל", stopped: "כבוי", outside_hours: "מחוץ לשעות הפעילות", queue_empty: "התור ריק", in_call: "בשיחה", error: "תקלה",
+  daily_limit: "הגיע למגבלה היומית",
 };
 export const ORIGIN_HE = { dialer: "אוטומטי", manual: "🧪 בדיקה" };
 export const TRI_HE = { PASS: "עבר", FAIL: "נכשל", PENDING: "ממתין לבדיקה ידנית", NONE: "עוד לא נבדק" };

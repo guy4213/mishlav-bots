@@ -12,6 +12,41 @@ let stops = [];
 
 // the voices' Hebrew words come with the list (GET /api/admin/voice: labels)
 
+/**
+ * The pilot's daily limit (admins only: not shown to Mishlav's users nor in "view as Mishlav"): at most N automatic
+ * calls a day, so every call can be checked, raised step by step. Rendered once: typing isn't lost to the live refresh.
+ */
+async function limitCard(el) {
+  const head = `<div class="card-head"><h2>מגבלת שיחות יומית (פיילוט)</h2></div>`;
+  let d;
+  try {
+    d = (await get("/api/admin/dialer")).dialer;
+  } catch (e) {
+    el.innerHTML = head + errorState(e.message, true);
+    return;
+  }
+  el.innerHTML = `${head}<div class="card-body stack">
+      <label class="field full">כמה שיחות אוטומטיות ביום, לכל היותר
+        <input type="number" id="ovLimit" min="1" max="1000" placeholder="בלי מגבלה" value="${d?.daily_limit ?? ""}">
+      </label>
+      <div class="row"><button class="btn primary sm" id="ovLimitSave">שמירה</button>
+        <span class="small muted">כשמגיעים למספר, החיוג נעצר עד מחר. ריק = בלי מגבלה. שיחות בדיקה לא נספרות.</span></div>
+    </div>`;
+  el.querySelector("#ovLimitSave").onclick = async (e) => {
+    const raw = el.querySelector("#ovLimit").value.trim();
+    const daily_limit = raw ? Number(raw) : null;
+    e.target.disabled = true;
+    try {
+      await post("/api/admin/dialer/limit", { daily_limit });
+      toast(daily_limit ? `נשמר: עד ${daily_limit} שיחות ביום` : "נשמר: בלי מגבלה", "ok");
+    } catch (err) {
+      toast(err.message, "bad");
+    } finally {
+      e.target.disabled = false;
+    }
+  };
+}
+
 /** קול הבוט: the team picks the voice for every call; it is kept in Supabase and used from the next call. */
 async function voiceCard(el) {
   const head = `<div class="card-head"><h2>קול הבוט</h2></div>`;
@@ -90,7 +125,7 @@ function dialerCard() {
   const on = d.enabled === true;
   return `<div class="card"><div class="card-head"><h2>חיוג אוטומטי</h2><span class="actions">${on ? chip(DIALER_STATE_HE[d.state] ?? d.state, d.state === "error" ? "danger" : "success", { dot: true }) : chip("כבוי", "muted", { dot: true })}</span></div>
     <div class="card-body"><dl class="kv">
-      <dt>שיחות היום</dt><dd class="num">${d.calls_today}</dd>
+      <dt>שיחות היום</dt><dd class="num">${d.calls_today}${d.daily_limit ? ` / ${d.daily_limit} (מגבלה יומית)` : ""}</dd>
       ${d.reason ? `<dt>סיבה</dt><dd>${esc(d.reason)}</dd>` : ""}
       ${d.changed_at ? `<dt>שונה</dt><dd>${esc(fmtDateTime(d.changed_at))}</dd>` : ""}
       ${d.next_due ? `<dt>הבא בתור</dt><dd><a href="#" data-contact="${esc(d.next_due.gold_record_id)}" class="ltr">${esc(d.next_due.gold_record_id)}</a>${d.next_due.next_call_at ? ` · ${esc(fmtRel(d.next_due.next_call_at))}` : ""}</dd>` : ""}
@@ -114,13 +149,16 @@ export default {
         </div>
         <div class="stack">
           <div id="ovDialer"></div>
-          ${isAdmin() ? `<div class="card" id="ovVoice"></div>` : ""}
+          ${isAdmin() ? `<div class="card" id="ovLimitCard"></div><div class="card" id="ovVoice"></div>` : ""}
           <div id="ovQueue"></div>
           <div class="card" id="ovTasks"></div>
         </div>
       </div>`;
     const $r = (id) => root.querySelector(`#${id}`);
-    if (isAdmin()) voiceCard($r("ovVoice")); // the bot's voice: ours
+    if (isAdmin()) {
+      limitCard($r("ovLimitCard")); // the pilot's daily limit: ours
+      voiceCard($r("ovVoice")); // the bot's voice: ours
+    }
     const load = async () => {
       try {
         const { summary: s } = await get("/api/admin/summary");
