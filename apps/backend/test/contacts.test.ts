@@ -256,6 +256,17 @@ describe("Supabase contacts: which record, when", () => {
     expect((line.dialed[1] as [string, { voice?: string }])[1].voice).toBe("Zephyr");
   });
 
+  it("test calls without a contact (a typed number, \"שיחה אליי\") use the picked voice too; 13 voices with their words", async () => {
+    const { store, line, app, post } = await setup();
+    store.voice = "Sulafat";
+    await post("/test/phone/call", { number: "053-4271418" });
+    expect((line.dialed[0] as [string, { voice?: string }])[1].voice).toBe("Sulafat"); // it used to be the server's
+    const got = (await app.inject({ method: "GET", url: "/api/admin/voice", headers: AUTH })).json();
+    expect(got.voices).toHaveLength(13);
+    expect(got.labels).toMatchObject({ Sulafat: "חם", Erinome: "צלול", Kore: "תקיף" });
+    expect(got.voices).not.toContain("Gacrux"); // "mature": the voice was found too old
+  });
+
   it("a call that is not a contact's (no x-call-id) writes nothing", async () => {
     const { store, post } = await setup();
     await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom" });

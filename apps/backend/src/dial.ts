@@ -127,9 +127,12 @@ export async function dialTestCall(
 ): Promise<{ call_id: string }> {
   const { line, contacts } = deps;
   const watch = contacts ? watchEnded(line) : null;
+  // the voice picked in the dashboard (סקירה → קול הבוט), unless this call tries another: "שיחה אליי" used to ignore
+  // it and every self-call had the server's voice, so the voices "sounded the same" (Guy, 25.11)
+  const voice = opts.voice || ((await contacts?.store.botVoice?.().catch(() => null)) ?? undefined);
   let callId: string;
   try {
-    ({ call_id: callId } = await line.dial(number, opts));
+    ({ call_id: callId } = await line.dial(number, { ...opts, voice }));
   } catch (err) {
     if (watch) line.off("ended", watch.onEnded);
     throw err;
