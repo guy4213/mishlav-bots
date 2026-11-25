@@ -21,6 +21,9 @@ transcripts/
 # Provider A agent/tool ids (npm run eleven:sync)
 .elevenlabs.json
 
+# The React dashboard's build (npm run dashboard:build; built on install by the root's prepare)
+apps/dashboard/dist/
+
 # Supabase CLI link state (project ref, pooler url)
 supabase/.temp/
 *.xlsx

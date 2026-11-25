@@ -4,6 +4,8 @@
  * - GET /dashboard and its files (apps/backend/dashboard: index.html, styles.css, ES modules) are public: static
  *   files, no data. The page sends TOOLS_SECRET on every API call (it receives it in the URL #hash from
  *   `npm run lab`, then keeps it in localStorage).
+ * - GET /dashboard-new: the same dashboard in React (apps/dashboard, built into its dist/), public the same way,
+ *   with a Content-Security-Policy and the other security headers (newDashboardHeaders).
  * - Everything under /test/* stays behind the shared secret like the rest of the server; the management data
  *   is in routes/admin.ts.
  */
@@ -11,7 +13,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROVIDER_NAMES, Provider, type TestSession } from "@mishlav/shared";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AccessToken, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
@@ -39,9 +41,60 @@ const DASHBOARD_DIR = join(here, "..", "..", "dashboard");
 const DASHBOARD_FILE = /^\/dashboard\/((?:views\/)?[a-z][a-z0-9-]*\.(?:js|css))$/;
 const CONTENT_TYPE = { js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8" } as const;
 
-/** Public (no secret): the page and its static files (server.ts isPublic). */
+/**
+ * The React dashboard (apps/dashboard, built by `npm run build -w @mishlav/dashboard` into dist/), at /dashboard-new
+ * while the old one stays at /dashboard. Served from dist/ only: its page, its theme script, and its built files
+ * (assets/<name>-<hash>.js|css: letters, digits, "_" and "-" - no dot, slash or "%" before the extension, so nothing
+ * outside dist/assets can be named).
+ */
+export const NEW_DASHBOARD_DIR = join(here, "..", "..", "..", "dashboard", "dist");
+const NEW_DASHBOARD_FILE = /^\/dashboard-new\/(assets\/[A-Za-z0-9_-]+\.(?:js|css)|theme\.js)$/;
+
+/** Public (no secret): the pages and their static files (server.ts isPublic). */
 export function isDashboardFile(path: string): boolean {
-  return path === "/dashboard" || path === "/dashboard/" || DASHBOARD_FILE.test(path);
+  return (
+    path === "/dashboard" ||
+    path === "/dashboard/" ||
+    DASHBOARD_FILE.test(path) ||
+    path === "/dashboard-new" ||
+    path === "/dashboard-new/" ||
+    NEW_DASHBOARD_FILE.test(path)
+  );
+}
+
+/**
+ * The new dashboard's security headers. The page runs only its own scripts (no inline script, no eval), talks only to
+ * this server, can't be framed, and sends no referrer. Its styles come from itself and Google Fonts (the Rubik font);
+ * a recording plays from Supabase Storage (a signed link). The old dashboard at /dashboard is left as it was.
+ */
+export function newDashboardHeaders(env: NodeJS.ProcessEnv, https: boolean): Record<string, string> {
+  let storage = "";
+  try {
+    storage = env.SUPABASE_URL ? new URL(env.SUPABASE_URL).origin : "";
+  } catch {
+    storage = "";
+  }
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    `media-src ${storage || "'none'"}`,
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+  return {
+    "content-security-policy": csp,
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "cross-origin-opener-policy": "same-origin",
+    ...(https ? { "strict-transport-security": "max-age=31536000" } : {}),
+  };
 }
 
 /** LiveKit agent name per provider (must match the worker's AGENT_NAME and the phone dispatch rule). */
@@ -184,6 +237,27 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Dashbo
     const file = m ? join(DASHBOARD_DIR, m[1]!) : null;
     if (!file || !existsSync(file)) return reply.code(404).send({ ok: false, error: "not_found" });
     reply.header("cache-control", "no-store").type(CONTENT_TYPE[file.endsWith(".css") ? "css" : "js"]);
+    return readFileSync(file, "utf8");
+  });
+
+  // ---- the React dashboard (public, like the old one: no data in it). Not built: 404, and the server runs on.
+  const notBuilt = { ok: false, error: "not_built", message_he: "הדשבורד החדש לא נבנה בשרת הזה (npm run build -w @mishlav/dashboard)" };
+  const newPage = async (req: FastifyRequest, reply: FastifyReply) => {
+    const file = join(NEW_DASHBOARD_DIR, "index.html");
+    if (!existsSync(file)) return reply.code(404).send(notBuilt);
+    reply.headers(newDashboardHeaders(env, req.protocol === "https")).header("cache-control", "no-store").type("text/html; charset=utf-8");
+    return readFileSync(file, "utf8");
+  };
+  app.get("/dashboard-new", newPage);
+  app.get("/dashboard-new/", newPage);
+  app.get("/dashboard-new/*", async (req, reply) => {
+    const m = NEW_DASHBOARD_FILE.exec(req.url.split("?")[0]!);
+    const file = m ? join(NEW_DASHBOARD_DIR, m[1]!) : null;
+    if (!file || !existsSync(file)) return reply.code(404).send({ ok: false, error: "not_found" });
+    reply
+      .headers(newDashboardHeaders(env, req.protocol === "https"))
+      .header("cache-control", "no-store")
+      .type(CONTENT_TYPE[file.endsWith(".css") ? "css" : "js"]);
     return readFileSync(file, "utf8");
   });
 

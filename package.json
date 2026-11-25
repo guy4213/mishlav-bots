@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "packages/*",
-    "apps/backend"
+    "apps/backend",
+    "apps/dashboard"
   ],
   "scripts": {
     "lab": "tsx scripts/lab.ts",
@@ -18,7 +19,7 @@
     "start": "npm run start -w @mishlav/backend",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/dashboard/tsconfig.json --noEmit && tsc -p scripts/tsconfig.compare.json --noEmit",
     "session": "tsx scripts/session.ts",
     "simulate": "tsx scripts/simulate.ts",
     "score": "tsx scripts/score-calls.ts",
@@ -29,7 +30,12 @@
     "phone": "node apps/phone/phone.js",
     "eleven:sync": "tsx scripts/elevenlabs-sync.ts",
     "eleven:text": "tsx scripts/elevenlabs-text.ts",
-    "text:all": "tsx scripts/text-run.ts"
+    "text:all": "tsx scripts/text-run.ts",
+    "dashboard:dev": "npm run dev -w @mishlav/dashboard",
+    "dashboard:build": "npm run build -w @mishlav/dashboard",
+    "dashboard:demo": "tsx scripts/dashboard-demo.ts",
+    "dashboard:compare": "tsx scripts/dashboard-compare.ts",
+    "prepare": "npm run build -w @mishlav/dashboard || echo \"[prepare] the React dashboard did not build: /dashboard-new answers 404, the server and /dashboard run as before\""
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

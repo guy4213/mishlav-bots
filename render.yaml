@@ -9,7 +9,10 @@ services:
     # free sleeps after 15 idle minutes: the line unregisters and incoming calls are lost until the next
     # visit wakes it (dialing out from the dashboard still works). starter = always on.
     plan: free
-    # tsx (runs the TypeScript) is a dev dependency: install it too
+    # tsx (runs the TypeScript) is a dev dependency: install it too. npm ci also builds the React dashboard
+    # (/dashboard-new): the root package.json's "prepare" runs `npm run build -w @mishlav/dashboard` after the
+    # install, so this command needs no change in Render's settings. A failed dashboard build doesn't fail the deploy:
+    # /dashboard-new then answers 404 and the server and /dashboard run as before.
     buildCommand: npm ci --include=dev
     startCommand: npm start
     healthCheckPath: /healthz

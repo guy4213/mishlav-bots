@@ -10,8 +10,10 @@
  *   npm run lab -- --no-worker     no LiveKit workers (B/C)
  *   npm run lab -- --no-tunnel     no ngrok / ElevenLabs sync (A)
  *   npm run lab -- --no-open       don't open the browser
+ *   npm run lab -- --new           open the new (React) dashboard, /dashboard-new, instead of /dashboard
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { elevenKey, syncAgent } from "./lib/elevenlabs";
@@ -23,6 +25,7 @@ const { values } = parseArgs({
     "no-worker": { type: "boolean", default: false },
     "no-tunnel": { type: "boolean", default: false },
     "no-open": { type: "boolean", default: false },
+    new: { type: "boolean", default: false },
   },
 });
 
@@ -127,8 +130,14 @@ async function main() {
     }
   }
 
-  const url = `${env.baseUrl}/dashboard#k=${encodeURIComponent(env.secret)}`;
-  console.log(`\n[lab] dashboard: ${env.baseUrl}/dashboard   (Ctrl+C to stop everything)\n`);
+  // the React dashboard is built by `npm install` (the root's prepare); build it here if it isn't yet
+  if (!existsSync(join(env.root, "apps", "dashboard", "dist", "index.html"))) {
+    console.log("[lab] building the new dashboard (apps/dashboard)...");
+    spawnSync("npm run build -w @mishlav/dashboard", { cwd: env.root, shell: true, stdio: "inherit" });
+  }
+  const path = values.new ? "/dashboard-new" : "/dashboard";
+  const url = `${env.baseUrl}${path}#k=${encodeURIComponent(env.secret)}`;
+  console.log(`\n[lab] dashboard: ${env.baseUrl}/dashboard · the new one: ${env.baseUrl}/dashboard-new   (Ctrl+C to stop everything)\n`);
   if (!values["no-open"]) openBrowser(url);
 
   await new Promise<void>((resolve) => {

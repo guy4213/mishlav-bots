@@ -1,0 +1,10 @@
+{
+  "//": "scripts/dashboard-compare.ts runs code inside the browser (page.evaluate): it needs the DOM types, which the server's code must not see",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["dashboard-compare.ts"]
+}

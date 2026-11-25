@@ -11,13 +11,13 @@
  */
 import { createHmac } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import { describe, expect, it } from "vitest";
 import { mayCall } from "../src/access";
 import { type AdminStore, type ContactStore, searchFilter, SupabaseContacts } from "../src/contacts";
-import { isDashboardFile } from "../src/routes/dashboard";
+import { isDashboardFile, NEW_DASHBOARD_DIR, newDashboardHeaders } from "../src/routes/dashboard";
 import { buildServer } from "../src/server";
 import { LogOnlySms } from "../src/sms";
 import { type DashboardUser, hashPassword, type UserStore, UserExists } from "../src/users";
@@ -173,6 +173,9 @@ const PUBLIC = new Set([
   "GET /dashboard",
   "GET /dashboard/",
   "GET /dashboard/*", // only names the static-file pattern allows (below)
+  "GET /dashboard-new", // the React dashboard: its page and built files only (below)
+  "GET /dashboard-new/",
+  "GET /dashboard-new/*",
 ]);
 const MISHLAV = new Set([
   "GET /auth/me",
@@ -237,6 +240,7 @@ const urlFor = (path: string) =>
     .replace("/users/:id", `/users/${USER_ID}`)
     .replace("/contacts/:id", `/contacts/${CONTACT_ID}`)
     .replace(":call_id", "call-a")
+    .replace("/dashboard-new/*", "/dashboard-new/theme.js")
     .replace("/dashboard/*", "/dashboard/app.js");
 
 /**
@@ -597,6 +601,74 @@ describe("the dashboard's static files", () => {
     const { app } = await setup();
     for (const url of ["/api/admin/users?/dashboard/app.js", "/api/admin/users?x=/healthz", "/api/admin/users#/dashboard", "/auth/login/../../api/admin/users"]) {
       expect((await app.inject({ method: "GET", url })).statusCode, url).toBe(401);
+    }
+  });
+
+  // the React dashboard: only its page, its theme script and its built files (assets/<name>-<hash>.js|css)
+  const NEW_OUTSIDE = [
+    "/dashboard-new/../src/server.ts", "/dashboard-new/..%2f..%2fsrc%2fserver.ts", "/dashboard-new/%2e%2e/%2e%2e/package.json",
+    "/dashboard-new/assets/../../package.json", "/dashboard-new/assets/..%2f..%2fpackage.json", "/dashboard-new/assets/%2e%2e%2f%2e%2e%2fpackage.json",
+    "/dashboard-new/assets/..\\..\\package.json", "/dashboard-new/assets/x.js%00", "/dashboard-new/assets/x.js.map", "/dashboard-new/assets/x.map",
+    "/dashboard-new/assets/a.b.js", "/dashboard-new/assets/sub/x.js", "/dashboard-new/assets/.js", "/dashboard-new/assets/x.html", "/dashboard-new/assets/x.json",
+    "/dashboard-new/index.html", "/dashboard-new/vite.config.ts", "/dashboard-new/src/main.tsx", "/dashboard-new/../../../.env", "/dashboard-new/.env",
+    "/dashboard-new/theme.js/", "/dashboard-new//theme.js", "/dashboard-new/Theme.js", "/dashboard-newx/theme.js", "/dashboard-new/assets/", "/dashboard-new/assets",
+  ];
+
+  it("the React dashboard is public the same way: its page and built files, nothing else, nothing outside dist/", async () => {
+    const { app } = await setup();
+    for (const url of ["/dashboard-new", "/dashboard-new/", "/dashboard-new/theme.js", "/dashboard-new/assets/index-AbC_12-x.js", "/dashboard-new/assets/index-x.css"]) {
+      expect(isDashboardFile(url), url).toBe(true);
+      // built or not, a public path answers without a login (200, or 404 when there is no such built file)
+      expect([200, 404], url).toContain((await app.inject({ method: "GET", url })).statusCode);
+    }
+    for (const url of NEW_OUTSIDE) {
+      expect(isDashboardFile(url), url).toBe(false);
+      const anon = await app.inject({ method: "GET", url });
+      expect([400, 401, 404], `${url} -> ${anon.statusCode}`).toContain(anon.statusCode);
+      const admin = await app.inject({ method: "GET", url, headers: AUTH });
+      expect([400, 404], `${url} (admin) -> ${admin.statusCode}`).toContain(admin.statusCode);
+      for (const body of [anon.body, admin.body]) {
+        expect(body, url).not.toContain("buildServer");
+        expect(body, url).not.toContain('"name": "mishlav-bots"');
+      }
+    }
+  });
+
+  it("the React dashboard's headers: a CSP with no inline script, no framing, nosniff, no referrer", () => {
+    const h = newDashboardHeaders({ SUPABASE_URL: "https://abc.supabase.co/" }, true);
+    const csp = h["content-security-policy"]!;
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toMatch(/unsafe-inline|unsafe-eval|\*/);
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("media-src https://abc.supabase.co");
+    expect(h["x-frame-options"]).toBe("DENY");
+    expect(h["x-content-type-options"]).toBe("nosniff");
+    expect(h["referrer-policy"]).toBe("no-referrer");
+    expect(h["strict-transport-security"]).toBe("max-age=31536000");
+    // no Supabase (or a broken address): recordings play from nowhere
+    expect(newDashboardHeaders({ SUPABASE_URL: "not a url" }, false)["content-security-policy"]).toContain("media-src 'none'");
+    expect(newDashboardHeaders({}, false)["strict-transport-security"]).toBeUndefined();
+  });
+
+  it.runIf(existsSync(join(NEW_DASHBOARD_DIR, "index.html")))("the built React dashboard is sent with those headers, and holds no secret", async () => {
+    const app = await buildServer(testConfig(), { logger: false, env: { SUPABASE_URL: "https://abc.supabase.co" }, sms: new LogOnlySms(() => {}) });
+    const page = await app.inject({ method: "GET", url: "/dashboard-new" });
+    expect(page.statusCode).toBe(200);
+    expect(page.headers["content-security-policy"]).toContain("script-src 'self'");
+    expect(page.headers["x-frame-options"]).toBe("DENY");
+    expect(page.body).not.toMatch(/<script>(?!\s*<\/script>)/); // no inline script (the CSP would block it anyway)
+    const theme = await app.inject({ method: "GET", url: "/dashboard-new/theme.js" });
+    expect(theme.statusCode).toBe(200);
+    expect(theme.headers["x-content-type-options"]).toBe("nosniff");
+    for (const m of page.body.matchAll(/\/dashboard-new\/(assets\/[^"]+)"/g)) {
+      const r = await app.inject({ method: "GET", url: `/dashboard-new/${m[1]}` });
+      expect(r.statusCode, m[1]).toBe(200);
+      expect(r.body).not.toContain(SECRET);
+      // values of secrets, not their names (an error message may name SUPABASE_SERVICE_ROLE_KEY): a JWT (Supabase keys),
+      // Supabase's new secret keys, API keys, a private key, an assignment from an env file
+      expect(r.body).not.toMatch(/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|sb_secret_|sk-[A-Za-z0-9]{20}|-----BEGIN|TOOLS_SECRET=|_KEY=/);
     }
   });
 

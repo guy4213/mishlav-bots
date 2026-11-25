@@ -9,6 +9,8 @@
     "apps/backend/src/**/*.ts",
     "apps/backend/test/**/*.ts",
     "scripts/**/*.ts",
+    "apps/dashboard/vite.config.ts",
     "vitest.config.ts"
-  ]
+  ],
+  "exclude": ["scripts/dashboard-compare.ts"]
 }
