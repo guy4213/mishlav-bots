@@ -101,6 +101,14 @@ export function saysLinkSent(text) {
   return /(שולחת|שלחתי|נשלח)[^?.!]{0,30}קישור|קישור[^?.!]{0,30}(נשלח|שולחת|שלחתי)/.test(t);
 }
 
+/** The answer ends asking whether to send the link ("אפשר לשלוח לך את הקישור?"): it waits for a yes. */
+export function asksToSendLink(text) {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (!t.endsWith('?')) return false;
+  const last = t.split(/(?<=[.!?])\s+/).pop() ?? '';
+  return /לשלוח|אשלח|קישור/.test(last);
+}
+
 /** The words of a cut answer the caller heard: its text in proportion to the audio played, up to a word's end. */
 export function heardPart(text, played, total) {
   const t = text.replace(/\s+/g, ' ').trim();
@@ -328,6 +336,7 @@ export class CallAgent extends EventEmitter {
       }
       if (this.droppingCutTurn) return; // the rest of the answer the caller cut
       if (this.ended || this.ending?.voicemail || this.ending?.mute) return; // voicemail: the bot says nothing
+      if (this._afterGoodbye()) return;
       const now = performance.now();
       if (this.ending) this.ending.replyAudio = true;
       if (this.closing) this.closing.spoke = true;
@@ -353,6 +362,7 @@ export class CallAgent extends EventEmitter {
       // a reply that isn't played (voicemail, or the goodbye again after end_call) isn't written either: it showed
       // the closing sentence twice in the transcript although the caller heard it once
       if (this.ending?.voicemail || this.ending?.mute) return;
+      if (this._afterGoodbye()) return;
       this._answerStarts();
       this.turnText += text;
       this.saidSinceLead += text;
@@ -404,7 +414,9 @@ export class CallAgent extends EventEmitter {
       }
       // It said the link is on its way, but never called the tool: nothing went (26.11, "שולחת לך קישור עכשיו...
       // משהו נוסף?"). It is told so, once, and calls it now.
-      if (this.turnHadAudio && !this.linkToolCalled && !this.linkNudged && saysLinkSent(this.turnText)) {
+      // Not when it ends asking whether to send it ("…קישור מאובטח שאני שולחת בוואטסאפ. אפשר לשלוח לך את הקישור?"): it
+      // waits for the answer - the nudge made it send before the customer answered (26.11, 18:01).
+      if (this.turnHadAudio && !this.linkToolCalled && !this.linkNudged && saysLinkSent(this.turnText) && !asksToSendLink(this.turnText)) {
         this.linkNudged = true;
         this.emit('line', { who: 'note', text: 'the bot said it sends the link but called no tool: told to send it' });
         this.notify(CUES.linkNotSent);
@@ -493,6 +505,20 @@ export class CallAgent extends EventEmitter {
     this.lastAudioAt = performance.now();
     for (let i = 0; i < audio.length; i += FRAME_SAMPLES) this._play(audio.subarray(i, i + FRAME_SAMPLES));
     this.emit('line', { who: 'agent', text: SAY_LINK_SENDING });
+  }
+
+  /**
+   * The closing sentence of a closing action played to its end, and the caller said something short ("תודה", "ביי"):
+   * Gemini's reply to it is not played and the line drops as usual. It asked "יש משהו נוסף שאוכל לעזור בו?" after
+   * "יום נעים, להתראות." (26.11, 18:02). The caller talking CLOSE_CANCEL_MS cancels the closing: then it answers.
+   */
+  _afterGoodbye() {
+    if (!this.closing?.doneAt) return false;
+    if (!this.closing.muteNoted) {
+      this.closing.muteNoted = true;
+      this.emit('line', { who: 'note', text: "after the goodbye: the bot's reply to a short word is not played" });
+    }
+    return true;
   }
 
   _open() {
