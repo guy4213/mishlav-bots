@@ -1,3 +1,4 @@
+import type { NotesSummarizer } from "./notes";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LOG_FILES } from "@mishlav/shared";
@@ -41,6 +42,8 @@ export interface BuildOptions {
   admin?: AdminStore;
   /** Customer gender from the first name before a call (main.ts: Gemini). None: "unknown" (neutral wording). */
   classifyGender?: GenderClassifier;
+  /** Sums up the bot's own Gold notes when they pile up (notes.ts; main.ts: Gemini). None: no summaries. */
+  summarizeNotes?: NotesSummarizer;
   /**
    * The automatic dialer (dialer.ts), with `contacts`: its switch and queue in Supabase (main.ts: the same store).
    * run: start its loop when the server is ready (main.ts only; tests drive it through the routes).
@@ -227,6 +230,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
         },
       )
     : undefined;
+  if (contacts) contacts.summarizeNotes = opts.summarizeNotes;
   const dialer =
     contacts && opts.dialer
       ? new Dialer({

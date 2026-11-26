@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { type AppConfig, loadAppConfig } from "./config";
 import { contactStoreFromEnv } from "./contacts";
 import { geminiGenderClassifier } from "./gender";
+import { geminiNotesSummarizer } from "./notes";
 import { startKeepAlive } from "./keepalive";
 import type { PhoneHolder } from "./routes/phone";
 import { buildServer } from "./server";
@@ -96,6 +97,8 @@ async function main() {
     phone,
     // the customer's gender from the first name, once before each call (no key: neutral wording)
     classifyGender: googleKey ? geminiGenderClassifier({ apiKey: googleKey }) : undefined,
+    // the bot's own Gold notes summed up when they pile up - a line is added, the reps' notes are never touched
+    summarizeNotes: googleKey ? geminiNotesSummarizer({ apiKey: googleKey }) : undefined,
     // the contacts the bot calls and updates (none without SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)
     contacts,
     // what the management dashboard reads (calls, rep tasks, the day's summary): the same Supabase
