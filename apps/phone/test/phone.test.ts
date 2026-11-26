@@ -407,6 +407,10 @@ describe("call agent", () => {
     expect(saysLinkSent("לשלוח לך קישור להרשמה?")).toBe(false);
     expect(saysLinkSent("רוצה שאשלח לך קישור?")).toBe(false);
     expect(saysLinkSent("הקישור נשלח אליך בוואטסאפ.")).toBe(true);
+    expect(saysLinkSent("אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.")).toBe(true);
+    // explaining how paying works is no claim (it sent a link nobody agreed to, 26.11 18:49)
+    expect(saysLinkSent("התשלום נעשה בקישור מאובטח שאני שולחת, לא ישירות דרכי. מתי נוח שנציג יחזור אליך?")).toBe(false);
+    expect(saysLinkSent("בדיוק, התשלום נעשה בקישור מאובטח שאני שולחת בוואטסאפ.")).toBe(false);
     const live = new FakeLive();
     const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sending" }) }, openAfterSilenceMs: 60_000 });
     agent.start(new FakeRtp());

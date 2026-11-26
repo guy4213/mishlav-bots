@@ -98,7 +98,10 @@ export const CUES = {
  */
 export function saysLinkSent(text) {
   const t = text.replace(/\s+/g, ' ');
-  return /(שולחת|שלחתי|נשלח)[^?.!]{0,30}קישור|קישור[^?.!]{0,30}(נשלח|שולחת|שלחתי)/.test(t);
+  // Only the bot telling the customer it sends / sent it to them: "(אני) שולחת לך (עכשיו) (את ה)קישור", "שלחתי לך
+  // קישור", "הקישור נשלח". An explanation ("התשלום נעשה בקישור מאובטח שאני שולחת") is no claim: matching it made the
+  // bot send a link nobody agreed to, twice (26.11, 18:01 and 18:49) - a link is sent only on the customer's yes.
+  return /(שולחת|שלחתי) לך (עכשיו )?(את )?ה?קישור|הקישור נשלח/.test(t);
 }
 
 /** The answer ends asking whether to send the link ("אפשר לשלוח לך את הקישור?"): it waits for a yes. */
