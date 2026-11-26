@@ -76,6 +76,7 @@ export class TexterWhatsApp implements WhatsAppSender {
       body: values.body,
       buttons: [{ type: "url", payload: values.buttonPayload }],
     };
+    const started = Date.now();
     try {
       const res = await (this.o.fetchImpl ?? fetch)(this.url, {
         method: "POST",
@@ -87,10 +88,10 @@ export class TexterWhatsApp implements WhatsAppSender {
       const body = (await res.json().catch(() => null)) as { success?: boolean; error?: string; messageId?: string } | null;
       if (!res.ok || body?.success !== true) {
         const why = body?.error ?? `HTTP ${res.status}`;
-        this.log(`texter refused -> ${masked}: ${why}`);
+        this.log(`texter refused -> ${masked} after ${Date.now() - started}ms: ${why}`);
         return { ok: false, provider: this.provider, error: why };
       }
-      this.log(`sent via texter (${this.o.template}) -> ${masked}${body.messageId ? ` · message ${body.messageId}` : ""}`);
+      this.log(`sent via texter (${this.o.template}) -> ${masked} in ${Date.now() - started}ms${body.messageId ? ` · message ${body.messageId}` : ""}`);
       return { ok: true, provider: this.provider, sent: true };
     } catch (err) {
       this.log(`texter failed -> ${masked}: ${(err as Error).message}`);
