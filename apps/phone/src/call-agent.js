@@ -74,11 +74,23 @@ export const CUES = {
   // The caller cut in and we stopped the bot's voice ourselves: Gemini had already made the whole answer and thinks
   // it was all said. On a call (24.11) the cut answer ended with "לשלוח לך קישור?", the caller never heard it, and
   // his "סבבה" to the details was taken as a yes - the link went out unasked. So Gemini is told what was heard.
+  // it said it is sending the link but called no tool (saysLinkSent): nothing went
+  linkNotSent:
+    '(הודעת מערכת: אמרת ללקוח שאת שולחת לו קישור, אבל לא קראת ל-send_purchase_link – שום דבר לא נשלח. לקרוא לו עכשיו, בלי לומר כלום לפני.)',
   cutIn: (heard) =>
     heard
       ? `(הודעת מערכת: הלקוח התחיל לדבר בזמן שדיברת, והקול שלך נעצר. הוא שמע רק עד: «${heard}». את ההמשך הוא לא שמע – אם הייתה שם שאלה, הוא לא ענה עליה.)`
       : '(הודעת מערכת: הלקוח התחיל לדבר בזמן שדיברת, והקול שלך נעצר מיד. הוא לא שמע כלום מהתשובה האחרונה שלך.)',
 };
+
+/**
+ * The bot told the customer the link is being sent / was sent ("שולחת לך קישור", "הקישור נשלח") - a statement, not
+ * the question "לשלוח לך קישור?". Used only when no send_purchase_link was called on the call: then nothing went.
+ */
+export function saysLinkSent(text) {
+  const t = text.replace(/\s+/g, ' ');
+  return /(שולחת|שלחתי|נשלח)[^?.!]{0,30}קישור|קישור[^?.!]{0,30}(נשלח|שולחת|שלחתי)/.test(t);
+}
 
 /** The words of a cut answer the caller heard: its text in proportion to the audio played, up to a word's end. */
 export function heardPart(text, played, total) {
@@ -377,6 +389,13 @@ export class CallAgent extends EventEmitter {
         this.closing = { spoke: true, doneAt: 0, voiced: 0 };
         this.emit('line', { who: 'note', text: 'goodbye said without end_call: hanging up when the line is quiet' });
       }
+      // It said the link is on its way, but never called the tool: nothing went (26.11, "שולחת לך קישור עכשיו...
+      // משהו נוסף?"). It is told so, once, and calls it now.
+      if (this.turnHadAudio && !this.linkToolCalled && !this.linkNudged && saysLinkSent(this.turnText)) {
+        this.linkNudged = true;
+        this.emit('line', { who: 'note', text: 'the bot said it sends the link but called no tool: told to send it' });
+        this.notify(CUES.linkNotSent);
+      }
       this.turnHadAudio = false;
       this.answerDone = true; // it may still be playing; the next words are a new answer
       this._logAgent(false);
@@ -395,6 +414,7 @@ export class CallAgent extends EventEmitter {
 
   /** The tools run on the tools server (validation, logging, answers); the result goes back to the model. */
   async _onToolCall(calls) {
+    if (calls.some((fc) => fc.name === 'send_purchase_link')) this.linkToolCalled = true;
     if (this.warming) {
       // nothing happens before the callee answers: the tools server never hears of it (and no opening came of it)
       if (this.opening) this.opening.failed = true;
