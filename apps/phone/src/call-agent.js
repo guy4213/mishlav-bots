@@ -77,10 +77,10 @@ export const CUES = {
   // it said it is sending the link but called no tool (saysLinkSent): nothing went
   linkNotSent:
     '(הודעת מערכת: אמרת ללקוח שאת שולחת לו קישור, אבל לא קראת ל-send_purchase_link – שום דבר לא נשלח. לקרוא לו עכשיו, בלי לומר כלום לפני.)',
+  // Only facts, and what to do: answer the customer, don't repeat (Guy, 26.11: "when I cut in, it should answer me")
   cutIn: (heard) =>
-    heard
-      ? `(הודעת מערכת: הלקוח התחיל לדבר בזמן שדיברת, והקול שלך נעצר. הוא שמע רק עד: «${heard}». את ההמשך הוא לא שמע – אם הייתה שם שאלה, הוא לא ענה עליה.)`
-      : '(הודעת מערכת: הלקוח התחיל לדבר בזמן שדיברת, והקול שלך נעצר מיד. הוא לא שמע כלום מהתשובה האחרונה שלך.)',
+    `(הודעת מערכת: הלקוח קטע אותך. הוא שמע רק עד: «${heard}». לא לחזור על מה שאמרת – לענות למה שהלקוח אומר. ` +
+    'מה שאחרי זה לא נשמע: אם הייתה שם שאלה, הלקוח לא ענה עליה.)',
 };
 
 /**
@@ -574,10 +574,15 @@ export class CallAgent extends EventEmitter {
   _cutIn() {
     const stillSending = this.agentTurnActive;
     // what the caller heard of it: Gemini is told (CUES.cutIn), and the transcript shows only that
+    // Only when it is known AND part of it was heard: the opening made while ringing has no text here, and "heard
+    // nothing" made the bot start the opening over and over while the caller said "הלו" (26.11, 17:34). Otherwise
+    // nothing is sent and the bot answers what the caller said.
     const heard = heardPart(this.playText, this.turnSamples - this.queued, this.turnSamples);
-    this.live.sendText(CUES.cutIn(heard));
-    if (this.turnText) this.turnText = heard; // still coming: its line is only what was heard
-    else this.emit('line', { who: 'note', text: `the caller heard only: «${heard}»` }); // its line is already written
+    if (heard) {
+      this.live.sendText(CUES.cutIn(heard));
+      if (this.turnText) this.turnText = heard; // still coming: its line is only what was heard
+      else this.emit('line', { who: 'note', text: `the caller heard only: «${heard}»` }); // its line is already written
+    }
     this.answerDone = true;
     this._flush();
     this._logAgent(true);
