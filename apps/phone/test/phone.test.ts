@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JS module (apps/phone is not type-checked)
 import { decodeG711, Downsampler, encodeG711, FRAME_SAMPLES } from "../src/audio.js";
 // @ts-expect-error plain JS module
-import { CallAgent, CUES, heardPart, isHebrewOpening, saysLinkSent } from "../src/call-agent.js";
+import { asksToSendLink, CallAgent, CUES, heardPart, isHebrewOpening, saysLinkSent } from "../src/call-agent.js";
 // @ts-expect-error plain JS module
 import { createDenoiser } from "../src/denoise.js";
 // @ts-expect-error plain JS module
@@ -295,6 +295,43 @@ describe("call agent", () => {
     for (let i = 0; i < 100; i++) rtp.emit("audio", voice); // 2 s: "רגע, עוד שאלה..."
     await wait(2300);
     expect(reasons).toEqual([]);
+    agent.end();
+  });
+
+  it("after the goodbye, its reply to a short word isn't played (it asked 'יש משהו נוסף?', 26.11 18:02)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sent", closing: true }) }, openAfterSilenceMs: 0 });
+    const reasons: string[] = [];
+    agent.on("hangup", (r: string) => reasons.push(r));
+    const rtp = new FakeRtp();
+    agent.start(rtp);
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "x" } }]);
+    await wait(10);
+    live.emit("audio", Buffer.alloc(4800, 1)); // "הקישור נשלח אליך בוואטסאפ. יום נעים, להתראות."
+    live.emit("turnComplete");
+    while (rtp.nextFrame());
+    await wait(100); // the goodbye is over
+    const voice = new Int16Array(160).fill(3000);
+    for (let i = 0; i < 20; i++) rtp.emit("audio", voice); // "תודה" (0.4 s)
+    live.emit("outputTranscript", "יש משהו נוסף שאוכל לעזור בו?");
+    live.emit("audio", Buffer.alloc(4800, 1));
+    expect(agent.queued).toBe(0); // not played
+    live.emit("turnComplete");
+    await wait(2300);
+    expect(reasons).toEqual(["closing"]); // and the line drops
+    agent.end();
+  });
+
+  it("the bot explains the link and asks 'אפשר לשלוח?': no nudge - it waits for the answer (26.11 18:01)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    live.emit("outputTranscript", "בדיוק, התשלום נעשה בקישור מאובטח שאני שולחת בוואטסאפ, אין צורך להקריא לי פרטים. אפשר לשלוח לך את הקישור?");
+    live.emit("audio", Buffer.alloc(4800, 1));
+    live.emit("turnComplete");
+    await wait(80);
+    expect(live.sent).toEqual([]);
+    expect(asksToSendLink("מעולה, שולחת לך קישור עכשיו. משהו נוסף שאוכל לעזור בו?")).toBe(false); // that one IS nudged
     agent.end();
   });
 
