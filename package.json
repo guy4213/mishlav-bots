@@ -1,6 +1,6 @@
 {
   "name": "mishlav-bots",
-  "version": "1.31.0",
+  "version": "1.32.0",
   "private": true,
   "type": "module",
   "description": "Mishlav College study-day voice bot — provider test infrastructure (Part 1)",

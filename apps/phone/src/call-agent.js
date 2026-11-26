@@ -3,7 +3,6 @@
 // real Zadarma calls: quiet-line fix, barge-in hold, silence check); opening and end_call as provider C's worker.
 import { EventEmitter } from 'node:events';
 import { Downsampler, FRAME_SAMPLES, PHONE_RATE, pcmBuffer, pcmView, rms } from './audio.js';
-import { EchoModel } from './echo.js';
 import { SAY_LINK_SENDING } from './fixed-lines.js';
 import { UsageMeter } from './usage.js';
 
@@ -32,12 +31,9 @@ const MAX_CALL_MS = 15 * 60 * 1000;
 // (short gaps between words don't break it).
 const HOLD_MS = 2000; // the last 2 s the caller said are kept, and sent when they cut in
 const BARGE_MS = 600; // 600 ms of continuous speech cuts the bot off (a lone "מעולה" is ~0.5 s)
-// Until the line was checked for the bot's echo (echo.js, ~1 s into the bot's first words) its echo can't be told from
-// the caller: twice as long before the bot is cut (its own echo cut the opening with Bluetooth earbuds, 26.11 15:53)
-const BARGE_UNCHECKED_MS = 1200;
 const WORD_GAP_MS = 400; // a shorter pause is still the same sentence ("רגע... רגע" cuts in too)
 const ANSWER_MS = 1000; // speech in the last second before the bot finished is sent when it finishes
-const ECHO_TAIL_MS = 250; // keep holding a moment after the bot stops being audible (longer when its echo is late: echo.js)
+const ECHO_TAIL_MS = 250; // keep holding a moment after the bot stops being audible
 const START_BUFFER = 3 * FRAME_SAMPLES; // 60 ms of audio before playback starts, against network jitter
 
 const CALLER_SPOKE_FRAMES = 5; // 100 ms of voice = the callee said something ("הלו")
@@ -129,8 +125,6 @@ export class CallAgent extends EventEmitter {
   constructor({ live, tools, openAfterSilenceMs = 4000, genderReminder = null, denoiser = null, linkSending = () => null }) {
     super();
     this.linkSending = linkSending;
-    this.echo = new EchoModel(); // the bot's own voice coming back on the line (Bluetooth earbuds)
-    this.echoNoted = 0; // how many of the echo's changes were logged
     this.denoiser = denoiser; // the caller's noise filter (null: by volume, as before)
     // the answer playing now: its words and audio (8 kHz), for what the caller heard when they cut in
     this.playText = '';
@@ -550,15 +544,7 @@ export class CallAgent extends EventEmitter {
     const level = rms(samples);
     // the noise filter: a person talking (not cars / a plane), and the audio Gemini gets without the noise
     const clean = this.denoiser?.process(samples);
-    // the bot's own voice coming back (echo) is not the caller: only a line clearly louder than the echo is
-    const echoWas = this.echo.active;
-    this.echo.addHeard(now, level);
-    if (this.echo.active && !echoWas) this.seg = null; // what was counted as the caller over the bot was its echo
-    if (this.echo.changes > this.echoNoted && this.echoNoted < 3) {
-      this.echoNoted = this.echo.changes; // found, or its delay changed (logged up to 3 times)
-      this.emit('line', { who: 'note', text: this.echo.describe() });
-    }
-    const voiced = level > VOICE_RMS && (!clean || clean.vad >= SPEECH_VAD) && this.echo.isCaller(now, level);
+    const voiced = level > VOICE_RMS && (!clean || clean.vad >= SPEECH_VAD);
     const heard = clean ? clean.samples : samples;
     // the caller's own level: their speech while the bot is silent (cutting in is measured against it)
     if (voiced && !(this.queued > 0 || now < this.audibleUntil)) {
@@ -581,9 +567,7 @@ export class CallAgent extends EventEmitter {
     } else this.voicedRun = 0;
     this.rec?.lead.push(samples); // the recording keeps what the caller really sounded like
     // noise only (filtered to near silence) or a quiet line: Gemini gets clean silence, so it hears the end of speech
-    // Also the bot's own echo: Gemini never gets it (held audio is sent when the caller cuts in or answers)
-    const ownEcho = this.echo.active && !this.echo.isCaller(now, level);
-    const frame = ownEcho || (clean ? rms(heard) : level) < SILENCE_RMS ? new Int16Array(samples.length) : heard;
+    const frame = (clean ? rms(heard) : level) < SILENCE_RMS ? new Int16Array(samples.length) : heard;
 
     if (!this.opened && this._openingUsable()) {
       // Before the opening made while ringing plays, Gemini hears silence: it already "said" the opening, so it must
@@ -672,7 +656,7 @@ export class CallAgent extends EventEmitter {
     if (!voiced) return false;
     if (!s || now - s.last > WORD_GAP_MS) this.seg = { start: now, last: now, peak: level, noted: false };
     else Object.assign(s, { last: now, peak: Math.max(s.peak, level) });
-    return now - this.seg.start + 20 >= (this.echo.checked ? BARGE_MS : BARGE_UNCHECKED_MS);
+    return now - this.seg.start + 20 >= BARGE_MS;
   }
 
   /** The caller's own level (the typical one of their speech while the bot is silent); null until 0.5 s of it. */
@@ -691,8 +675,7 @@ export class CallAgent extends EventEmitter {
   /** For the log: the segment's peak against the level needed, and the caller's own level. */
   _levels() {
     const c = this.callerLevel();
-    const echo = this.echo.active ? `, echo ${this.echo.predicted(performance.now()).toFixed(3)}` : '';
-    return `peak ${(this.seg?.peak ?? 0).toFixed(3)}, needs ${this._bargeLevel().toFixed(3)}, caller ${c ? c.toFixed(3) : '?'}${echo}`;
+    return `peak ${(this.seg?.peak ?? 0).toFixed(3)}, needs ${this._bargeLevel().toFixed(3)}, caller ${c ? c.toFixed(3) : '?'}`;
   }
 
   _segMs() {
@@ -788,14 +771,12 @@ export class CallAgent extends EventEmitter {
         }
       }
       this.queued -= n;
-      // its echo may come back later than ECHO_TAIL_MS (echo.js): held until then, so Gemini never hears itself
-      this.audibleUntil = performance.now() + Math.max(ECHO_TAIL_MS, this.echo.tailMs());
+      this.audibleUntil = performance.now() + ECHO_TAIL_MS;
     } else if (!this.queued && this.playing) {
       this.playing = false;
       this.botEndedAt = performance.now();
       this.leadVoicedFrames = 0;
     }
-    this.echo.addPlayed(performance.now(), frame ? rms(frame) : 0);
     this.rec?.agent.push(frame ?? new Int16Array(FRAME_SAMPLES));
     return frame;
   }
