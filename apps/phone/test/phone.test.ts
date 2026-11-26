@@ -631,6 +631,43 @@ describe("call agent", () => {
       agent.end();
     });
 
+    it("only a voice about as loud as the caller's own cuts in (Bluetooth echo, people around: 26.11)", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      const lines: string[] = [];
+      agent.on("line", (l: { text: string }) => lines.push(l.text));
+      const at = (rms: number) => new Int16Array(160).fill(Math.round(rms * 32768));
+      await frames(rtp, at(0.1), 800); // the caller answers, the bot silent: their level is 0.1
+      expect(agent.callerLevel()).toBeCloseTo(0.1, 2);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await frames(rtp, at(0.035), 900); // a quieter voice (echo / someone near): over 0.02, under half of 0.1
+      expect(agent.queued).toBeGreaterThan(0); // the bot goes on
+      await frames(rtp, at(0.09), 700); // the caller themself
+      expect(agent.queued).toBe(0);
+      expect(lines.some((t) => /bot stopped/.test(t) && /caller 0\.10/.test(t))).toBe(true); // the levels are in the log
+      agent.end();
+    });
+
+    it("before the caller's level is known (the opening): a voice must be twice the plain talking level", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      const at = (rms: number) => new Int16Array(160).fill(Math.round(rms * 32768));
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await frames(rtp, at(0.03), 900);
+      expect(agent.queued).toBeGreaterThan(0);
+      await frames(rtp, at(0.06), 700);
+      expect(agent.queued).toBe(0);
+      agent.end();
+    });
+
     it("heardPart: the share of the text that was played, cut at a word", () => {
       expect(heardPart("אחת שתיים שלוש ארבע", 60, 100)).toBe("אחת שתיים…"); // a half-said word is left out
       expect(heardPart("אחת שתיים", 99, 100)).toBe("אחת שתיים");
