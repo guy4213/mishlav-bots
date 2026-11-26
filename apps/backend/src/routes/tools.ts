@@ -10,7 +10,7 @@ import type { SessionStore } from "../sessions";
 import { toolHandlers, type ToolContext, type ToolResponse } from "../tools/handlers";
 import type { PhoneHolder } from "./phone";
 
-export interface ToolRouteDeps extends Omit<ToolContext, "recipient" | "recipientName"> {
+export interface ToolRouteDeps extends Omit<ToolContext, "recipient" | "recipientName" | "sentDays" | "onLinkFailed"> {
   toolLog: JsonlFile;
   sessions: SessionStore;
   /** Supabase contacts: every tool of a contact's call updates that contact (by call_id) */
@@ -33,6 +33,32 @@ function callMeta(req: FastifyRequest) {
 
 export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDeps): Promise<void> {
   const schemas = buildToolInputSchemas({ captureDictatedDetails: deps.settings.testing.capture_dictated_details });
+
+  // the links sent on each call (no second WhatsApp for the same day on the same call); the last 500 calls
+  const sentByCall = new Map<string, Set<string>>();
+  const sentDaysFor = (callId: string | null) => {
+    if (!callId) return undefined;
+    let set = sentByCall.get(callId);
+    if (!set) {
+      set = new Set();
+      sentByCall.set(callId, set);
+      if (sentByCall.size > 500) sentByCall.delete(sentByCall.keys().next().value!);
+    }
+    return set;
+  };
+  // the WhatsApp goes in the background (the bot was already told "sent"): if it fails, a rep sends the link
+  const linkFailed = (callId: string | null) => (error: string, dayHe: string) => {
+    deps.onToolCall?.(callId, "send_purchase_link", false, `whatsapp_failed (in the background): ${error}`);
+    if (!callId || !deps.contacts) return;
+    const note = `הקישור בוואטסאפ לא נשלח (${error}) – לשלוח ללקוח את הקישור`;
+    const contacts = deps.contacts;
+    // after the tool's own "link sent" event is queued (a fast refusal could otherwise come first)
+    setTimeout(() => {
+      void contacts.run(callId, "link failed", (s) =>
+        s.toolEvent(callId, "request_human", { reason: "other", note }, { ok: true, status: "handed_to_rep", day_he: dayHe }),
+      );
+    }, 0);
+  };
 
   for (const tool of TOOL_NAMES) {
     app.post(`/tools/${tool}`, async (req) => {
@@ -59,7 +85,14 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
             recipientName = callId ? (deps.phone?.line?.nameFor?.(callId) ?? null) : null; // the WhatsApp greeting (a line without it: none)
           }
           const handler = toolHandlers[tool] as (i: unknown, c: ToolContext) => ToolResponse | Promise<ToolResponse>;
-          response = await handler(parsed.data, { ...deps, recipient, recipientName });
+          const callId = callMeta(req).call_id;
+          response = await handler(parsed.data, {
+            ...deps,
+            recipient,
+            recipientName,
+            sentDays: sentDaysFor(callId),
+            onLinkFailed: linkFailed(callId),
+          });
         } catch (err) {
           req.log.error({ err, tool }, "tool handler failed");
           response = { ok: false, error: "internal_error", message_he: "תקלה זמנית. להציע שנציג יחזור." };
@@ -69,8 +102,10 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
       const params = logToolCall(deps, req, tool, body, response, performance.now() - started, recipient);
       const callId = callMeta(req).call_id;
       deps.onToolCall?.(callId, tool, response.ok, response.ok ? undefined : String(response.error));
-      // after the answer is ready, not before: the bot never waits for Supabase
-      if (callId && deps.contacts) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
+      // after the answer is ready, not before: the bot never waits for Supabase. A link already sent on this call
+      // isn't written again (it was asked twice, sent once)
+      const again = response.ok && response.status === "already_sent";
+      if (callId && deps.contacts && !again) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
       return response;
     });
   }

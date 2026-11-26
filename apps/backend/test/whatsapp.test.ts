@@ -94,13 +94,21 @@ describe("send_purchase_link on WhatsApp", () => {
     expect(wa.sent[0]![1]).toMatchObject({ body: ["גיא", "דיני עבודה ומס הכנסה", expect.stringContaining("בזום")], buttonPayload: "2027-02-21-zoom" });
   });
 
-  it("no number, a failure, or a link the button can't take: not sent, and the bot offers a rep", async () => {
+  it("no number, or a link the button can't take: not sent, and the bot offers a rep", async () => {
     const wa = new FakeWa();
     expect(await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa, { recipient: null }))).toMatchObject({ ok: false, error: "no_phone" });
-    wa.fail = true;
-    expect(await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa))).toMatchObject({ ok: false, error: "whatsapp_failed" });
     const other = ctx(new FakeWa());
-    other.settings.whatsapp!.url_prefix = "https://other.example/";
+    other.settings.whatsapp.url_prefix = "https://other.example/";
     expect(await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, other)).toMatchObject({ ok: false, error: "link_not_in_template" });
+  });
+
+  it("a Texter failure comes after the answer (the send is in the background): onLinkFailed gets it", async () => {
+    const wa = new FakeWa();
+    wa.fail = true;
+    const failed: [string, string][] = [];
+    const r = await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa, { onLinkFailed: (e, d) => failed.push([e, d]) }));
+    expect(r).toMatchObject({ ok: true, status: "sent" });
+    await new Promise((res) => setTimeout(res, 0));
+    expect(failed).toEqual([["down", "דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום"]]);
   });
 });

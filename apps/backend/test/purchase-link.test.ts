@@ -136,17 +136,31 @@ describe("send_purchase_link sends the WhatsApp to the number on the call", () =
     expect((whatsapp as FakeWa).sent).toEqual([]);
   });
 
-  it("the provider fails: whatsapp_failed (ok:false, so Gold never gets 'link sent'), the bot offers a rep", async () => {
+  it("the bot is answered at once (no silence while Texter works); a failure in the background goes to a rep", async () => {
     const wa = new FakeWa();
     wa.fail = true;
     const { store, send } = await setup(wa);
     store.numbers.set("call-1", "053-4271418");
     const r = await send("call-1");
-    expect(r).toMatchObject({ ok: false, error: "whatsapp_failed" });
-    expect(r.message_he).toContain("נציג");
-    expect(r.closing).toBeUndefined();
+    expect(r).toMatchObject({ ok: true, status: "sent", closing: true }); // the customer hears "נשלח" right away
     await settle();
-    expect(store.tools).toEqual([["call-1", "send_purchase_link", false]]);
+    // ...and when Texter refused it: a rep task with a note, so a person sends the link
+    expect(store.tools).toEqual([
+      ["call-1", "send_purchase_link", true],
+      ["call-1", "request_human", true],
+    ]);
+  });
+
+  it("asked again on the same call (after a cut-in): sent once; the bot is told it went and not to ask again", async () => {
+    const { store, whatsapp, send } = await setup();
+    store.numbers.set("call-1", "053-4271418");
+    await send("call-1");
+    const again = await send("call-1");
+    expect(again).toMatchObject({ ok: true, status: "already_sent", say_he: "הקישור נשלח עכשיו בוואטסאפ. יום נעים, להתראות." });
+    expect(again.message_he).toContain("לא לשאול שוב");
+    await settle();
+    expect((whatsapp as FakeWa).sent).toHaveLength(1);
+    expect(store.tools).toEqual([["call-1", "send_purchase_link", true]]); // Gold: one "נשלח קישור"
   });
 
   it("Texter not configured: a real customer is never told 'sent' (a rep sends it); a text run without a number goes through", async () => {

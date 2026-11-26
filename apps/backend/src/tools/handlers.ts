@@ -21,6 +21,10 @@ export interface ToolContext {
   whatsapp: WhatsAppSender;
   /** the customer's first name on this call (the WhatsApp template's {{1}}), from the line - never from the bot */
   recipientName?: string | null;
+  /** the study days whose link already went out on this call (the route keeps one set per call) */
+  sentDays?: Set<string>;
+  /** the WhatsApp failed after the bot was answered (it is sent in the background): a rep sends the link */
+  onLinkFailed?: (error: string, dayHe: string) => void;
   /**
    * Who is on this call (+972...), resolved by the server from x-call-id - never from the bot: a contact's call ->
    * its phone in Supabase; a scenario call on the line -> the number dialed. null: unknown.
@@ -114,7 +118,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     return { ok: true, day: publicDay(day), ...otherDates(day, knowledge, now()), general: knowledge.general };
   },
 
-  async send_purchase_link(input, { knowledge, settings, whatsapp, recipient, recipientName }) {
+  async send_purchase_link(input, { knowledge, settings, whatsapp, recipient, recipientName, sentDays, onLinkFailed }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
     if (!day.open_for_registration) {
@@ -135,21 +139,40 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     if (!values) {
       return { ok: false, error: "link_not_in_template", message_he: `הקישור של היום הזה לא מתאים לתבנית הוואטסאפ. ${LINK_BY_REP}` };
     }
-    const sent = recipient ? await whatsapp.sendLink(recipient, values) : { ok: true as const, provider: whatsapp.provider, sent: false };
-    // A real customer never hears "sent" when nothing went (no Texter keys: the log-only sender only wrote it down)
-    if (recipient && sent.ok && !sent.sent) {
+    // A real customer never hears "sent" when nothing can go (no Texter keys: the log-only sender sends nothing)
+    if (recipient && !whatsapp.live) {
+      await whatsapp.sendLink(recipient, values); // written to the log: what would have gone
       return { ok: false, error: "whatsapp_not_configured", message_he: `אי אפשר לשלוח את הקישור כרגע. ${LINK_BY_REP}` };
     }
-    if (!sent.ok) {
-      // ok:false: the contact's record doesn't get "link sent" (bot_tool_event ignores failed tools)
-      return { ok: false, error: "whatsapp_failed", provider: sent.provider, message_he: `ההודעה לא נשלחה בגלל תקלה. ${LINK_BY_REP}` };
+    const dayHe = dayNoteHe(day); // for the note on the lead (Gold): dates, Zoom or in person
+    // Asked again on the same call (after a cut-in, a "הלו"): not sent twice, and the bot is told not to ask again
+    if (sentDays?.has(day.id)) {
+      return {
+        ok: true,
+        status: "already_sent",
+        day_id: day.id,
+        day_he: dayHe,
+        ...closing(SAY_LINK_SENT),
+        message_he: `הקישור ליום הזה כבר נשלח בשיחה הזו - לא לשלוח שוב ולא לשאול שוב אם לשלוח. ${CLOSE_NEXT}`,
+      };
+    }
+    // The bot answers at once and the WhatsApp goes in the background: while a tool runs the bot can't speak, and
+    // waiting for Texter left the customer in silence ("את איתי? הלו", 26.11). A failure goes to a rep (onLinkFailed).
+    sentDays?.add(day.id);
+    if (recipient) {
+      void whatsapp.sendLink(recipient, values).then(
+        (r) => {
+          if (!r.ok) onLinkFailed?.(r.error, dayHe);
+        },
+        (err: Error) => onLinkFailed?.(err.message, dayHe),
+      );
     }
     return {
       ok: true,
       status: "sent",
       day_id: day.id,
-      day_he: dayNoteHe(day), // for the note on the lead (Gold): course number, dates, Zoom or in person
-      whatsapp: { sent: sent.sent, provider: sent.provider },
+      day_he: dayHe,
+      whatsapp: { sent: !!recipient, provider: whatsapp.provider },
       ...closing(SAY_LINK_SENT),
     };
   },
