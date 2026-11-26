@@ -607,7 +607,7 @@ describe("call agent", () => {
       agent.end();
     });
 
-    it("Gemini is told what the caller heard of the cut answer (the link went out after a question never heard)", async () => {
+    it("a cut-in sends Gemini nothing (it read the note out loud, 26.11); the log shows what the caller heard", async () => {
       const live = new FakeLive();
       const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
       const rtp = new FakeRtp();
@@ -621,10 +621,7 @@ describe("call agent", () => {
       for (let i = 0; i < 100; i++) rtp.nextFrame(); // 2 s of it played
       await talk(rtp, 700);
       expect(agent.queued).toBe(0);
-      const note = live.sent.at(-1)!;
-      expect(note).toContain("הוא שמע רק עד: «היום עיון במלון");
-      expect(note).not.toContain("לשלוח לך קישור");
-      expect(note).toContain("לא לחזור על מה שאמרת – לענות למה שהלקוח אומר");
+      expect(live.sent.filter((t) => t.includes("קטע"))).toEqual([]); // no cut-in note: the bot just answers the caller
       expect(lines.some((l) => l.who === "note" && l.text.startsWith("the caller heard only: «היום עיון במלון"))).toBe(true); // the log too
       agent.end();
     });
