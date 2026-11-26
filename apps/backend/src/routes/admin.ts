@@ -27,6 +27,7 @@ import type { ServerResponse } from "node:http";
 import type { Changes } from "../changes";
 import { type AdminStore, type CallOrigin, type ContactStore, toE164 } from "../contacts";
 import type { Dialer } from "../dialer";
+import type { TestDialer } from "../test-dialer";
 import type { JsonlFile } from "../jsonl";
 import type { KnowledgeBase } from "../knowledge";
 import type { ServerLog } from "../serverlog";
@@ -39,6 +40,8 @@ import { toolCallsWhere } from "./test";
 export interface AdminRouteDeps {
   /** none without Supabase (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY) */
   dialer?: Dialer;
+  /** the automatic-dialing test on the TEST- contacts (admins only: access.ts doesn't open it to Mishlav) */
+  testDialer?: TestDialer;
   contacts?: ContactStore;
   admin?: AdminStore;
   phone?: PhoneHolder;
@@ -124,6 +127,36 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
   app.get("/api/admin/dialer", async () =>
     deps.dialer ? { ok: true, available: true, dialer: deps.dialer.status() } : { ok: true, available: false, dialer: null },
   );
+
+  // ---- the automatic-dialing test (admins): the real Dialer on the 10 TEST- contacts, dialing only the admin's phone
+  const noTest = { ok: false, error: "no_test_dialer", message_he: "בדיקת החיוג לא זמינה: Supabase לא מחובר" };
+  const myPhone = (req: { principal: { user: { phone: string } | null } | null }) => req.principal?.user?.phone ?? null;
+  const needPhone = { ok: false, error: "not_a_user", message_he: "צריך להיכנס עם מספר טלפון וסיסמה: הבדיקה מחייגת רק למספר שלך" };
+  app.get("/api/admin/test-dialer", async (_req, reply) => {
+    if (!deps.testDialer) return reply.code(409).send(noTest);
+    try {
+      return { ok: true, status: deps.testDialer.status(), contacts: await deps.testDialer.contacts() };
+    } catch (err) {
+      return supabaseError(reply, err);
+    }
+  });
+  for (const action of ["start", "reset"] as const) {
+    app.post(`/api/admin/test-dialer/${action}`, async (req, reply) => {
+      if (!deps.testDialer) return reply.code(409).send(noTest);
+      const phone = myPhone(req);
+      if (!phone) return reply.code(409).send(needPhone);
+      try {
+        if (action === "start") return { ok: true, status: await deps.testDialer.start(phone) };
+        return { ok: true, reset: await deps.testDialer.reset(phone) };
+      } catch (err) {
+        return reply.code(409).send({ ok: false, error: action, message_he: (err as Error).message });
+      }
+    });
+  }
+  app.post("/api/admin/test-dialer/stop", async (_req, reply) => {
+    if (!deps.testDialer) return reply.code(409).send(noTest);
+    return { ok: true, status: await deps.testDialer.stop() };
+  });
 
   // the pilot's daily limit: admins only (access.ts doesn't open it to Mishlav's users)
   const DailyLimit = z.strictObject({ daily_limit: z.number().int().min(1).max(1000).nullable() });

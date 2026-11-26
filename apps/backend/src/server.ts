@@ -21,6 +21,7 @@ import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
 import { type LogStore, pinoText, ServerLog, tapConsole } from "./serverlog";
 import { SessionStore } from "./sessions";
+import { TestDialer, type TestDialerStore } from "./test-dialer";
 import { type WhatsAppSender, whatsappSenderFromEnv } from "./whatsapp";
 import { LiveKnowledge, type StudyDayStore } from "./study-days";
 import { publicUser, type UserStore, Users } from "./users";
@@ -45,6 +46,8 @@ export interface BuildOptions {
    * run: start its loop when the server is ready (main.ts only; tests drive it through the routes).
    */
   dialer?: { store: DialerStore; run?: boolean };
+  /** the automatic-dialing test on the TEST- contacts (test-dialer.ts); off until an admin starts it */
+  testDialer?: { store: TestDialerStore; run?: boolean };
   /** the purchase link - only by WhatsApp (tests pass a fake). Default: Texter from the environment, else log only */
   whatsapp?: WhatsAppSender;
   /** Where the dashboard's log is kept, so a deploy doesn't wipe it (main.ts: Supabase server_logs). */
@@ -241,6 +244,27 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
           onChange: () => changes.notify(),
         })
       : undefined;
+  // the automatic-dialing test: the same Dialer, on the TEST- contacts only, dialing only the admin who started it
+  const testDialer =
+    contacts && opts.testDialer
+      ? new TestDialer({
+          store: opts.testDialer.store,
+          events: contacts,
+          phone,
+          settings: config.settings,
+          now,
+          log: (text, kind) => {
+            serverLog.push(kind ?? "dialer", `[test-dialer] ${text}`);
+            app.log.info(`[test-dialer] ${text}`);
+          },
+          transcriptsDir,
+          onChange: () => changes.notify(),
+        })
+      : undefined;
+  if (testDialer && opts.testDialer?.run) {
+    app.addHook("onReady", async () => testDialer.run());
+    app.addHook("onClose", async () => testDialer.shutdown());
+  }
   if (dialer && opts.dialer?.run) {
     app.addHook("onReady", async () => dialer.run());
     app.addHook("onClose", async () => dialer.shutdown()); // the loop only: the switch in the database stays
@@ -287,6 +311,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     transcriptsDir,
     settings: config.settings,
     env,
+    testDialer,
     whatsapp,
     knowledge: () => knowledge,
     now,

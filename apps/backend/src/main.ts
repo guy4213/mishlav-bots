@@ -102,6 +102,8 @@ async function main() {
     admin: contacts,
     // the automatic dialer: on/off in Supabase (starts off; the dashboard turns it on); its loop runs from now on
     dialer: contacts && { store: contacts, run: true },
+    // the automatic-dialing test (admins, dashboard): off after every start, the TEST- contacts only
+    testDialer: contacts && { store: contacts, run: true },
     // the dashboard's log: kept in Supabase (14 days) and fed by the server's own output too
     logStore: contacts,
     // the study days the bot offers: Supabase study_days, edited in the dashboard
