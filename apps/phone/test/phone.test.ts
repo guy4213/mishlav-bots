@@ -266,7 +266,7 @@ describe("call agent", () => {
     agent.start(rtp);
     live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "x" } }]);
     await wait(10);
-    live.emit("audio", Buffer.alloc(4800, 1)); // "הקישור נשלח עכשיו במסרון. יום נעים, להתראות!"
+    live.emit("audio", Buffer.alloc(4800, 1)); // "הקישור נשלח עכשיו בוואטסאפ. יום נעים, להתראות."
     live.emit("turnComplete");
     while (rtp.nextFrame()); // played out
     await wait(1000);

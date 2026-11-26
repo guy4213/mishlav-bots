@@ -5,7 +5,8 @@
  *   Authorization: Bearer {TEXTER_API_TOKEN}   (scope: "Send template messages")
  *   { templateName, to, language, body: [name, day, details], buttons: [{ type: "url", payload }], from? }
  * Texter answers 200 with success:false when it skipped the send (e.g. the recipient unsubscribed).
- * Without TEXTER_PROJECT + TEXTER_API_TOKEN there is no WhatsApp sender and the link goes by SMS, as before.
+ * The link goes ONLY by WhatsApp - never by SMS (Mishlav, 26.11). Without TEXTER_PROJECT + TEXTER_API_TOKEN the
+ * sender is log-only: a real customer is told a rep will send the link; a text run without a number goes through.
  * Numbers are always masked in logs.
  */
 import { maskNumber } from "../../phone/src/numbers.js";
@@ -40,6 +41,17 @@ export interface TexterOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   log?: Log;
+}
+
+/** No Texter keys: writes what would be sent, sends nothing (text runs, tests, a server without Texter). */
+export class LogOnlyWhatsApp implements WhatsAppSender {
+  readonly provider = "log";
+  readonly live = false;
+  constructor(private readonly log: Log = defaultLog) {}
+  async sendLink(to: string, values: LinkTemplateValues): Promise<WhatsAppResult> {
+    this.log(`NOT sent - Texter not configured (TEXTER_PROJECT + TEXTER_API_TOKEN) -> ${maskNumber(to)}: ${values.body.join(" | ")} | ${values.buttonPayload}`);
+    return { ok: true, provider: this.provider, sent: false };
+  }
 }
 
 export class TexterWhatsApp implements WhatsAppSender {
@@ -87,15 +99,15 @@ export class TexterWhatsApp implements WhatsAppSender {
   }
 }
 
-/** TEXTER_PROJECT + TEXTER_API_TOKEN (+ TEXTER_FROM) -> Texter; otherwise null (the link goes by SMS). */
+/** TEXTER_PROJECT + TEXTER_API_TOKEN (+ TEXTER_FROM) -> Texter; otherwise log only (nothing is sent). */
 export function whatsappSenderFromEnv(
   env: NodeJS.ProcessEnv,
   template: { template: string; language: string },
   log?: Log,
-): WhatsAppSender | null {
-  const project = env.TEXTER_PROJECT?.trim().replace(/\.texterchat\.com.*$/, "").replace(/^https?:\/\//, "");
+): WhatsAppSender {
+  const project = env.TEXTER_PROJECT?.trim().replace(/^https?:\/\//, "").replace(/\.texterchat\.com.*$/, "");
   const token = env.TEXTER_API_TOKEN?.trim();
-  if (!project || !token) return null;
+  if (!project || !token) return new LogOnlyWhatsApp(log);
   return new TexterWhatsApp({ project, token, ...template, from: env.TEXTER_FROM?.trim() || undefined, log });
 }
 

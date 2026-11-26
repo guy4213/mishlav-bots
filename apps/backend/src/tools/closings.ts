@@ -9,8 +9,8 @@ import { addDays, dateKey, toLocalParts, type EndCallReason } from "@mishlav/sha
 // a period, not "!": with "!" the bot said "להתראות" rising, like a question (Guy, 24.11)
 export const GOODBYE = "יום נעים, להתראות.";
 
-export const SAY_LINK_SENT = `הקישור נשלח עכשיו במסרון. ${GOODBYE}`;
-export const SAY_LINK_SENT_WHATSAPP = `הקישור נשלח עכשיו בוואטסאפ. ${GOODBYE}`;
+// the link goes only by WhatsApp (Mishlav: never by SMS)
+export const SAY_LINK_SENT = `הקישור נשלח עכשיו בוואטסאפ. ${GOODBYE}`;
 export const SAY_HANDED_TO_REP = `העברתי את הבקשה, נציג יחזור בהקדם. ${GOODBYE}`;
 
 export const SAY_END_CALL: Record<Exclude<EndCallReason, "voicemail">, string> = {

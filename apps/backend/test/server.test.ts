@@ -62,8 +62,8 @@ describe("tools", () => {
     const res = (await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom", phone: "0501111111" })).json();
     expect(res).toMatchObject({ ok: false, error: "invalid_params" });
     const ok = (await post("/tools/send_purchase_link", { day_id: "2027-02-21-zoom" })).json();
-    // no SMS keys in tests: log only (nothing is sent); the recipient never comes from the bot
-    expect(ok).toMatchObject({ ok: true, status: "sent", sms: { sent: false, provider: "log" } });
+    // no Texter keys in tests: log only (nothing is sent; a call without a number); the recipient never comes from the bot
+    expect(ok).toMatchObject({ ok: true, status: "sent", whatsapp: { sent: false, provider: "log" } });
     expect(ok.test_mode).toBeUndefined();
     expect(toolLog().map((l) => [l.tool, l.ok])).toEqual([
       ["send_purchase_link", false],

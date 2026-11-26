@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mayCall, viewAs } from "../src/access";
 import { SupabaseContacts } from "../src/contacts";
 import { buildServer } from "../src/server";
-import { LogOnlySms } from "../src/sms";
+import { LogOnlyWhatsApp } from "../src/whatsapp";
 import { type DashboardUser, hashPassword, LoginLimiter, type UserStore, UserExists, verifyPassword } from "../src/users";
 import { AUTH, FIXED_NOW, testConfig } from "./helpers";
 
@@ -64,7 +64,7 @@ async function setup(withUsers = true) {
   const app = await buildServer(testConfig(), {
     now: () => FIXED_NOW,
     logger: false,
-    sms: new LogOnlySms(() => {}),
+    whatsapp: new LogOnlyWhatsApp(() => {}),
     users: withUsers ? store : undefined,
     phone: { line: line as never, reason: null },
   });
@@ -154,7 +154,7 @@ describe("what Mishlav's users may do", () => {
     const closed: [string, string][] = [
       ["GET", "/api/admin/logs"], ["GET", "/api/admin/env"], ["POST", "/api/admin/dialer/start"], ["POST", "/api/admin/dialer/stop"],
       ["POST", "/api/admin/voice"], ["POST", "/test/phone/call"], ["GET", "/test/overview"], ["GET", "/test/contacts"],
-      ["POST", "/tools/get_day_info"], ["GET", "/api/admin/users"], ["POST", "/api/admin/sms/test"], ["GET", "/test/gold/changes"],
+      ["POST", "/tools/get_day_info"], ["GET", "/api/admin/users"], ["POST", "/api/admin/whatsapp/test"], ["GET", "/test/gold/changes"],
     ];
     for (const [m, url] of closed) {
       const r = m === "GET" ? await dana.get(url) : await dana.post(url);

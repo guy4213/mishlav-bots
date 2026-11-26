@@ -1,7 +1,7 @@
 /**
  * The management API behind TOOLS_SECRET (the dashboard, apps/backend/dashboard).
  *
- *   GET  /api/admin/env                 -> which server this is (production / local), line, Supabase, SMS, Gold key
+ *   GET  /api/admin/env                 -> which server this is (production / local), line, Supabase, WhatsApp, Gold key
  *   GET  /api/admin/dialer              -> { ok, available, dialer: DialerStatus | null }
  *   POST /api/admin/dialer/start|stop   {reason?} -> { ok, dialer }   (stop: a call in progress goes on to its end)
  *   GET  /api/admin/summary             -> today's dialer calls, the contacts' funnel, the queue (dashboard_summary)
@@ -16,7 +16,7 @@
  *   GET  /api/admin/rep-tasks?open=1&page= -> rep tasks by callback time, with the contact's name and phone, 50 a page
  * Every paged list answers { total, page, page_size, pages } next to its rows.
  *   POST /api/admin/rep-tasks/:id/done  -> { ok, task }
- *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / SMS / server)
+ *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / WhatsApp / server)
  *   GET  /api/admin/logs/history?call_id=&limit= -> the log of earlier server starts (Supabase server_logs, 14 days)
  * Without Supabase the data routes answer 409 no_supabase; a Supabase failure is 502 supabase_error.
  */
@@ -30,7 +30,6 @@ import type { Dialer } from "../dialer";
 import type { JsonlFile } from "../jsonl";
 import type { KnowledgeBase } from "../knowledge";
 import type { ServerLog } from "../serverlog";
-import type { SmsSender } from "../sms";
 import { linkTemplateValues, type WhatsAppSender } from "../whatsapp";
 import { DEFAULT_VOICE, PHONE_VOICES, VOICE_HE } from "../../../phone/src/voices.js";
 import { CALL_ID, readTranscript } from "../transcripts";
@@ -49,8 +48,7 @@ export interface AdminRouteDeps {
   transcriptsDir?: string;
   settings?: Settings;
   env?: NodeJS.ProcessEnv;
-  sms?: SmsSender;
-  whatsapp?: WhatsAppSender | null;
+  whatsapp?: WhatsAppSender;
   /** the study days (the WhatsApp test sends a real day's link) */
   knowledge?: () => KnowledgeBase | undefined;
   now?: () => Date;
@@ -96,23 +94,11 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
       commit: env.RENDER_GIT_COMMIT?.trim().slice(0, 7) || null,
       phone_line: { available: !!line, registered: line?.status().registered ?? false, reason: line ? null : (deps.phone?.reason ?? null) },
       supabase: !!deps.contacts,
-      sms_provider: deps.sms?.provider ?? "log",
+      whatsapp_provider: deps.whatsapp?.provider ?? "log",
       gold_api_key_set: !!env.GOLD_API_KEY?.trim(),
       dialer_only_numbers: !!env.DIALER_ONLY_NUMBERS?.trim(),
       timezone: deps.settings?.business_hours.timezone ?? "Asia/Jerusalem",
     };
-  });
-
-  // ---- a test SMS, without a call: checks the provider (Zadarma keys, sender, balance) end to end
-  app.post("/api/admin/sms/test", async (req, reply) => {
-    const body = (req.body ?? {}) as { number?: unknown };
-    const to = typeof body.number === "string" ? toE164(body.number) : null;
-    if (!to) return reply.code(400).send({ ok: false, error: "invalid_number", message_he: "מספר טלפון לא תקין" });
-    if (!deps.sms) return reply.code(409).send({ ok: false, error: "no_sms", message_he: "אין שליחת SMS בשרת הזה" });
-    const r = await deps.sms.send(to, "משלב: הודעת בדיקה מהבוט. אין צורך להשיב.");
-    return r.ok
-      ? { ok: true, provider: r.provider, sent: r.sent }
-      : reply.code(502).send({ ok: false, provider: r.provider, error: "sms_failed", message_he: r.error });
   });
 
   // the purchase-link WhatsApp (Texter): the approved template with a real study day, to a number we type
@@ -120,7 +106,7 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
     const body = (req.body ?? {}) as { number?: unknown; day_id?: unknown; name?: unknown };
     const to = typeof body.number === "string" ? toE164(body.number) : null;
     if (!to) return reply.code(400).send({ ok: false, error: "invalid_number", message_he: "מספר טלפון לא תקין" });
-    if (!deps.whatsapp || !deps.settings?.whatsapp) {
+    if (!deps.whatsapp?.live || !deps.settings?.whatsapp) {
       return reply.code(409).send({ ok: false, error: "no_whatsapp", message_he: "וואטסאפ לא מוגדר בשרת (TEXTER_PROJECT + TEXTER_API_TOKEN ב-Render)" });
     }
     const days = [...(deps.knowledge?.()?.days.values() ?? [])].filter((d) => d.purchase_url).sort((a, b) => a.date.localeCompare(b.date));

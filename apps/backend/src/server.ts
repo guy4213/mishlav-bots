@@ -21,7 +21,6 @@ import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
 import { type LogStore, pinoText, ServerLog, tapConsole } from "./serverlog";
 import { SessionStore } from "./sessions";
-import { type SmsSender, smsSenderFromEnv } from "./sms";
 import { type WhatsAppSender, whatsappSenderFromEnv } from "./whatsapp";
 import { LiveKnowledge, type StudyDayStore } from "./study-days";
 import { publicUser, type UserStore, Users } from "./users";
@@ -46,10 +45,8 @@ export interface BuildOptions {
    * run: start its loop when the server is ready (main.ts only; tests drive it through the routes).
    */
   dialer?: { store: DialerStore; run?: boolean };
-  /** The purchase-link SMS. Default: from the env (ZADARMA_API_KEY + ZADARMA_API_SECRET), else log only. */
-  sms?: SmsSender;
-  /** the purchase link on WhatsApp (tests); null = none. Default: Texter from the environment, if configured */
-  whatsapp?: WhatsAppSender | null;
+  /** the purchase link - only by WhatsApp (tests pass a fake). Default: Texter from the environment, else log only */
+  whatsapp?: WhatsAppSender;
   /** Where the dashboard's log is kept, so a deploy doesn't wipe it (main.ts: Supabase server_logs). */
   logStore?: LogStore;
   /**
@@ -248,22 +245,13 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     app.addHook("onReady", async () => dialer.run());
     app.addHook("onClose", async () => dialer.shutdown()); // the loop only: the switch in the database stays
   }
-  const sms =
-    opts.sms ??
-    smsSenderFromEnv(env, (text) => {
-      serverLog.push("sms", `[sms] ${text}`); // numbers are masked by the sender
-      app.log.info(`[sms] ${text}`);
-    });
-  // WhatsApp (Texter) replaces the SMS for the purchase link once TEXTER_PROJECT + TEXTER_API_TOKEN are set
+  // the purchase link: only by WhatsApp (Texter, with TEXTER_PROJECT + TEXTER_API_TOKEN); never by SMS (Mishlav)
   const whatsapp =
-    opts.whatsapp !== undefined
-      ? opts.whatsapp
-      : config.settings.whatsapp
-        ? whatsappSenderFromEnv(env, config.settings.whatsapp, (text) => {
-            serverLog.push("sms", `[whatsapp] ${text}`); // numbers are masked by the sender
-            app.log.info(`[whatsapp] ${text}`);
-          })
-        : null;
+    opts.whatsapp ??
+    whatsappSenderFromEnv(env, config.settings.whatsapp, (text) => {
+      serverLog.push("whatsapp", `[whatsapp] ${text}`); // numbers are masked by the sender
+      app.log.info(`[whatsapp] ${text}`);
+    });
   await registerToolRoutes(app, {
     knowledge,
     settings: config.settings,
@@ -272,7 +260,6 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     sessions,
     contacts,
     phone,
-    sms,
     whatsapp,
     onToolCall: (callId, tool, ok, error) => serverLog.push(ok ? "tool" : "error", `🔧 ${tool} ${ok ? "✓" : `✗ ${error ?? ""}`}`, callId),
   });
@@ -300,7 +287,6 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     transcriptsDir,
     settings: config.settings,
     env,
-    sms,
     whatsapp,
     knowledge: () => knowledge,
     now,

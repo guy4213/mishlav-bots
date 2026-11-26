@@ -143,7 +143,7 @@ export class PhoneLine extends EventEmitter {
     this.registered = false;
   }
 
-  /** The number of the call on the line now, if it is `callId` (the purchase-link SMS of a scenario call). */
+  /** The number of the call on the line now, if it is `callId` (the purchase-link WhatsApp of a scenario call). */
   numberFor(callId) {
     return this.call && this.call.id === callId ? this.call.number : null;
   }

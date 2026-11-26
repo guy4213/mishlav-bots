@@ -226,7 +226,7 @@ export class Dialer {
     this.next = due;
 
     // Which phone, and was it called already: the phone at phone_index or the next valid one (a placeholder like
-    // 050-0000000 or an empty phone 1 moves on to phone 2/3, kept in bot_state so the SMS and the reps follow it);
+    // 050-0000000 or an empty phone 1 moves on to phone 2/3, kept in bot_state so the WhatsApp link and the reps follow it);
     // a number already called on another contact (the same person twice in Gold) is not called again.
     try {
       const c = await store.get(due.gold_record_id);

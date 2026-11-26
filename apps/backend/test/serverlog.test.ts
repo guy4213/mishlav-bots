@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../src/server";
 import { type LogStore, pinoText, ServerLog, type StoredLogLine, tapConsole } from "../src/serverlog";
-import { AUTH, testConfig } from "./helpers";
+import { AUTH, FIXED_NOW, testConfig } from "./helpers";
+import type { LinkTemplateValues, WhatsAppSender } from "../src/whatsapp";
 
 class FakeStore implements LogStore {
   saved: StoredLogLine[] = [];
@@ -108,38 +109,42 @@ describe("the dashboard's log, kept", () => {
   });
 });
 
-describe("test SMS from the dashboard", () => {
-  const sender = (result: { ok: boolean; error?: string }) => {
-    const sent: [string | null, string][] = [];
-    return {
-      sent,
-      sms: {
-        provider: "zadarma",
-        live: true,
-        send: async (to: string | null, text: string) => {
-          sent.push([to, text]);
-          return result.ok ? { ok: true as const, provider: "zadarma", sent: true } : { ok: false as const, provider: "zadarma", error: result.error ?? "x" };
-        },
+describe("test WhatsApp from the dashboard (the purchase link goes only by WhatsApp)", () => {
+  const sender = (result: { ok: boolean; error?: string }, live = true) => {
+    const sent: [string, LinkTemplateValues][] = [];
+    const whatsapp: WhatsAppSender = {
+      provider: live ? "texter" : "log",
+      live,
+      sendLink: async (to, values) => {
+        sent.push([to, values]);
+        return result.ok ? { ok: true, provider: "texter", sent: true } : { ok: false, provider: "texter", error: result.error ?? "x" };
       },
     };
+    return { sent, whatsapp };
   };
 
-  it("sends a fixed test text to the number, in international format", async () => {
+  it("sends the template with the closest day that has a link, to the number in international format", async () => {
     const s = sender({ ok: true });
-    const app = await buildServer(testConfig(), { logger: false, sms: s.sms });
-    const r = await app.inject({ method: "POST", url: "/api/admin/sms/test", headers: AUTH, payload: { number: "053-4271418" } });
-    expect(r.json()).toEqual({ ok: true, provider: "zadarma", sent: true });
-    expect(s.sent).toEqual([["+972534271418", "משלב: הודעת בדיקה מהבוט. אין צורך להשיב."]]);
+    const config = testConfig();
+    config.settings.whatsapp.url_prefix = "https://example.com/mishlav/purchase/"; // the test days' links
+    const app = await buildServer(config, { logger: false, whatsapp: s.whatsapp, now: () => FIXED_NOW });
+    const r = await app.inject({ method: "POST", url: "/api/admin/whatsapp/test", headers: AUTH, payload: { number: "053-4271418" } });
+    expect(r.json()).toMatchObject({ ok: true, provider: "texter" });
+    expect(s.sent[0]![0]).toBe("+972534271418");
+    expect(s.sent[0]![1].body).toHaveLength(3);
   });
 
-  it("a refusal from the provider comes back with its reason; a bad number is refused before sending", async () => {
-    const s = sender({ ok: false, error: "insufficient balance" });
-    const app = await buildServer(testConfig(), { logger: false, sms: s.sms });
-    const r = await app.inject({ method: "POST", url: "/api/admin/sms/test", headers: AUTH, payload: { number: "053-4271418" } });
+  it("a refusal comes back with its reason; a bad number is refused; without Texter: not configured", async () => {
+    const s = sender({ ok: false, error: "Recipient unsubscribed" });
+    const config = testConfig();
+    config.settings.whatsapp.url_prefix = "https://example.com/mishlav/purchase/";
+    const app = await buildServer(config, { logger: false, whatsapp: s.whatsapp, now: () => FIXED_NOW });
+    const r = await app.inject({ method: "POST", url: "/api/admin/whatsapp/test", headers: AUTH, payload: { number: "053-4271418" } });
     expect(r.statusCode).toBe(502);
-    expect(r.json().message_he).toBe("insufficient balance");
-    const bad = await app.inject({ method: "POST", url: "/api/admin/sms/test", headers: AUTH, payload: { number: "abc" } });
+    expect(r.json().message_he).toBe("Recipient unsubscribed");
+    const bad = await app.inject({ method: "POST", url: "/api/admin/whatsapp/test", headers: AUTH, payload: { number: "abc" } });
     expect(bad.statusCode).toBe(400);
-    expect(s.sent).toHaveLength(1);
+    const off = await buildServer(config, { logger: false, whatsapp: sender({ ok: true }, false).whatsapp });
+    expect((await off.inject({ method: "POST", url: "/api/admin/whatsapp/test", headers: AUTH, payload: { number: "053-4271418" } })).statusCode).toBe(409);
   });
 });
