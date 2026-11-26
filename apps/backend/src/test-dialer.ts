@@ -108,6 +108,11 @@ export class TestDialer {
     return this.deps.store.testContacts();
   }
 
+  /** Is `callId` the test's call on the line now? (its callbacks may be at any hour) */
+  isCurrentCall(callId: string | null | undefined): boolean {
+    return !!callId && this.dialer.status().current_call?.call_id === callId;
+  }
+
   run() {
     this.dialer.run();
   }
