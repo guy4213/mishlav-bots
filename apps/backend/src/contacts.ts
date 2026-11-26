@@ -122,6 +122,13 @@ export interface DialerStore {
   nextScheduled(now: Date, courses?: string[]): Promise<QueuedContact | null>;
   /** No valid phone: out of the queue as a wrong number. Returns the contact's status after it. */
   markNoPhone(goldRecordId: string): Promise<string | null>;
+  /** The phone at phone_index is no good: dial phone `index` from now on (a note in Gold says so). */
+  usePhone(goldRecordId: string, index: number): Promise<void>;
+  /**
+   * One call per number: `number` (+972...) was already called on another contact -> this one is closed as
+   * 'duplicate' (a note in Gold) and that contact's id is returned; null: not called before, dial it.
+   */
+  markDuplicate(goldRecordId: string, number: string): Promise<string | null>;
   /** How many calls of this origin started since `since`. */
   callsSince(since: Date, origin: CallOrigin): Promise<number>;
 }
@@ -209,9 +216,34 @@ export interface DashboardSummary {
   funnel: { new: number; in_queue: number; handled: number; closed: number };
   by_status: Record<string, number>;
   contacts_total: number;
+  /** waiting for a call (new / queued / callback) in the courses the dialer calls */
+  dialable_total?: number;
   due_now: number;
   open_rep_tasks: number;
   next_due: { gold_record_id: string; full_name: string | null; bot_status: string; next_call_at: string | null }[];
+}
+
+/** The contacts screen's "כל הלקוחות": a search, a bot status, a page (from 1) of `size` rows. */
+export interface ContactsQuery {
+  q?: string;
+  status?: string;
+  page: number;
+  size: number;
+}
+
+/** The calls screen: which calls (origin null = both; recorded = only with a recording), a page (from 1) of `size`. */
+export interface CallsQuery {
+  origin: CallOrigin | null;
+  recorded?: boolean;
+  page: number;
+  size: number;
+}
+
+/** The rep tasks screen: open ones only (or the done ones too), a page (from 1) of `size`. */
+export interface RepTasksQuery {
+  openOnly: boolean;
+  page: number;
+  size: number;
 }
 
 /** What the management dashboard reads (routes/admin.ts), besides the contacts list. */
@@ -220,27 +252,65 @@ export interface AdminStore {
   recordingUrl?(callId: string): Promise<string | null>;
   /** deletes recordings of calls before `before`; returns how many */
   pruneRecordings?(before: Date): Promise<number>;
-  /** dayStart: midnight in the business time zone */
-  summary(dayStart: Date): Promise<DashboardSummary>;
+  /** dayStart: midnight in the business time zone; courses: the ones the dialer calls (the queue counts only those) */
+  summary(dayStart: Date, courses?: string[]): Promise<DashboardSummary>;
+  // The three below return the table's columns only (LIST_FIELDS): Gold's notes, addresses etc. are left out.
+  /** A page of contacts by name: the search (searchFilter) and the bot's status, with the total that match. */
+  contactsPage(query: ContactsQuery): Promise<{ contacts: ContactRecord[]; total: number }>;
+  /** What the bot did last: the call in progress first, then by its last call or change, newest first. */
+  recentContacts(limit: number): Promise<ContactRecord[]>;
+  /** The next contacts the dialer will call, in its order (bot_queue); due: their time has come. */
+  queue(now: Date, courses: string[], limit: number): Promise<(ContactRecord & { due: boolean })[]>;
   /** the contact's calls, newest first */
   contactCalls(goldRecordId: string): Promise<CallRow[]>;
   /** all the contact's rep tasks (done ones too), newest first */
   contactRepTasks(goldRecordId: string): Promise<RepTask[]>;
-  /** calls newest first; origin null = both */
-  calls(limit: number, origin: CallOrigin | null): Promise<CallRow[]>;
+  /** a page of calls, newest first; origin null = both; recorded: only those with a recording */
+  calls(query: CallsQuery): Promise<{ calls: CallRow[]; total: number }>;
   call(callId: string): Promise<(CallRow & { transcript: TranscriptLine[] | null }) | null>;
-  /** open tasks (or all), by callback time (as soon as possible first) */
-  repTasks(openOnly: boolean): Promise<RepTaskRow[]>;
+  /** a page of open tasks (or all) by callback time (as soon as possible first); total: all that match */
+  repTasks(query: RepTasksQuery): Promise<{ tasks: RepTaskRow[]; total: number }>;
   /** marks a task done; null when there is no such task */
   repTaskDone(id: string): Promise<RepTask | null>;
 }
 
-/** Israeli number as dialed: 053-4271418 / 053 4271418 / 0534271418 / +972-53-... -> +972534271418. */
+/**
+ * Israeli number as dialed: 053-4271418 / 053 4271418 / 0534271418 / +972-53-... -> +972534271418.
+ * A mobile (05x) or VoIP (07x) number has 9 digits after the 0, a landline (02/03/04/08/09) 8: Gold has
+ * "05-4344607" (a digit missing) and "025-2281098" (one too many), which no line can reach.
+ */
 export function toE164(phone: string | null | undefined): string | null {
   let digits = (phone ?? "").replace(/\D/g, "");
   if (digits.startsWith("972")) digits = digits.slice(3);
   digits = digits.replace(/^0+/, "");
-  return digits.length >= 8 && digits.length <= 9 ? `+972${digits}` : null;
+  return /^[57]\d{8}$/.test(digits) || /^[23489]\d{7}$/.test(digits) ? `+972${digits}` : null;
+}
+
+/**
+ * A number typed into Gold for want of a real one: the 7 digits after the area code all the same (050-0000000,
+ * 03-5555555) or 1234567. Only a contact's phones are checked (pickPhone); test numbers typed in the dashboard are not.
+ */
+export function isPlaceholderPhone(e164: string): boolean {
+  const local = e164.slice(-7);
+  return /^(\d)\1{6}$/.test(local) || local === "1234567";
+}
+
+/** The contact's phone at phone_index (1 = phone, 2 = phone2, 3 = phone3), as +972...; null: empty, invalid or a placeholder. */
+function phoneAt(c: Contact, index: number): string | null {
+  const n = toE164([c.phone, c.phone2, c.phone3][index - 1]);
+  return n && !isPlaceholderPhone(n) ? n : null;
+}
+
+/**
+ * The phone the dialer should use: the one at phone_index, or else the next valid one after it (phone2, phone3).
+ * Never goes back: a phone the customer said was wrong stays behind. null: none left to dial.
+ */
+export function pickPhone(c: ContactRecord): { index: number; number: string } | null {
+  for (let index = c.bot_state?.phone_index ?? 1; index <= 3; index++) {
+    const number = phoneAt(c, index);
+    if (number) return { index, number };
+  }
+  return null;
 }
 
 /** The name the bot calls the customer by: the first word of Gold's full name. */
@@ -248,10 +318,9 @@ export function firstName(fullName: string | null | undefined): string | null {
   return fullName?.trim().split(/\s+/)[0] || null;
 }
 
-/** The phone the bot dials now (bot_state.phone_index), normalised; null when that phone is empty or invalid. */
+/** The phone the bot dials now (bot_state.phone_index), normalised; null when that phone is empty, invalid or a placeholder. */
 export function dialNumber(c: ContactRecord): string | null {
-  const phones = [c.phone, c.phone2, c.phone3];
-  return toE164(phones[(c.bot_state?.phone_index ?? 1) - 1]);
+  return phoneAt(c, c.bot_state?.phone_index ?? 1);
 }
 
 /**
@@ -268,6 +337,27 @@ export function toGoldRecord(c: Contact, gi: Settings["gold_import"]): Record<st
 const GOLD_FIELDS =
   "gold_record_id,national_id,company,full_name,email,phone,phone2,phone3,notes,city,address,address2,department,requested_course,source,status";
 const FIELDS = `${GOLD_FIELDS},bot_state(*),rep_tasks(reason,callback_at,done,created_at)`;
+/**
+ * The contacts screen's rows: only what the table shows (no notes, addresses...) - a quarter of the bytes, read by
+ * every open dashboard on each change (Supabase's free plan counts the traffic). A contact opens with all of it.
+ */
+const LIST_GOLD = "gold_record_id,full_name,phone,status,requested_course";
+const LIST_STATE = "bot_status,attempts,no_answer_streak,last_call_at,last_outcome,next_call_at,callback_at,phone_index";
+const LIST_FIELDS = `${LIST_GOLD},bot_state(${LIST_STATE}),rep_tasks(done)`;
+
+/**
+ * The contacts screen's search as a PostgREST or=(...) filter: the text in the name, record id, email, company,
+ * city or course; with 4+ digits also in the phones - by the last 7 digits, so 0526268866 finds "052-6268866".
+ */
+export function searchFilter(q: string): string {
+  const quote = (v: string) => `"*${v.replace(/["\\]/g, "\\$&")}*"`;
+  const text = ["full_name", "gold_record_id", "email", "company", "city", "requested_course", "phone", "phone2", "phone3"].map(
+    (c) => `${c}.ilike.${quote(q)}`,
+  );
+  const digits = q.replace(/\D/g, "");
+  const phones = digits.length >= 4 ? ["phone", "phone2", "phone3"].map((c) => `${c}.ilike.${quote(digits.slice(-7))}`) : [];
+  return `(${[...text, ...phones].join(",")})`;
+}
 
 /** PostgREST embeds a one-to-one relation as an object; be safe if it ever comes as a list. */
 function normalise(c: ContactRecord): ContactRecord {
@@ -344,6 +434,68 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
   async list() {
     const rows = await this.req<ContactRecord[]>("GET", `/contacts?select=${FIELDS}&order=gold_record_id.asc&limit=500`);
     return rows.map(normalise);
+  }
+
+  // ---- the dashboard's contacts screen: 5,000+ contacts, so the database searches, filters and pages
+
+  async contactsPage({ q, status, page, size }: ContactsQuery) {
+    const filters = [
+      ...(status ? [`bot_state.bot_status=eq.${encodeURIComponent(status)}`] : []),
+      ...(q ? [`or=${encodeURIComponent(searchFilter(q))}`] : []),
+    ];
+    const select = `${LIST_GOLD},bot_state!inner(${LIST_STATE}),rep_tasks(done)`;
+    const path = `/contacts?select=${select}${filters.map((f) => `&${f}`).join("")}&order=full_name.asc.nullslast,gold_record_id.asc&limit=${size}&offset=${(page - 1) * size}`;
+    const { rows, total } = await this.reqCounted<ContactRecord[]>(path);
+    return { contacts: rows.map(normalise), total };
+  }
+
+  async recentContacts(limit: number) {
+    // what the bot did last: a call (last_call_at) or a change without one (a duplicate, no phone: gold_changed_at)
+    const [called, changed] = await Promise.all(
+      ["last_call_at", "gold_changed_at"].map((col) =>
+        this.req<{ gold_record_id: string; bot_status: string; last_call_at: string | null; gold_changed_at: string | null }[]>(
+          "GET",
+          `/bot_state?select=gold_record_id,bot_status,last_call_at,gold_changed_at&${col}=not.is.null&order=${col}.desc&limit=${limit}`,
+        ),
+      ),
+    );
+    const at = (s: { bot_status: string; last_call_at: string | null; gold_changed_at: string | null }) =>
+      s.bot_status === "in_call" ? "9999" : [s.last_call_at ?? "", s.gold_changed_at ?? ""].sort().at(-1)!;
+    const byId = new Map([...called!, ...changed!].map((s) => [s.gold_record_id, at(s)]));
+    const ids = [...byId.entries()].sort((a, b) => b[1].localeCompare(a[1])).slice(0, limit).map(([id]) => id);
+    return this.contactsInOrder(ids);
+  }
+
+  async queue(now: Date, courses: string[], limit: number) {
+    const rows = await this.req<{ gold_record_id: string; due: boolean }[]>("POST", "/rpc/bot_queue", {
+      p_now: now.toISOString(),
+      p_courses: courses.length ? courses : null,
+      p_limit: limit,
+    });
+    const due = new Map(rows.map((r) => [r.gold_record_id, r.due]));
+    return (await this.contactsInOrder(rows.map((r) => r.gold_record_id))).map((c) => ({ ...c, due: due.get(c.gold_record_id) ?? false }));
+  }
+
+  /** These contacts, in this order (missing ones left out). */
+  private async contactsInOrder(ids: string[]): Promise<ContactRecord[]> {
+    if (!ids.length) return [];
+    const list = ids.map((id) => `"${id.replace(/["\\]/g, "\\$&")}"`).join(",");
+    const rows = await this.req<ContactRecord[]>("GET", `/contacts?select=${LIST_FIELDS}&gold_record_id=in.(${encodeURIComponent(list)})`);
+    const byId = new Map(rows.map((c) => [c.gold_record_id, normalise(c)]));
+    return ids.map((id) => byId.get(id)).filter((c): c is ContactRecord => !!c);
+  }
+
+  /** A GET with the total row count (PostgREST's Content-Range "0-49/5298"). */
+  private async reqCounted<T>(path: string): Promise<{ rows: T; total: number }> {
+    const res = await this.fetchImpl(this.base + path, {
+      method: "GET",
+      headers: { apikey: this.serviceKey, authorization: `Bearer ${this.serviceKey}`, accept: "application/json", prefer: "count=exact" },
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    const text = await res.text();
+    if (!res.ok) throw Object.assign(new Error(`Supabase GET ${path.split("?")[0]}: HTTP ${res.status} ${text.slice(0, 200)}`), { status: res.status });
+    const total = Number(res.headers.get("content-range")?.split("/")[1]);
+    return { rows: JSON.parse(text) as T, total: Number.isFinite(total) ? total : 0 };
   }
 
   async get(goldRecordId: string) {
@@ -453,8 +605,11 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
   }
 
   // ---- the management dashboard (AdminStore)
-  summary(dayStart: Date) {
-    return this.req<DashboardSummary>("POST", "/rpc/dashboard_summary", { p_day_start: dayStart.toISOString() });
+  summary(dayStart: Date, courses: string[] = []) {
+    return this.req<DashboardSummary>("POST", "/rpc/dashboard_summary", {
+      p_day_start: dayStart.toISOString(),
+      p_courses: courses.length ? courses : null,
+    });
   }
 
   async contactCalls(goldRecordId: string) {
@@ -472,12 +627,12 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     );
   }
 
-  async calls(limit: number, origin: CallOrigin | null) {
-    const rows = await this.req<Parameters<typeof callRow>[0][]>(
-      "GET",
-      `/calls?select=${CALL_FIELDS},contacts(full_name)${origin ? `&origin=eq.${origin}` : ""}&order=started_at.desc&limit=${limit}`,
+  async calls({ origin, recorded, page, size }: CallsQuery) {
+    const { rows, total } = await this.reqCounted<Parameters<typeof callRow>[0][]>(
+      `/calls?select=${CALL_FIELDS},contacts(full_name)${origin ? `&origin=eq.${origin}` : ""}${recorded ? "&recording_path=not.is.null" : ""}` +
+        `&order=started_at.desc&limit=${size}&offset=${(page - 1) * size}`,
     );
-    return rows.map(callRow);
+    return { calls: rows.map(callRow), total };
   }
 
   async call(callId: string) {
@@ -488,21 +643,23 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     return rows[0] ? { ...callRow(rows[0]), transcript: rows[0].transcript ?? null } : null;
   }
 
-  async repTasks(openOnly: boolean) {
+  async repTasks({ openOnly, page, size }: RepTasksQuery) {
     type Row = RepTask & {
       contacts: Embedded<Pick<Contact, "full_name" | "phone" | "phone2" | "phone3"> & { bot_state: Embedded<{ phone_index: number }> }>;
     };
-    const rows = await this.req<Row[]>(
-      "GET",
+    // open ones by when to call (as soon as possible first); with the done ones, the newest first
+    const order = openOnly ? "callback_at.asc.nullsfirst,created_at.asc" : "done.asc,callback_at.asc.nullsfirst,created_at.desc";
+    const { rows, total } = await this.reqCounted<Row[]>(
       `/rep_tasks?select=${TASK_FIELDS},contacts(full_name,phone,phone2,phone3,bot_state(phone_index))` +
-        `${openOnly ? "&done=eq.false" : ""}&order=callback_at.asc.nullsfirst,created_at.asc&limit=500`,
+        `${openOnly ? "&done=eq.false" : ""}&order=${order}&limit=${size}&offset=${(page - 1) * size}`,
     );
-    return rows.map(({ contacts, ...task }) => {
+    const tasks = rows.map(({ contacts, ...task }) => {
       const c = one(contacts);
       const phones = [c?.phone, c?.phone2, c?.phone3];
       const used = phones[(one(c?.bot_state)?.phone_index ?? 1) - 1] ?? null;
       return { ...task, full_name: c?.full_name ?? null, phone: used || c?.phone || null };
     });
+    return { tasks, total };
   }
 
   async repTaskDone(id: string) {
@@ -624,6 +781,14 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     return this.req<string | null>("POST", "/rpc/bot_mark_no_phone", { p_gold_record_id: goldRecordId });
   }
 
+  async usePhone(goldRecordId: string, index: number) {
+    await this.req("POST", "/rpc/bot_use_phone", { p_gold_record_id: goldRecordId, p_phone_index: index });
+  }
+
+  markDuplicate(goldRecordId: string, number: string) {
+    return this.req<string | null>("POST", "/rpc/bot_mark_duplicate", { p_gold_record_id: goldRecordId, p_number: number });
+  }
+
   async callsSince(since: Date, origin: CallOrigin) {
     const rows = await this.req<unknown[]>(
       "GET",
@@ -642,6 +807,8 @@ export class ContactEvents {
   constructor(
     readonly store: ContactStore,
     private readonly onError: (callId: string, what: string, err: Error) => void,
+    /** an update went through (the dashboard's push channel, changes.ts); `what` as given to run() */
+    private readonly onChange: (what: string) => void = () => {},
   ) {}
 
   /** Queues `fn` after the call's earlier updates. Resolves when it ran (for tests and the call's end). */
@@ -650,7 +817,7 @@ export class ContactEvents {
     const next = prev
       .then(() => fn(this.store))
       .then(
-        () => undefined,
+        () => this.onChange(what),
         (err: Error) => this.onError(callId, what, err),
       );
     this.chains.set(callId, next);

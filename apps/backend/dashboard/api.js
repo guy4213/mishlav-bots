@@ -44,13 +44,18 @@ export function setSecret(value) {
 
 export class AuthError extends Error {}
 
+/** Who is asking: the secret (us) and "view as Mishlav", as every request sends them (the push channel too). */
+export const authHeaders = () => ({
+  ...(secret ? { "x-tools-secret": secret } : {}),
+  ...(viewAs ? { "x-view-as": "mishlav" } : {}),
+});
+
 export async function api(method, path, body) {
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
     headers: {
-      ...(secret ? { "x-tools-secret": secret } : {}),
-      ...(viewAs ? { "x-view-as": "mishlav" } : {}),
+      ...authHeaders(),
       ...(body ? { "content-type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,

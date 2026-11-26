@@ -5,13 +5,15 @@
  * dashboard it stays on until someone stops it. Stopping means no new calls; a call in progress ends normally.
  *
  * Every tick (settings.yaml dialing.tick_s), in order: on in the database -> within business hours -> the line is
- * registered and free -> the next due contact (bot_next_due: callbacks, retries, new) -> no valid phone: marked
- * wrong_number, next -> not in DIALER_ONLY_NUMBERS (when set): skipped for this run, next -> dial, wait for the
+ * registered and free -> the next due contact (bot_next_due: callbacks, retries, new) -> its phone (pickPhone: an
+ * empty, invalid or placeholder phone moves on to phone 2/3); none: marked wrong_number, next -> its number already
+ * called on another contact: closed as duplicate, next -> not in DIALER_ONLY_NUMBERS (when set): skipped for this
+ * run, next -> dial, wait for the
  * call to end, pause (pause_between_calls_s). A system failure (Supabase down, the line or the bot failing to
  * start a call) waits a minute; three in a row turn the dialer off in the database, with the reason.
  */
 import { fromLocal, isWithinBusinessHours, type Settings, toLocalParts } from "@mishlav/shared";
-import { type ContactEvents, type DialerControl, type DialerStore, type QueuedContact, toE164 } from "./contacts";
+import { type ContactEvents, type DialerControl, type DialerStore, pickPhone, type QueuedContact, toE164 } from "./contacts";
 import { dialContact } from "./dial";
 import type { PhoneHolder } from "./routes/phone";
 
@@ -53,6 +55,8 @@ export interface DialerDeps {
   log?: (text: string, kind?: "error") => void;
   /** logs/transcripts: each call's transcript is stored in Supabase at its end */
   transcriptsDir?: string;
+  /** it changed a contact without a call (no phone, another phone, a duplicate): the dashboard's push channel */
+  onChange?: () => void;
 }
 
 export const FAILURE_WAIT_MS = 60_000;
@@ -221,6 +225,31 @@ export class Dialer {
     }
     this.next = due;
 
+    // Which phone, and was it called already: the phone at phone_index or the next valid one (a placeholder like
+    // 050-0000000 or an empty phone 1 moves on to phone 2/3, kept in bot_state so the SMS and the reps follow it);
+    // a number already called on another contact (the same person twice in Gold) is not called again.
+    try {
+      const c = await store.get(due.gold_record_id);
+      if (c) {
+        const phone = pickPhone(c);
+        if (!phone) return await this.noPhone(due.gold_record_id);
+        if (phone.index !== (c.bot_state?.phone_index ?? 1)) {
+          await store.usePhone(due.gold_record_id, phone.index);
+          this.deps.onChange?.();
+          this.log(`${due.gold_record_id}: phone ${c.bot_state?.phone_index ?? 1} is no good -> phone ${phone.index}`);
+        }
+        const other = await store.markDuplicate(due.gold_record_id, phone.number);
+        if (other) {
+          this.deps.onChange?.();
+          this.log(`${due.gold_record_id}: its number was already called on ${other} -> duplicate, not called`);
+          this.skipped.add(due.gold_record_id);
+          return 0;
+        }
+      }
+    } catch (err) {
+      return this.failure(err as Error);
+    }
+
     const only = this.deps.onlyNumbers;
     const r = await dialContact({ contacts: this.deps.events, settings, line, transcriptsDir: this.deps.transcriptsDir }, due.gold_record_id, {
       origin: "dialer",
@@ -229,14 +258,7 @@ export class Dialer {
     if (!r.ok) {
       switch (r.error) {
         case "no_phone":
-          try {
-            const status = await store.markNoPhone(due.gold_record_id);
-            this.log(`${due.gold_record_id}: no valid phone -> ${status}`);
-          } catch (err) {
-            return this.failure(err as Error);
-          }
-          this.skipped.add(due.gold_record_id); // already out of the queue; never asked for again in this run
-          return 0;
+          return this.noPhone(due.gold_record_id);
         case "not_allowed":
         case "do_not_call":
         case "unknown_contact":
@@ -260,6 +282,19 @@ export class Dialer {
     this.state = this.control.enabled ? "running" : "stopped";
     this.countedDay = null; // count again from the database
     return settings.dialing.pause_between_calls_s * 1000;
+  }
+
+  /** No phone left to dial: out of the queue as a wrong number (a note in Gold); on to the next contact. */
+  private async noPhone(goldRecordId: string): Promise<number> {
+    try {
+      const status = await this.deps.store.markNoPhone(goldRecordId);
+      this.deps.onChange?.();
+      this.log(`${goldRecordId}: no valid phone -> ${status}`);
+    } catch (err) {
+      return this.failure(err as Error);
+    }
+    this.skipped.add(goldRecordId); // already out of the queue; never asked for again in this run
+    return 0;
   }
 
   /** A system failure: wait a minute; the third in a row turns the dialer off in the database. */

@@ -1,35 +1,54 @@
-// לקוחות: the contacts table (search + filter); a contact opens with its Gold fields, the bot's state, its calls
-// and its rep tasks, and a test-dial button.
+// לקוחות: three views - the bot's activity (the call in progress first), the dialer's next ones, and all contacts
+// (searched and paged by the server); they re-read when the server says a contact changed (live.js). A contact
+// opens with its Gold fields, the bot's state, its calls and its rep tasks, and a test-dial button.
 import { isAdmin, get, post } from "../api.js";
 import {
   chip, CONTACT_STATUS_HE, confirmDialog, emptyState, errorState, esc, every, fmtDateTime, fmtRel, GENDER_HE, GOLD_FIELDS, icon,
-  loadingState, notesHtml, openDrawer, originChip, outcomeChip, outcomeLabel, PHONE_COL, phoneLink, REP_REASON_HE, statusChip,
+  loadingState, notesHtml, openDrawer, originChip, outcomeChip, outcomeLabel, pager, PHONE_COL, phoneLink, REP_REASON_HE, statusChip,
   toast, fmtDuration,
 } from "../ui.js";
+import { onContactsChanged } from "../live.js";
 import { openCall } from "./calls.js";
 
 let stopPoll = null;
 
 const nextCall = (b) => b?.callback_at ?? b?.next_call_at ?? null;
-const matches = (c, q) =>
-  !q || [c.full_name, c.phone, c.phone2, c.phone3, c.gold_record_id, c.requested_course, c.city, c.email].some((v) => String(v ?? "").toLowerCase().includes(q));
 
-function rows(list) {
-  if (!list.length) return emptyState("אין לקוחות שמתאימים לחיפוש", "", "search");
+// The three views (GET /api/admin/contacts?view=): what the bot does now and did last, who it calls next (the
+// dialer's order and courses), and everyone - searched and paged by the server (5,000+ contacts).
+const VIEWS = [
+  ["activity", "פעילות הבוט"],
+  ["queue", "הבאים בתור"],
+  ["all", "כל הלקוחות"],
+];
+const EMPTY = {
+  activity: ["הבוט עוד לא התקשר לאף אחד", "כשהחיוג האוטומטי יתחיל, מי שבשיחה יופיע כאן למעלה, ואחריו מי שהבוט התקשר אליו לאחרונה."],
+  queue: ["אין אף אחד בתור", "אין לקוחות חדשים, בהמתנה או לשיחה חוזרת בקורסים שהחייגן מתקשר אליהם."],
+  all: ["אין לקוחות שמתאימים לחיפוש", ""],
+};
+const VIEW_KEY = "mishlav_contacts_view";
+
+function rows(list, view) {
+  if (!list.length) return emptyState(...EMPTY[view], view === "all" ? "search" : "users");
+  const queue = view === "queue";
   return `<div class="table-wrap"><table class="data"><thead><tr>
-      <th>שם</th><th>סטטוס בגולד</th><th>מצב הבוט</th><th>ניסיונות</th><th>שיחה אחרונה</th><th>החיוג הבא</th>
+      ${queue ? "<th>#</th>" : ""}<th>שם</th><th>סטטוס בגולד</th><th>מצב הבוט</th><th>ניסיונות</th><th>שיחה אחרונה</th><th>החיוג הבא</th>
     </tr></thead><tbody>${list
-      .map((c) => {
+      .map((c, i) => {
         const b = c.bot_state ?? {};
         const next = nextCall(b);
         const open = (c.rep_tasks ?? []).filter((t) => !t.done).length;
+        const nextCell = next
+          ? `<div>${esc(fmtDateTime(next))}</div><div class="cell-sub">${esc(fmtRel(next))}${b.callback_at ? " · ביקש" : ""}</div>`
+          : queue && c.due ? `<span>עכשיו בתור</span>` : `<span class="faint">—</span>`;
         return `<tr class="click" data-id="${esc(c.gold_record_id)}">
+          ${queue ? `<td class="num faint">${i + 1}</td>` : ""}
           <td><div class="cell-main">${esc(c.full_name ?? "—")}</div><div class="cell-sub ltr">${esc(c.phone ?? "")}</div></td>
           <td>${c.status ? esc(c.status) : `<span class="faint">—</span>`}</td>
           <td>${statusChip(b.bot_status ?? "new")}${open ? ` ${chip(`${open} לנציג`, "warning")}` : ""}</td>
           <td class="num nowrap">${b.attempts ?? 0}${b.no_answer_streak ? ` <span class="cell-sub">· ${b.no_answer_streak} ברצף</span>` : ""}</td>
           <td class="nowrap">${b.last_call_at ? `<div>${esc(fmtDateTime(b.last_call_at))}</div><div class="cell-sub">${esc(b.last_outcome ? outcomeLabel(b.last_outcome) : "")}</div>` : `<span class="faint">—</span>`}</td>
-          <td class="nowrap">${next ? `<div>${esc(fmtDateTime(next))}</div><div class="cell-sub">${esc(fmtRel(next))}${b.callback_at ? " · ביקש" : ""}</div>` : `<span class="faint">—</span>`}</td>
+          <td class="nowrap">${nextCell}</td>
         </tr>`;
       })
       .join("")}</tbody></table></div>`;
@@ -40,37 +59,74 @@ export default {
   title: "לקוחות",
   icon: "users",
   mount(root) {
-    let all = [];
+    let view = "activity";
+    try { view = VIEWS.some(([v]) => v === sessionStorage.getItem(VIEW_KEY)) ? sessionStorage.getItem(VIEW_KEY) : "activity"; } catch {}
+    let page = 1;
+    let seq = 0; // the latest request: an older answer that arrives after it is dropped
     root.innerHTML = `
       <div class="toolbar">
-        <label class="search">${icon("search")}<input type="search" id="cSearch" placeholder="חיפוש לפי שם, טלפון, קורס, עיר…"></label>
+        <div class="seg" id="cView">${VIEWS.map(([v, l]) => `<button data-v="${v}">${esc(l)}</button>`).join("")}</div>
+        <label class="search" id="cSearchWrap">${icon("search")}<input type="search" id="cSearch" placeholder="חיפוש לפי שם, טלפון, קורס, עיר…"></label>
         <select id="cStatus"><option value="">כל המצבים</option>${Object.entries(CONTACT_STATUS_HE).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select>
         <span class="muted small" id="cCount"></span>
       </div>
-      <div class="card" id="cBody">${loadingState(8)}</div>`;
-    const body = root.querySelector("#cBody");
-    const render = () => {
-      const q = root.querySelector("#cSearch").value.trim().toLowerCase();
-      const st = root.querySelector("#cStatus").value;
-      const list = all.filter((c) => matches(c, q) && (!st || (c.bot_state?.bot_status ?? "new") === st));
-      root.querySelector("#cCount").textContent = `${list.length} מתוך ${all.length}`;
-      body.innerHTML = rows(list);
+      <div class="card"><div id="cBody">${loadingState(8)}</div><div id="cPager"></div></div>`;
+    const $ = (id) => root.querySelector(`#${id}`);
+    const body = $("cBody");
+    const pages = pager($("cPager"), (p) => { page = p; load(); });
+    const showControls = () => {
+      root.querySelectorAll("#cView button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
+      const all = view === "all";
+      $("cSearchWrap").hidden = !all;
+      $("cStatus").hidden = !all;
+      if (!all) pages.set(1, 1);
     };
     const load = async () => {
+      const mine = ++seq;
+      const params = new URLSearchParams({ view });
+      if (view === "all") {
+        const q = $("cSearch").value.trim();
+        if (q) params.set("q", q);
+        if ($("cStatus").value) params.set("status", $("cStatus").value);
+        params.set("page", String(page));
+      }
       try {
-        const r = await get("/api/admin/contacts");
+        const r = await get(`/api/admin/contacts?${params}`);
+        if (mine !== seq) return;
         if (!r.available) { body.innerHTML = emptyState("Supabase לא מחובר", "חסרים SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY בשרת הזה."); return; }
-        all = r.contacts;
-        render();
-      } catch (e) { body.innerHTML = errorState(e.message); }
+        body.innerHTML = rows(r.contacts, view);
+        if (view === "all") {
+          page = r.page;
+          $("cCount").textContent = `${r.total.toLocaleString("he-IL")} לקוחות`;
+          pages.set(r.page, r.pages);
+        } else {
+          $("cCount").textContent = view === "queue" ? `${r.total} הבאים לפי סדר החיוג` : `${r.total} אחרונים · מתעדכן מעצמו`;
+        }
+      } catch (e) { if (mine === seq) body.innerHTML = errorState(e.message); }
     };
-    root.querySelector("#cSearch").addEventListener("input", render);
-    root.querySelector("#cStatus").addEventListener("change", render);
+    const reload = () => { body.innerHTML = loadingState(8); load(); };
+    $("cView").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-v]");
+      if (!b || b.dataset.v === view) return;
+      view = b.dataset.v;
+      page = 1;
+      try { sessionStorage.setItem(VIEW_KEY, view); } catch {}
+      showControls();
+      reload();
+    });
+    let typing = null;
+    $("cSearch").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { page = 1; load(); }, 300); });
+    $("cStatus").addEventListener("change", () => { page = 1; load(); });
     body.addEventListener("click", (e) => {
       const tr = e.target.closest("tr[data-id]");
       if (tr) openContact(tr.dataset.id);
     });
-    stopPoll = every(20_000, load);
+    showControls();
+    // read once, then only when the server says a contact changed (a call, the bot, the dialer) - no polling.
+    // A lost push channel reconnects by itself and re-reads then (live.js).
+    load();
+    const offPush = onContactsChanged(load);
+    stopPoll = () => { offPush(); clearTimeout(typing); };
   },
   unmount() { stopPoll?.(); },
 };

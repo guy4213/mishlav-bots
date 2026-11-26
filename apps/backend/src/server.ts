@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastif
 import { mayCall, type Principal, VIEW_AS_HEADER, viewAs } from "./access";
 import { presentedSecret, secretMatches } from "./auth";
 import type { AppConfig } from "./config";
+import { CALL_ONLY_UPDATES, Changes } from "./changes";
 import { type AdminStore, ContactEvents, type ContactStore, type DialerStore } from "./contacts";
 import { Dialer, parseOnlyNumbers } from "./dialer";
 import type { GenderClassifier } from "./gender";
@@ -209,13 +210,22 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
   app.addHook("onClose", async () => serverLog.stop()); // what is left goes to the store
   const transcriptsDir = join(config.logDir, "transcripts");
 
+  // the dashboard's push channel: every contact update on this server (GET /api/admin/stream)
+  const changes = new Changes();
   // a failed Supabase update is logged next to the tool calls (the dashboard's call view and logs show it)
   const contacts = opts.contacts
-    ? new ContactEvents(opts.contacts, (callId, what, err) => {
-        toolLog.append({ type: "supabase_error", ts: now().toISOString(), call_id: callId, what, error: err.message });
-        serverLog.push("error", `Supabase (${what}): ${err.message}`, callId);
-        app.log.error({ err, call_id: callId, what, inLog: true }, "supabase update failed"); // already in the log above
-      })
+    ? new ContactEvents(
+        opts.contacts,
+        (callId, what, err) => {
+          toolLog.append({ type: "supabase_error", ts: now().toISOString(), call_id: callId, what, error: err.message });
+          serverLog.push("error", `Supabase (${what}): ${err.message}`, callId);
+          app.log.error({ err, call_id: callId, what, inLog: true }, "supabase update failed"); // already in the log above
+        },
+        // what a call keeps after its end (transcript, AI cost, recording) changes no contact: no re-read for it
+        (what) => {
+          if (!CALL_ONLY_UPDATES.has(what)) changes.notify();
+        },
+      )
     : undefined;
   const dialer =
     contacts && opts.dialer
@@ -231,6 +241,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
             app.log.info(`[dialer] ${text}`);
           },
           transcriptsDir,
+          onChange: () => changes.notify(),
         })
       : undefined;
   if (dialer && opts.dialer?.run) {
@@ -293,6 +304,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     whatsapp,
     knowledge: () => knowledge,
     now,
+    changes,
   });
   await registerStudyDayRoutes(app, { studyDays: opts.studyDays && liveDays && { store: opts.studyDays, live: liveDays }, now });
   await registerGoldRoutes(app, {

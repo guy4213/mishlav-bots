@@ -144,10 +144,11 @@ async function startDialer() {
 }
 
 async function refreshRepCount() {
+  if (document.hidden) return; // a tab in the background asks nothing
   try {
-    const r = await get("/api/admin/rep-tasks?open=1");
+    const r = await get("/api/admin/rep-tasks?open=1"); // the total of all open ones (the rows are one page)
     const el = $("repCount");
-    if (el) { el.textContent = r.tasks.length; el.hidden = !r.tasks.length; }
+    if (el) { el.textContent = r.total; el.hidden = !r.total; }
   } catch { /* no Supabase: no badge */ }
 }
 

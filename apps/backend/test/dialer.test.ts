@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import {
+  type CallInfo,
   type CallOrigin,
   ContactEvents,
   type ContactRecord,
@@ -57,7 +58,7 @@ const RANK: Record<string, number> = { callback: 0, queued: 1, new: 2 };
 class FakeDb implements ContactStore, DialerStore {
   control: DialerControl = { enabled: false, changed_at: "2026-11-08T00:00:00Z", reason: "כבוי עד ההפעלה הראשונה מהדשבורד" };
   contacts = new Map<string, ContactRecord>();
-  calls: { call_id: string; id: string; origin?: CallOrigin }[] = [];
+  calls: { call_id: string; id: string; origin?: CallOrigin; number?: string }[] = [];
   marked: string[] = [];
   failControl = false;
   constructor(...cs: ContactRecord[]) {
@@ -124,6 +125,23 @@ class FakeDb implements ContactStore, DialerStore {
     this.setStatus(id, "wrong_number");
     return "wrong_number";
   }
+  async saveCallInfo(callId: string, info: CallInfo) {
+    const call = this.calls.find((c) => c.call_id === callId);
+    if (call && info.number) call.number = info.number;
+  }
+  async usePhone(id: string, index: number) {
+    const c = this.contacts.get(id)!;
+    this.contacts.set(id, { ...c, bot_state: { ...c.bot_state!, phone_index: index } });
+  }
+  duplicates: string[] = [];
+  async markDuplicate(id: string, number: string) {
+    const other = this.calls.find((c) => c.number === number && c.id !== id)?.id ?? null;
+    if (other) {
+      this.duplicates.push(id);
+      this.setStatus(id, "duplicate");
+    }
+    return other;
+  }
   async callsSince(_since: Date, origin: CallOrigin) {
     return this.calls.filter((c) => c.origin === origin).length;
   }
@@ -182,7 +200,7 @@ const flush = () => new Promise((r) => setTimeout(r, 20));
 
 describe("dialer", () => {
   it("starts off; once started, the switch is in the database and a new instance (restart) keeps dialing", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"), contact("b", "053-2222222"));
+    const db = new FakeDb(contact("a", "053-1111112"), contact("b", "053-2222223"));
     const { line, dialer, make } = setup(db);
     expect(await dialer.tick()).toBe(settings.dialing.tick_s * 1000);
     expect(dialer.status()).toMatchObject({ state: "stopped", enabled: false });
@@ -194,7 +212,7 @@ describe("dialer", () => {
     const restarted = make(); // a deploy: a new process reads the switch from the database
     const t = restarted.tick();
     await flush();
-    expect(line.dialed).toEqual(["+972531111111"]);
+    expect(line.dialed).toEqual(["+972531111112"]);
     expect(restarted.status()).toMatchObject({ state: "in_call", enabled: true, current_call: { call_id: "call-1", gold_record_id: "a" } });
     expect(db.calls[0]).toMatchObject({ id: "a", origin: "dialer" });
     line.end();
@@ -203,7 +221,7 @@ describe("dialer", () => {
   });
 
   it("the pilot's daily limit: after that many calls today, no more until tomorrow", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"), contact("b", "053-2222222"), contact("c", "053-3333333"));
+    const db = new FakeDb(contact("a", "053-1111112"), contact("b", "053-2222223"), contact("c", "053-3333334"));
     const { line, dialer } = setup(db);
     await dialer.start();
     await dialer.setDailyLimit(2);
@@ -226,7 +244,7 @@ describe("dialer", () => {
   });
 
   it("stopped: no call", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"));
+    const db = new FakeDb(contact("a", "053-1111112"));
     const { line, dialer } = setup(db);
     await dialer.start();
     await dialer.stop("הפסקה");
@@ -236,7 +254,7 @@ describe("dialer", () => {
   });
 
   it("outside business hours: no call", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"));
+    const db = new FakeDb(contact("a", "053-1111112"));
     const { line, dialer } = setup(db, { now: new Date("2026-11-13T08:00:00Z") }); // Friday
     await dialer.start();
     await dialer.tick();
@@ -247,10 +265,10 @@ describe("dialer", () => {
 
   it("a due callback goes before a retry and a new contact; a callback not yet due waits", async () => {
     const db = new FakeDb(
-      contact("a-new", "053-1111111"),
-      contact("b-queued", "053-2222222", "queued", "2026-11-08T07:00:00Z"),
-      contact("c-callback", "053-3333333", "callback", "2026-11-08T07:30:00Z"),
-      contact("d-later", "053-4444444", "callback", "2026-11-08T12:00:00Z"),
+      contact("a-new", "053-1111112"),
+      contact("b-queued", "053-2222223", "queued", "2026-11-08T07:00:00Z"),
+      contact("c-callback", "053-3333334", "callback", "2026-11-08T07:30:00Z"),
+      contact("d-later", "053-4444445", "callback", "2026-11-08T12:00:00Z"),
     );
     const { line, dialer } = setup(db);
     await dialer.start();
@@ -260,13 +278,13 @@ describe("dialer", () => {
       line.end();
       await t;
     }
-    expect(line.dialed).toEqual(["+972533333333", "+972532222222", "+972531111111"]);
+    expect(line.dialed).toEqual(["+972533333334", "+972532222223", "+972531111112"]);
     expect(await dialer.tick()).toBe(settings.dialing.tick_s * 1000);
     expect(dialer.status().state).toBe("queue_empty");
   });
 
   it("asks the queue only for the requested courses in settings (Mishlav: only יום עיון חשבונאות)", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"));
+    const db = new FakeDb(contact("a", "053-1111112"));
     const { line, dialer } = setup(db);
     await dialer.start();
     const t = dialer.tick();
@@ -277,7 +295,7 @@ describe("dialer", () => {
   });
 
   it("one call at a time: the next call only after the line says the call ended", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"), contact("b", "053-2222222"));
+    const db = new FakeDb(contact("a", "053-1111112"), contact("b", "053-2222223"));
     const { line, dialer } = setup(db);
     await dialer.start();
     let done = false;
@@ -292,13 +310,13 @@ describe("dialer", () => {
     expect(await t).toBe(5000);
     const t2 = dialer.tick();
     await flush();
-    expect(line.dialed).toEqual(["+972531111111", "+972532222222"]);
+    expect(line.dialed).toEqual(["+972531111112", "+972532222223"]);
     line.end();
     await t2;
   });
 
   it("a contact without a valid phone is marked wrong_number and doesn't block the queue", async () => {
-    const db = new FakeDb(contact("a", null), contact("b", "053-2222222"));
+    const db = new FakeDb(contact("a", null), contact("b", "053-2222223"));
     const { line, dialer } = setup(db);
     await dialer.start();
     expect(await dialer.tick()).toBe(0); // straight to the next one
@@ -306,32 +324,77 @@ describe("dialer", () => {
     expect(line.dialed).toEqual([]);
     const t = dialer.tick();
     await flush();
-    expect(line.dialed).toEqual(["+972532222222"]);
+    expect(line.dialed).toEqual(["+972532222223"]);
     line.end();
     await t;
   });
 
+  it("a placeholder or empty phone 1 moves on to the next valid phone, kept in bot_state (Gold: 050-0000000)", async () => {
+    const fake = { ...contact("a", "050-0000000"), phone2: "053-0000000", phone3: "03-9061186" };
+    const empty = { ...contact("b", null), phone2: "050-9218288" };
+    const db = new FakeDb(fake, empty);
+    const { line, dialer } = setup(db);
+    await dialer.start();
+    for (const [id, number] of [["a", "+97239061186"], ["b", "+972509218288"]] as const) {
+      const t = dialer.tick();
+      await flush();
+      expect(line.dialed.at(-1)).toBe(number);
+      expect(db.contacts.get(id)!.bot_state!.phone_index).toBe(id === "a" ? 3 : 2); // the SMS and the reps follow it
+      line.end();
+      await t;
+    }
+    expect(db.marked).toEqual([]);
+  });
+
+  it("only placeholder phones: marked as no phone, never dialed", async () => {
+    const db = new FakeDb({ ...contact("a", "052-1234567"), phone2: "03-5555555" });
+    const { line, dialer } = setup(db);
+    await dialer.start();
+    expect(await dialer.tick()).toBe(0);
+    expect(db.marked).toEqual(["a"]);
+    expect(line.dialed).toEqual([]);
+  });
+
+  it("one call per number: a contact whose number was already called on another is closed as duplicate", async () => {
+    const db = new FakeDb(contact("a", "052-2246774"), contact("b", "0522246774"), contact("c", "053-2222223"));
+    const { line, dialer } = setup(db);
+    await dialer.start();
+    const t = dialer.tick();
+    await flush();
+    expect(line.dialed).toEqual(["+972522246774"]); // a
+    line.end();
+    await t;
+    expect(await dialer.tick()).toBe(0); // b: the same number, already called on a
+    expect(db.duplicates).toEqual(["b"]);
+    expect(db.contacts.get("b")!.bot_state!.bot_status).toBe("duplicate");
+    const t2 = dialer.tick();
+    await flush();
+    expect(line.dialed).toEqual(["+972522246774", "+972532222223"]); // c, not b
+    line.end();
+    await t2;
+  });
+
   it("DIALER_ONLY_NUMBERS: other numbers are skipped (not dialed, not changed) without blocking the queue", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"), contact("b", "054-2222222"), contact("c", "053-3333333"));
-    const { line, dialer } = setup(db, { only: "+972 54-222-2222, nonsense" });
+    const db = new FakeDb(contact("a", "053-1111112"), contact("b", "054-2222223"), contact("c", "053-3333334"));
+    const { line, dialer } = setup(db, { only: "+972 54-222-2223, nonsense" });
     expect(dialer.status().only_numbers).toBe(true);
     await dialer.start();
     expect(await dialer.tick()).toBe(0); // a: skipped
     const t = dialer.tick();
     await flush();
-    expect(line.dialed).toEqual(["+972542222222"]);
+    expect(line.dialed).toEqual(["+972542222223"]);
     line.end();
     await t;
     expect(await dialer.tick()).toBe(0); // c: skipped
     await dialer.tick();
     expect(dialer.status().state).toBe("queue_empty");
-    expect(line.dialed).toEqual(["+972542222222"]);
+    expect(line.dialed).toEqual(["+972542222223"]);
     expect(db.contacts.get("a")!.bot_state!.bot_status).toBe("new");
     expect(db.marked).toEqual([]);
   });
 
   it("three system failures in a row turn it off in the database, with the reason", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"));
+    const db = new FakeDb(contact("a", "053-1111112"));
     const { line, dialer } = setup(db);
     await dialer.start();
     line.failDial = "could not prepare the bot: Gemini down";
@@ -363,7 +426,7 @@ describe("dialer", () => {
   });
 
   it("the line not registered yet (it retries by itself): waits, not counted as a failure", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"));
+    const db = new FakeDb(contact("a", "053-1111112"));
     const { line, dialer } = setup(db);
     await dialer.start();
     line.registered = false;
@@ -373,7 +436,7 @@ describe("dialer", () => {
   });
 
   it("stop during a call: the call is not hung up, and no new call after it", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"), contact("b", "053-2222222"));
+    const db = new FakeDb(contact("a", "053-1111112"), contact("b", "053-2222223"));
     const { line, dialer } = setup(db);
     await dialer.start();
     const t = dialer.tick();
@@ -385,18 +448,18 @@ describe("dialer", () => {
     await t;
     expect(dialer.status().state).toBe("stopped");
     await dialer.tick();
-    expect(line.dialed).toEqual(["+972531111111"]);
+    expect(line.dialed).toEqual(["+972531111112"]);
   });
 
   it("the loop runs ticks until shutdown, and start() wakes it", async () => {
-    const db = new FakeDb(contact("a", "053-1111111"));
+    const db = new FakeDb(contact("a", "053-1111112"));
     const { line, dialer } = setup(db);
     dialer.run();
     await flush();
     expect(line.dialed).toEqual([]);
     await dialer.start(); // wakes the loop instead of waiting tick_s
     await flush();
-    expect(line.dialed).toEqual(["+972531111111"]);
+    expect(line.dialed).toEqual(["+972531111112"]);
     await dialer.stop();
     line.end();
     dialer.shutdown();
@@ -405,14 +468,14 @@ describe("dialer", () => {
   it("parseOnlyNumbers normalises, ignores junk, and an all-junk list dials nobody", () => {
     expect(parseOnlyNumbers(undefined)).toBeNull();
     expect(parseOnlyNumbers(" ")).toBeNull();
-    expect([...parseOnlyNumbers("053-1111111, +972541112222")!]).toEqual(["+972531111111", "+972541112222"]);
+    expect([...parseOnlyNumbers("053-1111112, +972541112222")!]).toEqual(["+972531111112", "+972541112222"]);
     expect(parseOnlyNumbers("abc")!.size).toBe(0);
   });
 });
 
 describe("dialer routes (/api/admin/dialer)", () => {
   async function server(withDialer = true) {
-    const db = new FakeDb(contact("a", "053-1111111"));
+    const db = new FakeDb(contact("a", "053-1111112"));
     const app = await buildServer(testConfig(), {
       now: () => FIXED_NOW,
       logger: false,

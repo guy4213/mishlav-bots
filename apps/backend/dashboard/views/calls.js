@@ -5,7 +5,7 @@ import { get } from "../api.js";
 import { liveCall, subscribe } from "../live.js";
 import {
   callName, callOriginChip, chip, conversationHtml, emptyState, errorState, esc, every, fmtCost, fmtDateTime, fmtDuration, fmtPhone,
-  fmtRel, icon, loadingState, ls, openDrawer, outcomeChip, outcomeLabel, REASON_HE, setFollowing,
+  fmtRel, icon, loadingState, ls, openDrawer, outcomeChip, outcomeLabel, pager, REASON_HE, setFollowing,
 } from "../ui.js";
 import { openContact } from "./contacts.js";
 
@@ -76,6 +76,8 @@ export default {
     let origin = ls.get("mishlav_calls_origin", "all");
     let recOnly = ls.get("mishlav_calls_rec_only", false);
     let calls = [];
+    let total = 0;
+    let page = 1; // the newest calls are on page 1 (where a call that just ended appears)
     let playing = null; // the call whose recording plays now
     root.innerHTML = `
       <div id="callsLive"></div>
@@ -90,6 +92,7 @@ export default {
         </div>
         <div id="callsPlayer"></div>
         <div id="callsBody">${loadingState(6)}</div>
+        <div id="callsPager"></div>
       </div>`;
     const body = root.querySelector("#callsBody");
     const player = root.querySelector("#callsPlayer");
@@ -98,21 +101,28 @@ export default {
     const render = () => {
       const a = audio();
       const now = playing && a && !a.paused ? playing : null;
-      const shown = recOnly ? calls.filter((c) => c.recording_path) : calls;
-      body.innerHTML = recOnly && !shown.length && calls.length
-        ? emptyState("אין הקלטות ברשימה", "שיחות שענו בהן נשמרות עם הקלטה, גם שיחות בדיקה.", "phone")
-        : table(shown, now);
-      root.querySelector("#callsCount").textContent = `${shown.length} שיחות${recOnly ? " עם הקלטה" : ""}`;
+      body.innerHTML = recOnly && !calls.length
+        ? emptyState("אין הקלטות", "שיחות שענו בהן נשמרות עם הקלטה, גם שיחות בדיקה.", "phone")
+        : table(calls, now);
+      root.querySelector("#callsCount").textContent = `${total.toLocaleString("he-IL")} שיחות${recOnly ? " עם הקלטה" : ""}`;
     };
+    // the server pages and filters (the origin, only with a recording): 50 a page, newest first
+    let seq = 0;
     const load = async () => {
+      const mine = ++seq;
       try {
-        const r = await get(`/api/admin/calls?limit=300&origin=${origin}`);
+        const r = await get(`/api/admin/calls?origin=${origin}&page=${page}${recOnly ? "&recorded=1" : ""}`);
+        if (mine !== seq) return;
         calls = r.calls;
+        total = r.total;
+        page = r.page;
+        pages.set(r.page, r.pages);
         render();
       } catch (e) {
-        body.innerHTML = errorState(e.message);
+        if (mine === seq) body.innerHTML = errorState(e.message);
       }
     };
+    const pages = pager(root.querySelector("#callsPager"), (p) => { page = p; body.innerHTML = loadingState(6); load(); });
     // the recording plays in the bar above the list (the list refreshes every 15 s; the bar stays)
     const stopPlayer = () => {
       audio()?.pause();
@@ -158,7 +168,9 @@ export default {
       ls.set("mishlav_calls_rec_only", recOnly);
       e.currentTarget.classList.toggle("on", recOnly);
       e.currentTarget.setAttribute("aria-pressed", String(recOnly));
-      render();
+      page = 1;
+      body.innerHTML = loadingState(6);
+      load();
     };
     root.querySelector("#callsOrigin").addEventListener("click", (e) => {
       const b = e.target.closest("button");
@@ -166,6 +178,7 @@ export default {
       origin = b.dataset.v;
       ls.set("mishlav_calls_origin", origin);
       root.querySelectorAll("#callsOrigin button").forEach((x) => x.classList.toggle("on", x === b));
+      page = 1;
       body.innerHTML = loadingState(6);
       load();
     });

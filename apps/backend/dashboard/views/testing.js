@@ -28,6 +28,7 @@ export default {
             <div class="card-body stack">
               <div id="phStatus"></div>
               <div class="form-grid">
+                <label class="field full">חיפוש סטודנט ב-Supabase <input type="search" id="phContactQ" placeholder="שם, טלפון או מספר רשומה…"></label>
                 <label class="field full">סטודנט מ-Supabase <select id="phContact"><option value="">— בלי (מספר ידני) —</option></select></label>
                 <div id="phContactCard" class="full" hidden></div>
                 <label class="field">מספר טלפון <input type="text" id="phNumber" class="ltr" inputmode="tel" placeholder="0501234567"></label>
@@ -112,18 +113,36 @@ export default {
       } finally { $("waSend").disabled = false; }
     };
 
-    // ---- contacts (as before)
+    // ---- contacts: 5,000+, so the server searches (the first 50 that match, by name); the chosen one is read in full
+    let chosen = null; // the chosen contact's whole record (GET /api/admin/contacts/:id)
+    let searchSeq = 0;
+    const option = (c) => {
+      const st = c.bot_state?.bot_status ?? "new";
+      return `<option value="${esc(c.gold_record_id)}"${st === "do_not_call" ? " disabled" : ""}>${esc(c.full_name ?? c.gold_record_id)} · ${esc(c.phone ?? "")} · ${esc(CONTACT_STATUS_HE[st] ?? st)}</option>`;
+    };
+    const choose = async (id) => {
+      try { chosen = id ? (await get(`/api/admin/contacts/${encodeURIComponent(id)}`)).contact : null; } catch { chosen = null; }
+      renderContactCard();
+    };
     const loadContacts = async () => {
+      const mine = ++searchSeq;
       try {
-        const r = await get("/test/contacts");
+        const q = $("phContactQ").value.trim();
+        const r = await get(`/api/admin/contacts?page=1${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+        if (mine !== searchSeq) return;
         S.contacts = r.contacts ?? [];
         const keep = $("phContact").value;
-        $("phContact").innerHTML = `<option value="">${r.available ? "— בלי (מספר ידני) —" : "— Supabase לא מחובר —"}</option>` +
-          S.contacts.map((c) => { const st = c.bot_state?.bot_status ?? "new"; return `<option value="${esc(c.gold_record_id)}"${st === "do_not_call" ? " disabled" : ""}>${esc(c.full_name ?? c.gold_record_id)} · ${esc(CONTACT_STATUS_HE[st] ?? st)}</option>`; }).join("");
+        // the chosen one stays in the list when a new search doesn't find it
+        const list = chosen && !S.contacts.some((c) => c.gold_record_id === chosen.gold_record_id) ? [chosen, ...S.contacts] : S.contacts;
+        const head = !r.available ? "— Supabase לא מחובר —"
+          : r.total > S.contacts.length ? `— בלי (מספר ידני) · ${r.total} תוצאות, מוצגות ${S.contacts.length}: לחפש מדויק יותר —` : "— בלי (מספר ידני) —";
+        $("phContact").innerHTML = `<option value="">${esc(head)}</option>${list.map(option).join("")}`;
         $("phContact").value = keep;
-        renderContactCard();
+        if (keep) await choose(keep); else { chosen = null; renderContactCard(); }
       } catch { /* the form still dials numbers */ }
     };
+    let typing = null;
+    $("phContactQ").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(loadContacts, 300); });
     // a chosen student fills the number (the phone the bot dials now) and the name from Supabase (locked)
     const fillFromContact = (c) => {
       const num = $("phNumber"), name = $("phName");
@@ -139,7 +158,7 @@ export default {
       S.contactWasChosen = Boolean(c);
     };
     const renderContactCard = () => {
-      const c = S.contacts.find((x) => x.gold_record_id === $("phContact").value);
+      const c = chosen && chosen.gold_record_id === $("phContact").value ? chosen : null;
       fillFromContact(c);
       const card = $("phContactCard");
       card.hidden = !c;
@@ -173,7 +192,7 @@ export default {
         </dl>
         ${st === "do_not_call" ? `<div class="small" style="color:var(--danger)">ביקש לא להתקשר – אי אפשר לחייג</div>` : ""}</div>`;
     };
-    $("phContact").onchange = renderContactCard;
+    $("phContact").onchange = () => choose($("phContact").value);
 
     // ---- scenarios + "what to expect"
     const scenario = () => S.scenarios.find((s) => s.id === $("phScenario").value);

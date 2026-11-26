@@ -64,8 +64,9 @@ describe("call recordings", () => {
     expect(JSON.parse(String(sent[0]!.body))).toEqual({ call_id: "call-1", origin: "manual", number: "+972534271418", direction: "out", contact_name: "גיא", scenario: null });
     await s.saveCallInfo("call-1", { duration_sec: 42, answered: true });
     expect(sent[1]).toMatchObject({ url: "https://x.supabase.co/rest/v1/calls?call_id=eq.call-1", method: "PATCH", body: JSON.stringify({ duration_sec: 42, answered: true }) });
-    const [row] = await s.calls(50, null);
+    const [row] = (await s.calls({ origin: null, recorded: true, page: 2, size: 50 })).calls;
     expect(decodeURIComponent(sent[2]!.url)).toContain("recording_path,number,contact_name,direction,scenario,contacts(full_name)");
+    expect(sent[2]!.url).toContain("&recording_path=not.is.null&order=started_at.desc&limit=50&offset=50");
     expect(row).toMatchObject({ call_id: "call-1", gold_record_id: null, number: "+972534271418", contact_name: "גיא", full_name: null });
   });
 

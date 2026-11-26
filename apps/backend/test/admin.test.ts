@@ -7,12 +7,17 @@ import type {
   CallLimits,
   CallOrigin,
   CallRow,
+  CallsQuery,
   ContactRecord,
+  ContactsQuery,
   ContactStore,
   DashboardSummary,
   RepTask,
   RepTaskRow,
+  RepTasksQuery,
 } from "../src/contacts";
+import { mayCall } from "../src/access";
+import { searchFilter } from "../src/contacts";
 import { dayStart } from "../src/routes/admin";
 import { buildServer } from "../src/server";
 import type { TranscriptLine } from "../src/transcripts";
@@ -110,8 +115,20 @@ class FakeStore implements ContactStore, AdminStore {
   async saveTranscript(callId: string, lines: TranscriptLine[]) {
     this.transcripts.set(callId, lines);
   }
-  async summary(start: Date): Promise<DashboardSummary> {
-    this.asked.push(["summary", start.toISOString()]);
+  async contactsPage(query: ContactsQuery) {
+    this.asked.push(["page", query]);
+    return { contacts: [CONTACT], total: 123 };
+  }
+  async recentContacts(limit: number) {
+    this.asked.push(["recent", limit]);
+    return [CONTACT];
+  }
+  async queue(_now: Date, courses: string[], limit: number) {
+    this.asked.push(["queue", courses, limit]);
+    return [{ ...CONTACT, due: true }];
+  }
+  async summary(start: Date, courses?: string[]): Promise<DashboardSummary> {
+    this.asked.push(["summary", start.toISOString(), courses]);
     return {
       day_start: start.toISOString(),
       today: { total: 1, answered: 1, no_result: 0, outcomes: { LINK_SENT: 1 }, manual_total: 1 },
@@ -129,16 +146,18 @@ class FakeStore implements ContactStore, AdminStore {
   async contactRepTasks(id: string) {
     return this.tasks.filter((t) => t.gold_record_id === id);
   }
-  async calls(limit: number, origin: CallOrigin | null) {
-    this.asked.push(["calls", limit, origin]);
-    return this.calls_.filter((c) => !origin || c.origin === origin).slice(0, limit);
+  async calls(query: CallsQuery) {
+    this.asked.push(["calls", query]);
+    const calls = this.calls_.filter((c) => !query.origin || c.origin === query.origin);
+    return { calls, total: calls.length };
   }
   async call(callId: string) {
     const c = this.calls_.find((x) => x.call_id === callId);
     return c ? { ...c, transcript: this.transcripts.get(callId) ?? null } : null;
   }
-  async repTasks(openOnly: boolean): Promise<RepTaskRow[]> {
-    return this.tasks.filter((t) => !openOnly || !t.done).map((t) => ({ ...t, full_name: "רועי כהן", phone: "053-4271418" }));
+  async repTasks({ openOnly }: RepTasksQuery) {
+    const tasks: RepTaskRow[] = this.tasks.filter((t) => !openOnly || !t.done).map((t) => ({ ...t, full_name: "רועי כהן", phone: "053-4271418" }));
+    return { tasks, total: tasks.length };
   }
   async repTaskDone(id: string) {
     const t = this.tasks.find((x) => x.id === id);
@@ -222,7 +241,8 @@ describe("management API (/api/admin)", () => {
     const r = await get("/api/admin/summary");
     expect(r.json()).toMatchObject({ ok: true, summary: { funnel: { new: 9, handled: 1 }, open_rep_tasks: 1 } });
     // FIXED_NOW = 10:00 in Israel (UTC+2) -> the day starts at 22:00 UTC the day before
-    expect(store.asked).toEqual([["summary", "2026-11-07T22:00:00.000Z"]]);
+    // only the courses the dialer calls are counted in its queue (settings dialing.requested_courses)
+    expect(store.asked).toEqual([["summary", "2026-11-07T22:00:00.000Z", ["יום עיון חשבונאות"]]]);
     expect(dayStart(new Date("2026-07-01T21:30:00Z"), "Asia/Jerusalem").toISOString()).toBe("2026-07-01T21:00:00.000Z"); // summer, UTC+3
   });
 
@@ -231,7 +251,7 @@ describe("management API (/api/admin)", () => {
     expect((await get("/api/admin/summary")).statusCode).toBe(409);
     expect((await get("/api/admin/calls")).json().error).toBe("no_supabase");
     expect((await get("/api/admin/rep-tasks")).statusCode).toBe(409);
-    expect((await get("/api/admin/contacts")).json()).toEqual({ ok: true, available: false, contacts: [] });
+    expect((await get("/api/admin/contacts")).json()).toEqual({ ok: true, available: false, view: "all", contacts: [], total: 0 });
   });
 
   it("contacts: the list, and one contact with its tasks and calls", async () => {
@@ -244,20 +264,78 @@ describe("management API (/api/admin)", () => {
     expect((await get("/api/admin/contacts/bad%20id")).statusCode).toBe(400);
   });
 
+  it("contacts' three views: the bot's activity, the dialer's queue (its courses), all - searched and paged in the database", async () => {
+    const { get, store } = await setup();
+    expect((await get("/api/admin/contacts?view=activity")).json()).toMatchObject({ view: "activity", total: 1 });
+    expect((await get("/api/admin/contacts?view=queue")).json()).toMatchObject({ view: "queue", contacts: [{ gold_record_id: ID, due: true }] });
+    const all = (await get(`/api/admin/contacts?q=${encodeURIComponent(" רועי ")}&status=new&page=3`)).json();
+    expect(all).toMatchObject({ view: "all", total: 123, page: 3, page_size: 50, pages: 3 });
+    // a bad status / page is ignored, never sent to the database
+    await get("/api/admin/contacts?status=new);drop&page=-2");
+    expect(store.asked).toEqual([
+      ["recent", 50],
+      ["queue", ["יום עיון חשבונאות"], 50],
+      ["page", { q: "רועי", status: "new", page: 3, size: 50 }],
+      ["page", { q: undefined, status: undefined, page: 1, size: 50 }],
+    ]);
+  });
+
+  it("the push channel: 'contacts' once for a burst of updates, open to Mishlav's users too", async () => {
+    const config = testConfig();
+    const store = new FakeStore();
+    const app = await buildServer(config, { now: () => FIXED_NOW, logger: false, env: {}, contacts: store, admin: store, phone: { line: new FakeLine() as never, reason: null } });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const { port } = app.server.address() as { port: number };
+      const ctrl = new AbortController();
+      const res = await fetch(`http://127.0.0.1:${port}/api/admin/stream`, { headers: AUTH, signal: ctrl.signal });
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+      const reader = res.body!.getReader();
+      let text = "";
+      const until = async (s: string) => {
+        while (!text.includes(s)) text += new TextDecoder().decode((await reader.read()).value);
+      };
+      await until("event: hello");
+      // a rep task done, twice in a row: one message
+      await app.inject({ method: "POST", url: `/api/admin/rep-tasks/${TASK_ID}/done`, headers: AUTH });
+      await app.inject({ method: "POST", url: `/api/admin/rep-tasks/${TASK_ID}/done`, headers: AUTH });
+      await until("event: contacts");
+      await new Promise((r) => setTimeout(r, 400));
+      expect(text.split("event: contacts").length - 1).toBe(1);
+      ctrl.abort();
+    } finally {
+      await app.close();
+    }
+    expect(mayCall("mishlav", "GET", "/api/admin/stream")).toBe(true);
+  });
+
+  it("the search: text in the name, email, course...; digits also by the phone's last 7", () => {
+    expect(searchFilter("רועי")).toContain('full_name.ilike."*רועי*"');
+    expect(searchFilter("0526268866")).toContain('phone.ilike."*6268866*"');
+    expect(searchFilter("053").match(/(^|,|\()phone\.ilike/g)).toHaveLength(1); // under 4 digits: the text match only
+    expect(searchFilter('a"b')).toContain('full_name.ilike."*a\\"b*"'); // quotes escaped for PostgREST
+  });
+
   it("calls: filtered by origin (dialer = the real work, manual = tests), limit capped", async () => {
     const { get, store } = await setup();
     const ids = async (q: string) => (await get(`/api/admin/calls${q}`)).json().calls.map((c: CallRow) => c.call_id);
     expect(await ids("")).toEqual(["call-a", "call-b"]);
     expect(await ids("?origin=dialer")).toEqual(["call-a"]);
     expect(await ids("?origin=manual")).toEqual(["call-b"]);
-    expect(await ids("?origin=all&limit=9999")).toEqual(["call-a", "call-b"]);
+    expect(await ids("?origin=all&recorded=1&page=2")).toEqual(["call-a", "call-b"]);
     expect(store.asked).toEqual([
-      ["calls", 100, null],
-      ["calls", 100, "dialer"],
-      ["calls", 100, "manual"],
-      ["calls", 500, null],
+      ["calls", { origin: null, recorded: false, page: 1, size: 50 }],
+      ["calls", { origin: "dialer", recorded: false, page: 1, size: 50 }],
+      ["calls", { origin: "manual", recorded: false, page: 1, size: 50 }],
+      ["calls", { origin: null, recorded: true, page: 2, size: 50 }],
     ]);
-    expect((await get("/api/admin/calls?origin=dialer")).json()).toMatchObject({ origin: "dialer", calls: [{ full_name: "רועי כהן", outcome: "LINK_SENT" }] });
+    expect((await get("/api/admin/calls?origin=dialer")).json()).toMatchObject({
+      origin: "dialer",
+      calls: [{ full_name: "רועי כהן", outcome: "LINK_SENT" }],
+      total: 1,
+      page: 1,
+      pages: 1,
+    });
   });
 
   it("one call: the stored transcript first, else this server's file; plus the bot's tool actions", async () => {
@@ -287,7 +365,11 @@ describe("management API (/api/admin)", () => {
 
   it("rep tasks: open ones with the contact's name and phone; done", async () => {
     const { get, post } = await setup();
-    expect((await get("/api/admin/rep-tasks?open=1")).json().tasks).toMatchObject([{ id: TASK_ID, full_name: "רועי כהן", phone: "053-4271418" }]);
+    expect((await get("/api/admin/rep-tasks?open=1")).json()).toMatchObject({
+      tasks: [{ id: TASK_ID, full_name: "רועי כהן", phone: "053-4271418" }],
+      total: 1,
+      pages: 1,
+    });
     const done = await post(`/api/admin/rep-tasks/${TASK_ID}/done`);
     expect(done.json()).toMatchObject({ ok: true, task: { id: TASK_ID, done: true } });
     expect((await get("/api/admin/rep-tasks?open=1")).json().tasks).toEqual([]);
