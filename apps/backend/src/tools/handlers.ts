@@ -11,7 +11,8 @@ import {
 import type { z } from "zod";
 import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay, timeRangeHe } from "../knowledge";
 import type { SmsSender } from "../sms";
-import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
+import { linkTemplateValues, type WhatsAppSender } from "../whatsapp";
+import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, SAY_LINK_SENT_WHATSAPP, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
@@ -19,6 +20,10 @@ export interface ToolContext {
   now: () => Date;
   /** the purchase-link SMS (no keys: log only) */
   sms: SmsSender;
+  /** the purchase link on WhatsApp (Texter); when set it replaces the SMS */
+  whatsapp?: WhatsAppSender | null;
+  /** the customer's first name on this call (the WhatsApp template's {{1}}), from the line - never from the bot */
+  recipientName?: string | null;
   /**
    * Who is on this call (+972...), resolved by the server from x-call-id - never from the bot: a contact's call ->
    * its phone in Supabase; a scenario call on the line -> the number dialed. null: unknown.
@@ -112,7 +117,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     return { ok: true, day: publicDay(day), ...otherDates(day, knowledge, now()), general: knowledge.general };
   },
 
-  async send_purchase_link(input, { knowledge, settings, sms, recipient }) {
+  async send_purchase_link(input, { knowledge, settings, sms, whatsapp, recipient, recipientName }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
     if (!day.open_for_registration) {
@@ -124,6 +129,26 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     }
     if (!day.purchase_url) {
       return { ok: false, error: "no_purchase_url", message_he: `אין עדיין קישור רכישה ליום הזה. ${LINK_BY_REP}` };
+    }
+    // WhatsApp (Texter) when the server has it: the approved template with the day's details and its link button
+    if (whatsapp && settings.whatsapp) {
+      if (!recipient) return { ok: false, error: "no_phone", message_he: `אין מספר טלפון לשליחת ההודעה. ${LINK_BY_REP}` };
+      const values = linkTemplateValues(day, recipientName, settings.whatsapp.url_prefix);
+      if (!values) {
+        return { ok: false, error: "link_not_in_template", message_he: `הקישור של היום הזה לא מתאים לתבנית הוואטסאפ. ${LINK_BY_REP}` };
+      }
+      const wa = await whatsapp.sendLink(recipient, values);
+      if (!wa.ok) {
+        return { ok: false, error: "whatsapp_failed", provider: wa.provider, message_he: `ההודעה לא נשלחה בגלל תקלה. ${LINK_BY_REP}` };
+      }
+      return {
+        ok: true,
+        status: "sent",
+        day_id: day.id,
+        day_he: dayNoteHe(day),
+        whatsapp: { sent: wa.sent, provider: wa.provider },
+        ...closing(SAY_LINK_SENT_WHATSAPP),
+      };
     }
     // A log-only sender sends nothing anyway: text runs and browser tests (no number) still go through
     if (!recipient && sms.live) {

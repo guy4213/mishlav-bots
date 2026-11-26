@@ -10,6 +10,7 @@ import { addDays, dateKey, toLocalParts, type EndCallReason } from "@mishlav/sha
 export const GOODBYE = "יום נעים, להתראות.";
 
 export const SAY_LINK_SENT = `הקישור נשלח עכשיו במסרון. ${GOODBYE}`;
+export const SAY_LINK_SENT_WHATSAPP = `הקישור נשלח עכשיו בוואטסאפ. ${GOODBYE}`;
 export const SAY_HANDED_TO_REP = `העברתי את הבקשה, נציג יחזור בהקדם. ${GOODBYE}`;
 
 export const SAY_END_CALL: Record<Exclude<EndCallReason, "voicemail">, string> = {

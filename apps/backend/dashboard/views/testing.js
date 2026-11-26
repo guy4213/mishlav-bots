@@ -57,6 +57,17 @@ export default {
               <p class="small muted" style="margin:0">שולח "משלב: הודעת בדיקה מהבוט" דרך הספק שמוגדר בשרת – בלי שיחה. בודק שהמפתחות של Zadarma, שם השולח והיתרה תקינים.</p>
             </div>
           </div>
+          <div class="card">
+            <div class="card-head"><h2>💬 בדיקת וואטסאפ (קישור רכישה)</h2></div>
+            <div class="card-body stack">
+              <div class="row">
+                <input type="text" id="waNumber" class="ltr" inputmode="tel" placeholder="0501234567" style="max-width:200px">
+                <button class="btn" id="waSend">שלח וואטסאפ בדיקה</button>
+              </div>
+              <span class="small" id="waNote"></span>
+              <p class="small muted" style="margin:0">שולח את התבנית המאושרת של Texter עם יום העיון הקרוב שיש לו קישור – בדיוק מה שלקוח יקבל. צריך TEXTER_PROJECT ו-TEXTER_API_TOKEN ב-Render.</p>
+            </div>
+          </div>
         </div>
         <div class="stack">
           <div class="card"><div class="card-head"><h2>📝 מה נאמר</h2></div><div class="card-body"><div class="convo scroll" id="phTranscript"><p class="muted small">התמלול יופיע כאן בזמן השיחה</p></div></div></div>
@@ -84,6 +95,21 @@ export default {
       } catch (e) {
         $("smsNote").innerHTML = `<span style="color:var(--danger)">לא נשלח: ${esc(e.message)}</span>`;
       } finally { $("smsSend").disabled = false; }
+    };
+
+    // a test WhatsApp: the approved template with a real study day and its link, without a call
+    $("waNumber").value = $("smsNumber").value;
+    $("waSend").onclick = async () => {
+      const number = $("waNumber").value.trim();
+      if (!number) { $("waNote").textContent = "הכנס מספר"; return; }
+      $("waSend").disabled = true;
+      $("waNote").textContent = "שולח…";
+      try {
+        const r = await post("/api/admin/whatsapp/test", { number });
+        $("waNote").innerHTML = `<span style="color:var(--success)">✓ נשלח (${esc(r.day_id)}) – בדוק את הוואטסאפ</span>`;
+      } catch (e) {
+        $("waNote").innerHTML = `<span style="color:var(--danger)">לא נשלח: ${esc(e.message)}</span>`;
+      } finally { $("waSend").disabled = false; }
     };
 
     // ---- contacts (as before)

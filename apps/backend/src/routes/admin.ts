@@ -22,8 +22,10 @@ import { z } from "zod";
 import { type AdminStore, type CallOrigin, type ContactStore, toE164 } from "../contacts";
 import type { Dialer } from "../dialer";
 import type { JsonlFile } from "../jsonl";
+import type { KnowledgeBase } from "../knowledge";
 import type { ServerLog } from "../serverlog";
 import type { SmsSender } from "../sms";
+import { linkTemplateValues, type WhatsAppSender } from "../whatsapp";
 import { DEFAULT_VOICE, PHONE_VOICES, VOICE_HE } from "../../../phone/src/voices.js";
 import { CALL_ID, readTranscript } from "../transcripts";
 import type { PhoneHolder } from "./phone";
@@ -42,6 +44,9 @@ export interface AdminRouteDeps {
   settings?: Settings;
   env?: NodeJS.ProcessEnv;
   sms?: SmsSender;
+  whatsapp?: WhatsAppSender | null;
+  /** the study days (the WhatsApp test sends a real day's link) */
+  knowledge?: () => KnowledgeBase | undefined;
   now?: () => Date;
 }
 
@@ -90,6 +95,25 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
     return r.ok
       ? { ok: true, provider: r.provider, sent: r.sent }
       : reply.code(502).send({ ok: false, provider: r.provider, error: "sms_failed", message_he: r.error });
+  });
+
+  // the purchase-link WhatsApp (Texter): the approved template with a real study day, to a number we type
+  app.post("/api/admin/whatsapp/test", async (req, reply) => {
+    const body = (req.body ?? {}) as { number?: unknown; day_id?: unknown; name?: unknown };
+    const to = typeof body.number === "string" ? toE164(body.number) : null;
+    if (!to) return reply.code(400).send({ ok: false, error: "invalid_number", message_he: "מספר טלפון לא תקין" });
+    if (!deps.whatsapp || !deps.settings?.whatsapp) {
+      return reply.code(409).send({ ok: false, error: "no_whatsapp", message_he: "וואטסאפ לא מוגדר בשרת (TEXTER_PROJECT + TEXTER_API_TOKEN ב-Render)" });
+    }
+    const days = [...(deps.knowledge?.()?.days.values() ?? [])].filter((d) => d.purchase_url).sort((a, b) => a.date.localeCompare(b.date));
+    const day = typeof body.day_id === "string" ? days.find((d) => d.id === body.day_id) : days[0];
+    if (!day) return reply.code(409).send({ ok: false, error: "no_day", message_he: "אין יום עיון עם קישור רכישה" });
+    const values = linkTemplateValues(day, typeof body.name === "string" ? body.name : "גיא", deps.settings.whatsapp.url_prefix);
+    if (!values) return reply.code(409).send({ ok: false, error: "link_not_in_template", message_he: "הקישור של היום לא מתחיל בכתובת של הכפתור" });
+    const r = await deps.whatsapp.sendLink(to, values);
+    return r.ok
+      ? { ok: true, provider: r.provider, day_id: day.id, values }
+      : reply.code(502).send({ ok: false, provider: r.provider, error: "whatsapp_failed", message_he: r.error });
   });
 
   // ---- the automatic dialer

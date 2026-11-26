@@ -10,7 +10,7 @@ import type { SessionStore } from "../sessions";
 import { toolHandlers, type ToolContext, type ToolResponse } from "../tools/handlers";
 import type { PhoneHolder } from "./phone";
 
-export interface ToolRouteDeps extends Omit<ToolContext, "recipient"> {
+export interface ToolRouteDeps extends Omit<ToolContext, "recipient" | "recipientName"> {
   toolLog: JsonlFile;
   sessions: SessionStore;
   /** Supabase contacts: every tool of a contact's call updates that contact (by call_id) */
@@ -42,6 +42,7 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
 
       let response: ToolResponse;
       let recipient: string | null = null;
+      let recipientName: string | null = null;
       if (!parsed.success) {
         response = {
           ok: false,
@@ -52,9 +53,13 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
       } else {
         try {
           // the SMS recipient comes from the call, never from the bot (the schema has no phone)
-          if (tool === "send_purchase_link") recipient = await recipientFor(deps, callMeta(req).call_id, req);
+          if (tool === "send_purchase_link") {
+            const callId = callMeta(req).call_id;
+            recipient = await recipientFor(deps, callId, req);
+            recipientName = callId ? (deps.phone?.line?.nameFor?.(callId) ?? null) : null; // the WhatsApp greeting (a line without it: none)
+          }
           const handler = toolHandlers[tool] as (i: unknown, c: ToolContext) => ToolResponse | Promise<ToolResponse>;
-          response = await handler(parsed.data, { ...deps, recipient });
+          response = await handler(parsed.data, { ...deps, recipient, recipientName });
         } catch (err) {
           req.log.error({ err, tool }, "tool handler failed");
           response = { ok: false, error: "internal_error", message_he: "תקלה זמנית. להציע שנציג יחזור." };

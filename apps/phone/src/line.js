@@ -148,6 +148,11 @@ export class PhoneLine extends EventEmitter {
     return this.call && this.call.id === callId ? this.call.number : null;
   }
 
+  /** The first name the bot was given for this call (the WhatsApp link's greeting); null: not this line's call. */
+  nameFor(callId) {
+    return this.call && this.call.id === callId ? (this.call.firstName ?? null) : null;
+  }
+
   /** Hang up the running call (from the dashboard). */
   async hangup() {
     if (!this.call?.sip) return false;
@@ -328,6 +333,7 @@ export class PhoneLine extends EventEmitter {
       genderReminder: GENDER_REMINDER[customerGender],
       denoiser,
     });
+    if (this.call?.id === callId) this.call.firstName = ctx.variables.first_name;
     this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}, voice ${callVoice}, noise filter ${denoiser ? 'on' : 'off'}`, callId);
     return { callId, tools, session, agent, scenario: ctx.scenario };
   }
