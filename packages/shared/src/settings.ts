@@ -62,6 +62,17 @@ export const Settings = z.object({
      */
     test_without_link: z.string().optional(),
   }),
+  /**
+   * The purchase link on WhatsApp (apps/backend/src/whatsapp.ts, Texter): used instead of the SMS when the server has
+   * TEXTER_PROJECT + TEXTER_API_TOKEN. The template's URL button is url_prefix + {{1}}; {{1}} = the rest of the link.
+   */
+  whatsapp: z
+    .object({
+      template: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+      language: z.string().default("he"),
+      url_prefix: z.url({ protocol: /^https$/ }),
+    })
+    .optional(),
   outcome_mapping: z.object({
     request_human: z.record(z.enum(REQUEST_HUMAN_REASONS), Outcome),
     end_call: z.record(z.enum(END_CALL_REASONS), Outcome.nullable()),

@@ -41,7 +41,7 @@ export default {
           <button class="btn danger lg" id="stHangup" disabled>⏹ נתק</button>
           <span class="small" id="stNote"></span>
         </div>
-        <p class="small muted" style="margin:0">שיחת בדיקה לא נוגעת באף לקוח ולא בגולד. אם תבקש קישור לרכישה, הוא יישלח ב-SMS למספר שלך.</p>
+        <p class="small muted" style="margin:0">שיחת בדיקה לא נוגעת באף לקוח ולא בגולד. אם תבקש קישור לרכישה, הוא יישלח למספר שלך (בוואטסאפ, או ב-SMS אם וואטסאפ לא מוגדר).</p>
       </div>`;
 
     const onLive = () => {

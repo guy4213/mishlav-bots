@@ -68,6 +68,14 @@ sms:
   # DELETE this line once Mishlav's SMS provider is connected.
   test_without_link: "משלב: תודה על השיחה, הפרטים יישלחו אליך בהמשך."
 
+# The purchase link on WhatsApp (Texter): sent instead of the SMS once the server has TEXTER_PROJECT + TEXTER_API_TOKEN
+# (Render env). The approved template: body "היי {{1}}, ... יום העיון בנושא {{2}}. 📅 {{3}} ..." and a URL button
+# url_prefix + {{1}}. {{1}} first name, {{2}} the day's topic, {{3}} dates · Zoom/place · hours · price.
+whatsapp:
+  template: mishlav_purchase_link
+  language: he
+  url_prefix: "https://mishlav-shop.sylla-lxp.com/product/"
+
 # Field/outcome mapping: how tool calls translate into outcomes (model proposes, backend decides).
 outcome_mapping:
   request_human:

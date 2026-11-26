@@ -22,6 +22,7 @@ import { registerToolRoutes } from "./routes/tools";
 import { type LogStore, pinoText, ServerLog, tapConsole } from "./serverlog";
 import { SessionStore } from "./sessions";
 import { type SmsSender, smsSenderFromEnv } from "./sms";
+import { type WhatsAppSender, whatsappSenderFromEnv } from "./whatsapp";
 import { LiveKnowledge, type StudyDayStore } from "./study-days";
 import { publicUser, type UserStore, Users } from "./users";
 
@@ -47,6 +48,8 @@ export interface BuildOptions {
   dialer?: { store: DialerStore; run?: boolean };
   /** The purchase-link SMS. Default: from the env (ZADARMA_API_KEY + ZADARMA_API_SECRET), else log only. */
   sms?: SmsSender;
+  /** the purchase link on WhatsApp (tests); null = none. Default: Texter from the environment, if configured */
+  whatsapp?: WhatsAppSender | null;
   /** Where the dashboard's log is kept, so a deploy doesn't wipe it (main.ts: Supabase server_logs). */
   logStore?: LogStore;
   /**
@@ -251,6 +254,16 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
       serverLog.push("sms", `[sms] ${text}`); // numbers are masked by the sender
       app.log.info(`[sms] ${text}`);
     });
+  // WhatsApp (Texter) replaces the SMS for the purchase link once TEXTER_PROJECT + TEXTER_API_TOKEN are set
+  const whatsapp =
+    opts.whatsapp !== undefined
+      ? opts.whatsapp
+      : config.settings.whatsapp
+        ? whatsappSenderFromEnv(env, config.settings.whatsapp, (text) => {
+            serverLog.push("sms", `[whatsapp] ${text}`); // numbers are masked by the sender
+            app.log.info(`[whatsapp] ${text}`);
+          })
+        : null;
   await registerToolRoutes(app, {
     knowledge,
     settings: config.settings,
@@ -260,6 +273,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     contacts,
     phone,
     sms,
+    whatsapp,
     onToolCall: (callId, tool, ok, error) => serverLog.push(ok ? "tool" : "error", `🔧 ${tool} ${ok ? "✓" : `✗ ${error ?? ""}`}`, callId),
   });
   await registerTestRoutes(app, {
@@ -287,6 +301,8 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     settings: config.settings,
     env,
     sms,
+    whatsapp,
+    knowledge: () => knowledge,
     now,
     changes,
   });
