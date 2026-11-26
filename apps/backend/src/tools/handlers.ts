@@ -161,9 +161,10 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       // a text run / browser test (no number, log only): nothing to wait for
       return { ok: true, status: "sent", day_id: day.id, day_he: dayHe, whatsapp: { sent: false, provider: whatsapp.provider }, ...closing(SAY_LINK_SENT) };
     }
-    // The bot says "אני שולחת לך עכשיו… רק רגע" BEFORE calling (prompt), so the customer knows to wait while Texter
-    // works (~3 s): the tool waits for the real result and answers once - "נשלח" or "תקלה, נציג יחזור". An early
-    // "sending" answer (v1.22-v1.29) made Gemini fill the wait with a made-up sentence (26.11, 18:07).
+    // While Texter works (~3 s) the phone line plays "אני שולחת לך עכשיו… רק רגע" itself (fixed-lines.js): the tool
+    // waits for the real result and answers once - "נשלח" or "תקלה, נציג יחזור". An early "sending" answer
+    // (v1.22-v1.29) made Gemini fill the wait with a made-up sentence (26.11, 18:07); asking the model to say the
+    // sentence itself made it say it twice and not call the tool (26.11, 16:34).
     const r = await whatsapp
       .sendLink(recipient, values)
       .catch((err: Error) => ({ ok: false as const, provider: whatsapp.provider, error: err.message }));

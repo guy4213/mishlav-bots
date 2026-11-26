@@ -54,7 +54,7 @@ export function buildSetup({
       ...info.generation,
     },
     systemInstruction: { parts: [{ text: instructions }] },
-    tools: [{ functionDeclarations: functionDeclarations(tools) }],
+    ...(tools?.length && { tools: [{ functionDeclarations: functionDeclarations(tools) }] }),
     // Gemini's end-of-speech detection: once the caller is quiet for silenceMs, the bot answers.
     ...(!info.defaultVad && {
       realtimeInputConfig: {

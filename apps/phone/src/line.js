@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { mixToMono, mp3, wav } from './audio.js';
 import { createDenoiser } from './denoise.js';
 import { CallAgent } from './call-agent.js';
+import { FixedLines } from './fixed-lines.js';
 import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive, PHONE_VOICES } from './gemini-live.js';
 import { buildInstructions, loadToolDefinitions, ToolsClient } from './mishlav.js';
 import { dialable, maskNumber } from './numbers.js';
@@ -85,6 +86,8 @@ export class PhoneLine extends EventEmitter {
     this.usage = new Map(); // call_id -> Gemini tokens, until the call's 'ended'
     this.seq = 0;
     this.toolDefs = loadToolDefinitions(root);
+    // the fixed "אני שולחת לך עכשיו את הקישור…" in each voice, made once (fixed-lines.js)
+    this.fixed = new FixedLines({ apiKey: env.apiKey, model: env.model, log: (text) => this.log(text, null) });
     mkdirSync(env.logDir, { recursive: true });
     this.logFile = join(env.logDir, 'phone.jsonl');
   }
@@ -131,6 +134,7 @@ export class PhoneLine extends EventEmitter {
       this.ua = null;
       throw new Error(this.error);
     }
+    this.fixed.prepare(e.voice); // ready before the first call needs it
     if (this.answer) {
       this.ua.on('incoming', (call) => this._incoming(call).catch((err) => this.log(`❌ ${err.message}`)));
       this.log(`waiting for calls${e.number ? ` to ${e.number}` : ''}`, null);
@@ -330,6 +334,7 @@ export class PhoneLine extends EventEmitter {
       tools: this.toolDefs,
       temperature: e.temperature,
     });
+    this.fixed.prepare(callVoice); // made while the phone rings, if this voice has none yet
     const customerGender = ctx.variables.customer_gender ?? 'unknown'; // as decided for this call
     const denoiser = e.denoise ? await createDenoiser() : null;
     if (e.denoise && !denoiser) this.log('noise filter (RNNoise) did not load: this call works by volume', callId);
@@ -339,6 +344,7 @@ export class PhoneLine extends EventEmitter {
       openAfterSilenceMs: e.openAfterSilenceMs,
       genderReminder: GENDER_REMINDER[customerGender],
       denoiser,
+      linkSending: () => this.fixed.linkSending(callVoice),
     });
     if (this.call?.id === callId) this.call.firstName = ctx.variables.first_name;
     this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}, voice ${callVoice}, noise filter ${denoiser ? 'on' : 'off'}`, callId);
