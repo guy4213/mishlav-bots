@@ -55,6 +55,11 @@ class FakeStore implements ContactStore {
 /** The line, with a scenario call "call-line" to +972501234567 on it. */
 class FakeLine extends EventEmitter {
   recent = [];
+  notes: [string, string][] = []; // what the server told the bot on the call (line.notify)
+  notify(callId: string, text: string) {
+    this.notes.push([callId, text]);
+    return true;
+  }
   status() {
     return { registered: true, busy: true };
   }
@@ -68,6 +73,7 @@ class FakeLine extends EventEmitter {
 
 async function setup(whatsapp: WhatsAppSender = new FakeWa()) {
   const store = new FakeStore();
+  const line = new FakeLine();
   const config = testConfig();
   config.settings.whatsapp.url_prefix = PREFIX;
   const app = await buildServer(config, {
@@ -75,7 +81,7 @@ async function setup(whatsapp: WhatsAppSender = new FakeWa()) {
     logger: false,
     env: {},
     contacts: store,
-    phone: { line: new FakeLine() as never, reason: null },
+    phone: { line: line as never, reason: null },
     whatsapp,
   });
   const send = async (callId?: string) =>
@@ -88,24 +94,26 @@ async function setup(whatsapp: WhatsAppSender = new FakeWa()) {
       })
     ).json();
   const rawLog = () => readFileSync(join(config.logDir, "tool-calls.jsonl"), "utf8");
-  return { store, whatsapp, send, rawLog };
+  return { store, whatsapp, send, rawLog, line };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
 describe("send_purchase_link sends the WhatsApp to the number on the call", () => {
-  it("a contact's call: its phone in Supabase (normalised), the template's values, and no full number in the log", async () => {
-    const { store, whatsapp, send, rawLog } = await setup();
+  it("a contact's call: 'sending' at once, then the bot is told it went (only now Gold gets 'link sent'); no full number in the log", async () => {
+    const { store, whatsapp, send, rawLog, line } = await setup();
     store.numbers.set("call-1", "053-4271418");
     const r = await send("call-1");
-    expect(r).toMatchObject({ ok: true, status: "sent", day_id: DAY, whatsapp: { sent: true, provider: "fake" }, closing: true });
-    expect(r.say_he).toBe("הקישור נשלח עכשיו בוואטסאפ. יום נעים, להתראות.");
+    expect(r).toMatchObject({ ok: true, status: "sending", day_id: DAY });
+    expect(r.closing).toBeUndefined(); // the line doesn't drop before the result
+    expect(r.message_he).toContain("אני שולחת לך עכשיו את הקישור בוואטסאפ");
     const [to, values] = (whatsapp as FakeWa).sent[0]!;
     expect(to).toBe("+972534271418");
     expect(values).toMatchObject({ body: ["שלום", "דיני עבודה ומס הכנסה", expect.stringContaining("21–22.2.2027")], buttonPayload: DAY });
     expect(r.day_he).toBe("דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום"); // the note in Gold
     await settle();
-    expect(store.tools).toEqual([["call-1", "send_purchase_link", true]]); // Gold: "נשלח קישור"
+    expect(line.notes).toEqual([["call-1", expect.stringContaining("הקישור נשלח אליך בוואטסאפ. יום נעים, להתראות.")]]);
+    expect(store.tools).toEqual([["call-1", "send_purchase_link", true]]); // Gold: "נשלח קישור" - after it went
     const log = rawLog();
     expect(log).toContain('"recipient":"+97253***1418"');
     expect(log).not.toMatch(/534271418|4271418/);
@@ -113,7 +121,7 @@ describe("send_purchase_link sends the WhatsApp to the number on the call", () =
 
   it("a scenario call (no contact): the number the line dialed, and the name it was given", async () => {
     const { whatsapp, send, rawLog } = await setup();
-    expect(await send("call-line")).toMatchObject({ ok: true, whatsapp: { sent: true } });
+    expect(await send("call-line")).toMatchObject({ ok: true, status: "sending" });
     expect((whatsapp as FakeWa).sent[0]![0]).toBe("+972501234567");
     expect((whatsapp as FakeWa).sent[0]![1].body[0]).toBe("דנה");
     expect(rawLog()).not.toContain("501234567");
@@ -136,19 +144,15 @@ describe("send_purchase_link sends the WhatsApp to the number on the call", () =
     expect((whatsapp as FakeWa).sent).toEqual([]);
   });
 
-  it("the bot is answered at once (no silence while Texter works); a failure in the background goes to a rep", async () => {
+  it("Texter refuses it: the bot is told to say a rep will send it, and a rep task opens (Gold never gets 'link sent')", async () => {
     const wa = new FakeWa();
     wa.fail = true;
-    const { store, send } = await setup(wa);
+    const { store, send, line } = await setup(wa);
     store.numbers.set("call-1", "053-4271418");
-    const r = await send("call-1");
-    expect(r).toMatchObject({ ok: true, status: "sent", closing: true }); // the customer hears "נשלח" right away
+    expect(await send("call-1")).toMatchObject({ ok: true, status: "sending" });
     await settle();
-    // ...and when Texter refused it: a rep task with a note, so a person sends the link
-    expect(store.tools).toEqual([
-      ["call-1", "send_purchase_link", true],
-      ["call-1", "request_human", true],
-    ]);
+    expect(line.notes).toEqual([["call-1", expect.stringContaining("הייתה תקלה בשליחת הקישור, נציג יחזור אליך איתו בהקדם.")]]);
+    expect(store.tools).toEqual([["call-1", "request_human", true]]);
   });
 
   it("asked again on the same call (after a cut-in): sent once; the bot is told it went and not to ask again", async () => {
@@ -156,7 +160,7 @@ describe("send_purchase_link sends the WhatsApp to the number on the call", () =
     store.numbers.set("call-1", "053-4271418");
     await send("call-1");
     const again = await send("call-1");
-    expect(again).toMatchObject({ ok: true, status: "already_sent", say_he: "הקישור נשלח עכשיו בוואטסאפ. יום נעים, להתראות." });
+    expect(again).toMatchObject({ ok: true, status: "already_sent", say_he: "הקישור נשלח אליך בוואטסאפ. יום נעים, להתראות." });
     expect(again.message_he).toContain("לא לשאול שוב");
     await settle();
     expect((whatsapp as FakeWa).sent).toHaveLength(1);

@@ -148,6 +148,13 @@ export class PhoneLine extends EventEmitter {
     return this.call && this.call.id === callId ? this.call.number : null;
   }
 
+  /** An update for the bot on this call (e.g. the WhatsApp link went out); false: not this line's call any more. */
+  notify(callId, text) {
+    const agent = this.call && this.call.id === callId ? this.call.agent : null;
+    agent?.notify(text);
+    return !!agent;
+  }
+
   /** The first name the bot was given for this call (the WhatsApp link's greeting); null: not this line's call. */
   nameFor(callId) {
     return this.call && this.call.id === callId ? (this.call.firstName ?? null) : null;
@@ -341,6 +348,7 @@ export class PhoneLine extends EventEmitter {
   /** Runs a call that is already up on the line (SIP + RTP) to its end. Resolves with the end reason. */
   _run({ call, rtp, prep }) {
     const { callId, tools, session, agent } = prep;
+    if (this.call?.id === callId) this.call.agent = agent; // the server's updates for this call's bot (notify)
     const logDir = this.env.logDir;
     return new Promise((resolveCall) => {
       const transcript = join(logDir, 'transcripts', `${callId}.jsonl`);

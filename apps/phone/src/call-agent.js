@@ -41,7 +41,9 @@ const SILENCE_GOODBYE_MAX_MS = 9000; // the no-answer goodbye can't run longer t
 // end_call (as the worker's tools.py): the words before it play out; then the reply to its result (the goodbye,
 // only if none was said yet) plays, and the line drops.
 const END_REPLY_START_MS = 2500; // no reply to the end_call result by then: the goodbye was already said
-const HANGUP_GRACE_MS = 600; // after the last words, so the goodbye isn't clipped
+const HANGUP_GRACE_MS = 600;
+// a server update after a tool (notify) waits for the bot's answer to that tool, at most this long
+const NOTE_AFTER_TOOL_MS = 4000; // after the last words, so the goodbye isn't clipped
 const END_MAX_MS = 15000;
 const TURN_MIN_VOICED_FRAMES = 10;
 // After an action that ends the call (link sent, callback booked, handed to a rep: `closing: true` in the tool
@@ -105,6 +107,10 @@ export class CallAgent extends EventEmitter {
     this.playText = '';
     this.turnSamples = 0;
     this.answerDone = true;
+    // updates from the server for the bot (notify): sent when it isn't mid-answer (the WhatsApp link's result)
+    this.pendingNotes = [];
+    this.toolAnsweredAt = 0;
+    this.turnCompletedAt = 0;
     this.genderReminder = genderReminder; // added to every tool answer the bot gets (not logged by the server)
     this.usage = new UsageMeter(); // Gemini tokens of this call (what it cost)
     this.live = live;
@@ -354,6 +360,7 @@ export class CallAgent extends EventEmitter {
     });
     a.on('turnComplete', () => {
       if (this.warming) return this._endWarmUp();
+      this.turnCompletedAt = performance.now();
       if (this.droppingCutTurn) {
         // the end of the answer the caller cut: nothing of it was played, nothing to log
         this.droppingCutTurn = false;
@@ -418,7 +425,7 @@ export class CallAgent extends EventEmitter {
     }
     if (this.ended) return;
     this.live.sendToolResponse(responses);
-    this.waitingSince = performance.now();
+    this.waitingSince = this.toolAnsweredAt = performance.now();
     if (closing && !endCall) this.closing = { spoke: false, doneAt: 0, voiced: 0 };
     if (endCall) {
       const saidGoodbye = this.answeredSinceLead || this.saidSinceLead.includes(GOODBYE_WORD) || !!this.closing?.spoke;
@@ -432,6 +439,27 @@ export class CallAgent extends EventEmitter {
   _open() {
     this.opened = true;
     this._cue(CUES.open);
+  }
+
+  /**
+   * An update from the server for the bot, e.g. "the WhatsApp link went out - say the goodbye". It waits until the
+   * bot isn't answering: after a tool, until the bot's answer to it ended (it was saying "אני שולחת לך עכשיו…") -
+   * text sent mid-answer would cut it off. A bot that says nothing after the tool gets it after 4 s anyway.
+   */
+  notify(text) {
+    if (this.ended) return;
+    this.pendingNotes.push(text);
+    this._flushNotes(performance.now());
+  }
+
+  _flushNotes(now) {
+    if (!this.pendingNotes.length || this.ended) return;
+    if (this.agentTurnActive || this.toolsPending > 0) return;
+    const answeredTool = this.turnCompletedAt > this.toolAnsweredAt || now - this.toolAnsweredAt > NOTE_AFTER_TOOL_MS;
+    if (!answeredTool) return;
+    const note = this.pendingNotes.shift();
+    this.emit('line', { who: 'note', text: `server update for the bot: ${note.slice(0, 80)}` });
+    this._cue(note);
   }
 
   _cue(text) {
@@ -661,6 +689,7 @@ export class CallAgent extends EventEmitter {
     if (this.ended) return;
     const now = performance.now();
     if (now - this.startedAt > MAX_CALL_MS) return this._hangup('max-duration');
+    this._flushNotes(now);
 
     const e = this.ending;
     if (e) {

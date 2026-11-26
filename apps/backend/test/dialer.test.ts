@@ -14,6 +14,7 @@ import { Dialer, FAILURE_WAIT_MS, parseOnlyNumbers } from "../src/dialer";
 import { buildServer } from "../src/server";
 import { AUTH, FIXED_NOW, testConfig } from "./helpers";
 import { mayCall } from "../src/access";
+import { TestDialer } from "../src/test-dialer";
 
 const settings = testConfig().settings;
 
@@ -511,5 +512,88 @@ describe("dialer routes (/api/admin/dialer)", () => {
     const get = await app.inject({ method: "GET", url: "/api/admin/dialer", headers: AUTH });
     expect(get.json()).toEqual({ ok: true, available: false, dialer: null });
     expect((await app.inject({ method: "POST", url: "/api/admin/dialer/start", headers: AUTH, payload: {} })).statusCode).toBe(409);
+  });
+});
+
+describe("the automatic-dialing test (TEST- contacts, the admin's phone only)", () => {
+  const ADMIN = "053-4271418";
+  /** FakeDb + the test's reads: its queue is whatever `queue` says (to check the locks even when it's wrong) */
+  class TestDb extends FakeDb {
+    queue: string[] = [];
+    resets: string[] = [];
+    async nextDueTests(_now: Date, skip: string[]) {
+      const id = this.queue.find((q) => !skip.includes(q) && ["new", "queued", "callback"].includes(this.contacts.get(q)?.bot_state?.bot_status ?? ""));
+      return id ? { gold_record_id: id, bot_status: "new", next_call_at: null } : null;
+    }
+    async nextScheduledTests() {
+      return null;
+    }
+    async testCallsSince() {
+      return this.calls.filter((c) => c.id.startsWith("TEST-")).length;
+    }
+    async testContacts() {
+      return [...this.contacts.values()].filter((c) => c.gold_record_id.startsWith("TEST-"));
+    }
+    async resetTests(phone: string) {
+      this.resets.push(phone);
+      return 10;
+    }
+  }
+  const make = (db: TestDb, now = new Date("2026-11-13T20:00:00Z")) => {
+    const line = new FakeLine();
+    const t = new TestDialer({ store: db as never, events: new ContactEvents(db, () => {}), phone: { line: line as never, reason: null }, settings, now: () => now });
+    return { line, t };
+  };
+
+  it("dials its queue only to the admin who started it, at any hour (Friday night), as a 'manual' call", async () => {
+    const db = new TestDb(contact("TEST-01", ADMIN));
+    db.queue = ["TEST-01"];
+    const { line, t } = make(db);
+    await t.start(ADMIN);
+    const tick = t.tick();
+    await flush();
+    line.end();
+    await tick;
+    expect(line.dialed).toEqual(["+972534271418"]);
+    expect(db.calls[0]).toMatchObject({ id: "TEST-01", origin: "manual" }); // not counted as the real dialer's
+    expect(t.status()).toMatchObject({ enabled: true, allowed_number: "+972534271418", only_numbers: true });
+  });
+
+  it("lock 2: even if its queue returned a real customer, that call never goes out", async () => {
+    const db = new TestDb(contact("a", "053-1111111"), contact("TEST-02", ADMIN));
+    db.queue = ["a", "TEST-02"]; // a bug in the queue
+    const { line, t } = make(db);
+    await t.start(ADMIN);
+    expect(await t.tick()).toBe(0); // skipped at once
+    expect(line.dialed).toEqual([]);
+    const tick = t.tick();
+    await flush();
+    line.end();
+    await tick;
+    expect(line.dialed).toEqual(["+972534271418"]); // only the admin's phone
+  });
+
+  it("off by default, separate from the real dialer; reset only when stopped; a valid phone is needed", async () => {
+    const db = new TestDb(contact("TEST-01", ADMIN));
+    db.queue = ["TEST-01"];
+    const { line, t } = make(db);
+    await t.tick();
+    expect(line.dialed).toEqual([]);
+    expect(t.status().enabled).toBe(false);
+    expect(db.control.enabled).toBe(false); // the real dialer's switch is untouched
+    await expect(t.start("abc")).rejects.toThrow();
+    await t.start(ADMIN);
+    await expect(t.reset(ADMIN)).rejects.toThrow("לעצור");
+    await t.stop();
+    expect(await t.reset(ADMIN)).toBe(10);
+    expect(db.resets).toEqual(["+972534271418"]);
+    expect(db.control.enabled).toBe(false);
+  });
+
+  it("the routes are ours: Mishlav's users (and 'view as Mishlav') can't reach them", () => {
+    for (const [m, p] of [["GET", "/api/admin/test-dialer"], ["POST", "/api/admin/test-dialer/start"], ["POST", "/api/admin/test-dialer/reset"], ["POST", "/api/admin/test-dialer/stop"]] as const) {
+      expect(mayCall("mishlav", m, p)).toBe(false);
+      expect(mayCall("admin", m, p)).toBe(true);
+    }
   });
 });
