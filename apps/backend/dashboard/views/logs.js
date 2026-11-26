@@ -1,9 +1,9 @@
-// לוגים: the live log of the server this page is connected to (the phone line + dialer, tools, errors, SMS).
+// לוגים: the live log of the server this page is connected to (the phone line + dialer, tools, errors, WhatsApp).
 import { get } from "../api.js";
 import { live } from "../live.js";
 import { esc, fmtTimeSec, icon } from "../ui.js";
 
-const KINDS = [["line", "קו"], ["dialer", "חיוג"], ["tool", "כלים"], ["error", "שגיאות"], ["sms", "SMS"], ["server", "שרת"]];
+const KINDS = [["line", "קו"], ["dialer", "חיוג"], ["tool", "כלים"], ["error", "שגיאות"], ["whatsapp", "וואטסאפ"], ["server", "שרת"]];
 const KEEP = 3000;
 // kept across screens: coming back shows what was already read
 // boot: the server start the live lines belong to; older starts are read from the database (history)

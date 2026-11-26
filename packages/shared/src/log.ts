@@ -15,7 +15,7 @@ export const ToolCallLogEntry = z.object({
   ok: z.boolean(),
   error: z.string().optional(),
   response: z.unknown(),
-  /** send_purchase_link: who the SMS went to, masked (+97250***4567) - never the full number */
+  /** send_purchase_link: who the WhatsApp went to, masked (+97250***4567) - never the full number */
   recipient: z.string().optional(),
   duration_ms: z.number(),
 });

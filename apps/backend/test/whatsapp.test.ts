@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { findRepoRoot } from "@mishlav/shared";
 import { describe, expect, it } from "vitest";
 import { loadKnowledge } from "../src/knowledge";
-import type { SmsResult, SmsSender } from "../src/sms";
 import { toolHandlers, type ToolContext } from "../src/tools/handlers";
 import { type LinkTemplateValues, linkTemplateValues, TexterWhatsApp, type WhatsAppSender, whatsappSenderFromEnv } from "../src/whatsapp";
 import { testConfig } from "./helpers";
@@ -61,10 +60,10 @@ describe("Texter", () => {
     expect(await bad.sendLink("+972501234567", values)).toMatchObject({ ok: false, error: 'Template "x" not found' });
   });
 
-  it("from the environment: project + token (a full address is fine); otherwise none - the SMS stays", () => {
+  it("from the environment: project + token (a full address is fine); otherwise log only - never an SMS", () => {
     const tpl = { template: "mishlav_purchase_link", language: "he" };
-    expect(whatsappSenderFromEnv({}, tpl)).toBeNull();
-    expect(whatsappSenderFromEnv({ TEXTER_PROJECT: "mishlav" }, tpl)).toBeNull();
+    expect(whatsappSenderFromEnv({}, tpl).live).toBe(false); // log only: nothing is sent
+    expect(whatsappSenderFromEnv({ TEXTER_PROJECT: "mishlav" }, tpl).live).toBe(false);
     const t = whatsappSenderFromEnv({ TEXTER_PROJECT: "https://mishlav.texterchat.com/", TEXTER_API_TOKEN: "t" }, tpl) as TexterWhatsApp;
     expect(t.url).toBe("https://mishlav.texterchat.com/server/api/v2/whatsapp/templates/send");
   });
@@ -81,17 +80,10 @@ describe("send_purchase_link on WhatsApp", () => {
       return this.fail ? { ok: false as const, provider: this.provider, error: "down" } : { ok: true as const, provider: this.provider, sent: true };
     }
   }
-  const sms: SmsSender = {
-    provider: "sms",
-    live: true,
-    send: async (): Promise<SmsResult> => {
-      throw new Error("the SMS must not be used when WhatsApp is set");
-    },
-  };
   const ctx = (wa: FakeWa, extra: Partial<ToolContext> = {}): ToolContext => {
     const settings = testConfig().settings;
     settings.whatsapp = { template: "mishlav_purchase_link", language: "he", url_prefix: PREFIX };
-    return { knowledge: kb, settings, now: () => new Date("2026-11-26T10:00:00Z"), sms, whatsapp: wa, recipient: "+972534271418", recipientName: "גיא", ...extra };
+    return { knowledge: kb, settings, now: () => new Date("2026-11-26T10:00:00Z"), whatsapp: wa, recipient: "+972534271418", recipientName: "גיא", ...extra };
   };
 
   it("sends the template with the day's details and link, and the bot says it went on WhatsApp", async () => {

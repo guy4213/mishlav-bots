@@ -10,18 +10,15 @@ import {
 } from "@mishlav/shared";
 import type { z } from "zod";
 import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay, timeRangeHe } from "../knowledge";
-import type { SmsSender } from "../sms";
 import { linkTemplateValues, type WhatsAppSender } from "../whatsapp";
-import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, SAY_LINK_SENT_WHATSAPP, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
+import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
   settings: Settings;
   now: () => Date;
-  /** the purchase-link SMS (no keys: log only) */
-  sms: SmsSender;
-  /** the purchase link on WhatsApp (Texter); when set it replaces the SMS */
-  whatsapp?: WhatsAppSender | null;
+  /** the purchase link - only by WhatsApp (Texter; no keys: log only). Never by SMS (Mishlav). */
+  whatsapp: WhatsAppSender;
   /** the customer's first name on this call (the WhatsApp template's {{1}}), from the line - never from the bot */
   recipientName?: string | null;
   /**
@@ -107,7 +104,7 @@ export function otherDates(day: StudyDay, kb: KnowledgeBase, now: Date) {
 }
 
 /**
- * The tools. Pure answers, except send_purchase_link, which sends the SMS. The contact's record is updated by
+ * The tools. Pure answers, except send_purchase_link, which sends the WhatsApp. The contact's record is updated by
  * the route afterwards (SQL bot_tool_event, from the answer).
  */
 export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext) => ToolResponse | Promise<ToolResponse> } = {
@@ -117,7 +114,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     return { ok: true, day: publicDay(day), ...otherDates(day, knowledge, now()), general: knowledge.general };
   },
 
-  async send_purchase_link(input, { knowledge, settings, sms, whatsapp, recipient, recipientName }) {
+  async send_purchase_link(input, { knowledge, settings, whatsapp, recipient, recipientName }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
     if (!day.open_for_registration) {
@@ -130,46 +127,29 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     if (!day.purchase_url) {
       return { ok: false, error: "no_purchase_url", message_he: `אין עדיין קישור רכישה ליום הזה. ${LINK_BY_REP}` };
     }
-    // WhatsApp (Texter) when the server has it: the approved template with the day's details and its link button
-    if (whatsapp && settings.whatsapp) {
-      if (!recipient) return { ok: false, error: "no_phone", message_he: `אין מספר טלפון לשליחת ההודעה. ${LINK_BY_REP}` };
-      const values = linkTemplateValues(day, recipientName, settings.whatsapp.url_prefix);
-      if (!values) {
-        return { ok: false, error: "link_not_in_template", message_he: `הקישור של היום הזה לא מתאים לתבנית הוואטסאפ. ${LINK_BY_REP}` };
-      }
-      const wa = await whatsapp.sendLink(recipient, values);
-      if (!wa.ok) {
-        return { ok: false, error: "whatsapp_failed", provider: wa.provider, message_he: `ההודעה לא נשלחה בגלל תקלה. ${LINK_BY_REP}` };
-      }
-      return {
-        ok: true,
-        status: "sent",
-        day_id: day.id,
-        day_he: dayNoteHe(day),
-        whatsapp: { sent: wa.sent, provider: wa.provider },
-        ...closing(SAY_LINK_SENT_WHATSAPP),
-      };
+    // Only by WhatsApp. A text run / browser test (no number) goes through with the log-only sender.
+    if (!recipient && whatsapp.live) {
+      return { ok: false, error: "no_phone", message_he: `אין מספר טלפון לשליחת ההודעה. ${LINK_BY_REP}` };
     }
-    // A log-only sender sends nothing anyway: text runs and browser tests (no number) still go through
-    if (!recipient && sms.live) {
-      return { ok: false, error: "no_phone", message_he: `אין מספר טלפון לשליחת המסרון. ${LINK_BY_REP}` };
+    const values = linkTemplateValues(day, recipientName, settings.whatsapp.url_prefix);
+    if (!values) {
+      return { ok: false, error: "link_not_in_template", message_he: `הקישור של היום הזה לא מתאים לתבנית הוואטסאפ. ${LINK_BY_REP}` };
     }
-    const dayHe = `${day.title} – ${datesHe(day)}`; // the title already says hotel/zoom
-    // sms.test_without_link (temporary): the same flow, without the link Zadarma refuses to send to Israel
-    const text = settings.sms.test_without_link
-      ? settings.sms.test_without_link.replaceAll("{day}", dayHe)
-      : settings.sms.link_template.replaceAll("{day}", dayHe).replaceAll("{url}", day.purchase_url);
-    const sent = await sms.send(recipient ?? null, text);
+    const sent = recipient ? await whatsapp.sendLink(recipient, values) : { ok: true as const, provider: whatsapp.provider, sent: false };
+    // A real customer never hears "sent" when nothing went (no Texter keys: the log-only sender only wrote it down)
+    if (recipient && sent.ok && !sent.sent) {
+      return { ok: false, error: "whatsapp_not_configured", message_he: `אי אפשר לשלוח את הקישור כרגע. ${LINK_BY_REP}` };
+    }
     if (!sent.ok) {
       // ok:false: the contact's record doesn't get "link sent" (bot_tool_event ignores failed tools)
-      return { ok: false, error: "sms_failed", provider: sent.provider, message_he: `המסרון לא נשלח בגלל תקלה. ${LINK_BY_REP}` };
+      return { ok: false, error: "whatsapp_failed", provider: sent.provider, message_he: `ההודעה לא נשלחה בגלל תקלה. ${LINK_BY_REP}` };
     }
     return {
       ok: true,
       status: "sent",
       day_id: day.id,
       day_he: dayNoteHe(day), // for the note on the lead (Gold): course number, dates, Zoom or in person
-      sms: { sent: sent.sent, provider: sent.provider },
+      whatsapp: { sent: sent.sent, provider: sent.provider },
       ...closing(SAY_LINK_SENT),
     };
   },

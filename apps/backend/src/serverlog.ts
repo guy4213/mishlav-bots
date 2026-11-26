@@ -1,6 +1,6 @@
 /**
  * The dashboard's live log of THIS server (GET /api/admin/logs): the phone line's lines (line.recent), the server's
- * own events (the dialer, tool calls, Supabase errors, SMS results) and its own output (console, warnings and errors:
+ * own events (the dialer, tool calls, Supabase errors, WhatsApp results) and its own output (console, warnings and errors:
  * kind "server") in one stream, with one sequence number across all of them.
  *
  * Kept in memory for the live view, and - with a store (Supabase server_logs) - written there in batches every few
@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import { format } from "node:util";
 import type { PhoneHolder } from "./routes/phone";
 
-export type LogKind = "line" | "dialer" | "tool" | "error" | "sms" | "server";
+export type LogKind = "line" | "dialer" | "tool" | "error" | "whatsapp" | "server";
 
 export interface LogLine {
   seq: number;

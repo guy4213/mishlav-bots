@@ -52,7 +52,7 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
         };
       } else {
         try {
-          // the SMS recipient comes from the call, never from the bot (the schema has no phone)
+          // the WhatsApp recipient comes from the call, never from the bot (the schema has no phone)
           if (tool === "send_purchase_link") {
             const callId = callMeta(req).call_id;
             recipient = await recipientFor(deps, callId, req);
