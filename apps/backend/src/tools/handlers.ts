@@ -11,7 +11,7 @@ import {
 import type { z } from "zod";
 import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay, timeRangeHe } from "../knowledge";
 import { linkTemplateValues, type WhatsAppSender } from "../whatsapp";
-import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENDING, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
+import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_FAILED, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
@@ -23,9 +23,7 @@ export interface ToolContext {
   recipientName?: string | null;
   /** the study days whose link already went out on this call (the route keeps one set per call) */
   sentDays?: Set<string>;
-  /** the WhatsApp went out (it is sent in the background): the bot is told, and says the goodbye */
-  onLinkSent?: (dayHe: string) => void;
-  /** the WhatsApp failed (in the background): the bot is told, and a rep sends the link */
+  /** the WhatsApp failed: a rep task opens, so a person sends the link */
   onLinkFailed?: (error: string, dayHe: string) => void;
   /**
    * Who is on this call (+972...), resolved by the server from x-call-id - never from the bot: a contact's call ->
@@ -120,7 +118,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     return { ok: true, day: publicDay(day), ...otherDates(day, knowledge, now()), general: knowledge.general };
   },
 
-  async send_purchase_link(input, { knowledge, settings, whatsapp, recipient, recipientName, sentDays, onLinkSent, onLinkFailed }) {
+  async send_purchase_link(input, { knowledge, settings, whatsapp, recipient, recipientName, sentDays, onLinkFailed }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
     if (!day.open_for_registration) {
@@ -163,22 +161,29 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       // a text run / browser test (no number, log only): nothing to wait for
       return { ok: true, status: "sent", day_id: day.id, day_he: dayHe, whatsapp: { sent: false, provider: whatsapp.provider }, ...closing(SAY_LINK_SENT) };
     }
-    // While a tool runs the bot can't speak, and waiting for Texter left the customer in silence ("את איתי? הלו",
-    // 26.11). So the bot says at once that it's sending, the WhatsApp goes in the background, and only Texter's answer
-    // makes it say "נשלח" (onLinkSent) or "תקלה, נציג יחזור" (onLinkFailed) - and only then the line drops.
-    void whatsapp.sendLink(recipient, values).then(
-      (r) => (r.ok ? onLinkSent?.(dayHe) : onLinkFailed?.(r.error, dayHe)),
-      (err: Error) => onLinkFailed?.(err.message, dayHe),
-    );
+    // The bot says "אני שולחת לך עכשיו… רק רגע" BEFORE calling (prompt), so the customer knows to wait while Texter
+    // works (~3 s): the tool waits for the real result and answers once - "נשלח" or "תקלה, נציג יחזור". An early
+    // "sending" answer (v1.22-v1.29) made Gemini fill the wait with a made-up sentence (26.11, 18:07).
+    const r = await whatsapp
+      .sendLink(recipient, values)
+      .catch((err: Error) => ({ ok: false as const, provider: whatsapp.provider, error: err.message }));
+    if (!r.ok) {
+      onLinkFailed?.(r.error, dayHe); // a rep task: a person sends the link
+      return {
+        ok: false,
+        error: "whatsapp_failed",
+        day_he: dayHe,
+        say_he: SAY_LINK_FAILED,
+        message_he: `ההודעה לא נשלחה בגלל תקלה, ונפתחה משימה לנציג. ${CLOSE_NEXT}`,
+      };
+    }
     return {
       ok: true,
-      status: "sending",
+      status: "sent",
       day_id: day.id,
       day_he: dayHe,
-      // the bot says the sentence before the tool (prompt), so there is no second wait for its words; if it didn't, now
-      message_he:
-        `הקישור נשלח עכשיו ברקע. אם כבר אמרת ללקוח שאת שולחת – לא לומר כלום עכשיו. אם עוד לא – לומר רק: "${SAY_LINK_SENDING}". ` +
-        "לא להיפרד, לא לקרוא ל-end_call ולא לשאול שוב על הקישור: תוך רגע תגיע הודעת מערכת עם התוצאה ומה לומר.",
+      whatsapp: { sent: r.sent, provider: r.provider },
+      ...closing(SAY_LINK_SENT),
     };
   },
 

@@ -86,15 +86,10 @@ describe("send_purchase_link on WhatsApp", () => {
     return { knowledge: kb, settings, now: () => new Date("2026-11-26T10:00:00Z"), whatsapp: wa, recipient: "+972534271418", recipientName: "גיא", ...extra };
   };
 
-  it("the bot says at once it is sending (no silence), and 'sent' comes only once Texter confirmed it", async () => {
+  it("waits for Texter and answers once: 'sent' with the goodbye (the bot said 'שולחת…' before calling)", async () => {
     const wa = new FakeWa();
-    const sent: string[] = [];
-    const r = await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa, { onLinkSent: (d) => sent.push(d) }));
-    expect(r).toMatchObject({ ok: true, status: "sending" });
-    expect(r).not.toHaveProperty("say_he"); // no goodbye, no hang-up yet
-    expect(r.ok && (r.message_he as string)).toContain("אני שולחת לך עכשיו את הקישור בוואטסאפ");
-    await new Promise((res) => setTimeout(res, 0));
-    expect(sent).toEqual(["דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום"]);
+    const r = await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa));
+    expect(r).toMatchObject({ ok: true, status: "sent", closing: true, say_he: "הקישור נשלח אליך בוואטסאפ. יום נעים, להתראות." });
     expect(wa.sent[0]![0]).toBe("+972534271418");
     expect(wa.sent[0]![1]).toMatchObject({ body: ["גיא", "דיני עבודה ומס הכנסה", expect.stringContaining("בזום")], buttonPayload: "2027-02-21-zoom" });
   });
@@ -107,13 +102,12 @@ describe("send_purchase_link on WhatsApp", () => {
     expect(await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, other)).toMatchObject({ ok: false, error: "link_not_in_template" });
   });
 
-  it("a Texter failure comes after the answer (the send is in the background): onLinkFailed gets it", async () => {
+  it("a Texter failure: the bot says a rep will bring the link, and onLinkFailed opens the rep task", async () => {
     const wa = new FakeWa();
     wa.fail = true;
     const failed: [string, string][] = [];
     const r = await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa, { onLinkFailed: (e, d) => failed.push([e, d]) }));
-    expect(r).toMatchObject({ ok: true, status: "sending" });
-    await new Promise((res) => setTimeout(res, 0));
+    expect(r).toMatchObject({ ok: false, error: "whatsapp_failed", say_he: expect.stringContaining("נציג יחזור אליך") });
     expect(failed).toEqual([["down", "דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום"]]);
   });
 });

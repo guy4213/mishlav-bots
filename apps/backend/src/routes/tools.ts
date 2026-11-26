@@ -7,11 +7,10 @@ import { type ContactEvents, toE164 } from "../contacts";
 import type { JsonlFile } from "../jsonl";
 import { redactDeep } from "../redact";
 import type { SessionStore } from "../sessions";
-import { SAY_LINK_FAILED, SAY_LINK_SENT } from "../tools/closings";
 import { toolHandlers, type ToolContext, type ToolResponse } from "../tools/handlers";
 import type { PhoneHolder } from "./phone";
 
-export interface ToolRouteDeps extends Omit<ToolContext, "recipient" | "recipientName" | "sentDays" | "onLinkSent" | "onLinkFailed"> {
+export interface ToolRouteDeps extends Omit<ToolContext, "recipient" | "recipientName" | "sentDays" | "onLinkFailed"> {
   toolLog: JsonlFile;
   sessions: SessionStore;
   /** Supabase contacts: every tool of a contact's call updates that contact (by call_id) */
@@ -49,23 +48,8 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
     }
     return set;
   };
-  // The WhatsApp goes in the background (the bot said "אני שולחת לך עכשיו…" and waits): Texter's answer is told to the
-  // bot on the call (line.notify), which then says the goodbye - "נשלח" only once it really went, else a rep sends it.
-  const tellBot = (callId: string | null, text: string) => {
-    if (callId) deps.phone?.line?.notify?.(callId, text);
-  };
-  const linkSent = (callId: string | null, params: () => unknown) => (dayHe: string) => {
-    tellBot(callId, `(הודעת מערכת: הקישור נשלח עכשיו ללקוח בוואטסאפ. לומר ללקוח רק את המשפט: "${SAY_LINK_SENT}" – מילה במילה, ולא שום דבר אחר.)`);
-    // only now Gold gets "נשלח קישור"
-    if (callId && deps.contacts) {
-      void deps.contacts.run(callId, "send_purchase_link", (s) =>
-        s.toolEvent(callId, "send_purchase_link", params(), { ok: true, status: "sent", day_he: dayHe }),
-      );
-    }
-  };
+  // the WhatsApp failed: a rep task with a note, so a person sends the link (the bot says it from the tool's answer)
   const linkFailed = (callId: string | null) => (error: string, dayHe: string) => {
-    deps.onToolCall?.(callId, "send_purchase_link", false, `whatsapp_failed: ${error}`);
-    tellBot(callId, `(הודעת מערכת: הקישור לא נשלח בגלל תקלה, ונפתחה משימה לנציג. לומר ללקוח רק את המשפט: "${SAY_LINK_FAILED}" – מילה במילה.)`);
     if (!callId || !deps.contacts) return;
     const note = `הקישור בוואטסאפ לא נשלח (${error}) – לשלוח ללקוח את הקישור`;
     void deps.contacts.run(callId, "link failed", (s) =>
@@ -89,7 +73,6 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
       let response: ToolResponse;
       let recipient: string | null = null;
       let recipientName: string | null = null;
-      let loggedParams: unknown; // what the log keeps of the call (set below); the link's late "sent" event uses it
       if (!parsed.success) {
         response = {
           ok: false,
@@ -113,7 +96,6 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
             recipient,
             recipientName,
             sentDays: sentDaysFor(callId),
-            onLinkSent: linkSent(callId, () => loggedParams),
             onLinkFailed: linkFailed(callId),
           });
         } catch (err) {
@@ -123,13 +105,12 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
       }
 
       const params = logToolCall(deps, req, tool, body, response, performance.now() - started, recipient);
-      loggedParams = params;
       const callId = callMeta(req).call_id;
       deps.onToolCall?.(callId, tool, response.ok, response.ok ? undefined : String(response.error));
-      // after the answer is ready, not before: the bot never waits for Supabase. A link on its way is written once it
-      // went (linkSent); one already sent on this call isn't written again
-      const later = response.ok && (response.status === "sending" || response.status === "already_sent");
-      if (callId && deps.contacts && !later) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
+      // after the answer is ready, not before: the bot never waits for Supabase. A link already sent on this call isn't
+      // written again
+      const again = response.ok && response.status === "already_sent";
+      if (callId && deps.contacts && !again) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
       return response;
     });
   }
