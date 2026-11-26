@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JS module (apps/phone is not type-checked)
 import { decodeG711, Downsampler, encodeG711, FRAME_SAMPLES } from "../src/audio.js";
 // @ts-expect-error plain JS module
-import { CallAgent, CUES, heardPart, isHebrewOpening } from "../src/call-agent.js";
+import { CallAgent, CUES, heardPart, isHebrewOpening, saysLinkSent } from "../src/call-agent.js";
 // @ts-expect-error plain JS module
 import { createDenoiser } from "../src/denoise.js";
 // @ts-expect-error plain JS module
@@ -343,6 +343,41 @@ describe("call agent", () => {
     live.emit("turnComplete");
     await wait(80);
     expect(live.sent).toEqual(["(הודעת מערכת: הקישור נשלח)"]);
+    agent.end();
+  });
+
+  it("it says it sends the link but calls no tool (26.11): it is told nothing went, once", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    const say = (text: string) => {
+      live.emit("outputTranscript", text);
+      live.emit("audio", Buffer.alloc(4800, 1));
+      live.emit("turnComplete");
+    };
+    say("מעולה, שולחת לך קישור עכשיו. משהו נוסף שאוכל לעזור בו?");
+    await wait(80);
+    expect(live.sent).toEqual([CUES.linkNotSent]);
+    say("שולחת לך קישור עכשיו."); // once is enough
+    await wait(80);
+    expect(live.sent).toHaveLength(1);
+    agent.end();
+  });
+
+  it("no nudge when the tool was called, or for the question 'לשלוח לך קישור?'", async () => {
+    expect(saysLinkSent("לשלוח לך קישור להרשמה?")).toBe(false);
+    expect(saysLinkSent("רוצה שאשלח לך קישור?")).toBe(false);
+    expect(saysLinkSent("הקישור נשלח אליך בוואטסאפ.")).toBe(true);
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sending" }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "d" } }]);
+    await wait(10);
+    live.emit("outputTranscript", "אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.");
+    live.emit("audio", Buffer.alloc(4800, 1));
+    live.emit("turnComplete");
+    await wait(80);
+    expect(live.sent).toEqual([]);
     agent.end();
   });
 
