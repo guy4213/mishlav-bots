@@ -286,6 +286,8 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     phone,
     whatsapp,
     onToolCall: (callId, tool, ok, error) => serverLog.push(ok ? "tool" : "error", `🔧 ${tool} ${ok ? "✓" : `✗ ${error ?? ""}`}`, callId),
+    // the automatic-dialing test can be run at any hour: its callbacks too
+    anyHourCall: (callId) => testDialer?.isCurrentCall(callId) ?? false,
   });
   await registerTestRoutes(app, {
     sessions,

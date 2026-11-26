@@ -18,6 +18,8 @@ export interface ToolRouteDeps extends Omit<ToolContext, "recipient" | "recipien
   contacts?: ContactEvents;
   /** the phone line: who a scenario call is on (send_purchase_link's recipient) */
   phone?: PhoneHolder;
+  /** the automatic-dialing test's call: callbacks and rep times at any hour (the test runs in the evening too) */
+  anyHourCall?: (callId: string | null) => boolean;
   /** after each tool call (the dashboard's live log) */
   onToolCall?: (callId: string | null, tool: ToolName, ok: boolean, error?: string) => void;
 }
@@ -71,6 +73,13 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
     );
   };
 
+  // the test's calls: every hour of every day is "business hours" (only for the callback / rep time)
+  const bh = deps.settings.business_hours;
+  const anyHour = {
+    ...deps.settings,
+    business_hours: { ...bh, days: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as typeof bh.days, open: "00:00", close: "23:59", holidays: [], half_days: [] },
+  };
+
   for (const tool of TOOL_NAMES) {
     app.post(`/tools/${tool}`, async (req) => {
       const started = performance.now();
@@ -100,6 +109,7 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
           const callId = callMeta(req).call_id;
           response = await handler(parsed.data, {
             ...deps,
+            ...(deps.anyHourCall?.(callId) ? { settings: anyHour } : {}),
             recipient,
             recipientName,
             sentDays: sentDaysFor(callId),
