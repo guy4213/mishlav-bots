@@ -165,8 +165,8 @@ export function buildCallVariables(
   const dayId = input.interested_day_id && kb.days.has(input.interested_day_id) ? input.interested_day_id : "";
   const firstName = input.first_name || DEFAULT_FIRST_NAME;
   const gender = input.gender ?? "unknown";
-  // a follow-up call: the contact's notes in Gold (the bot's lines from earlier calls, the reps' own)
-  const notes = input.notes?.trim() ? ` הערות על הלקוח מהשיחות הקודמות (מגולד, האחרונה בסוף): ${input.notes.trim()}` : "";
+  // the contact's notes in Gold: what a rep wrote (interest, preferences, requests) and the bot's lines from earlier calls
+  const notes = input.notes?.trim() ? ` הערות על הלקוח (מגולד – של הנציגים ומהשיחות הקודמות, האחרונה בסוף): ${input.notes.trim()}` : "";
   return {
     first_name: firstName,
     bot_name: input.bot_name || DEFAULT_BOT_NAME,

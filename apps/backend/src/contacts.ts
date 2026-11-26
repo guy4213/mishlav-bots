@@ -13,6 +13,7 @@
  * that is not a contact's (a scenario test) has no calls row, so it changes nothing.
  * Gold pulls what the bot changed with goldChanges() (GET /api/gold/changes).
  */
+import type { NotesSummarizer } from "./notes";
 import type { AiUsage, Settings } from "@mishlav/shared";
 import type { Gender } from "./gender";
 import type { LogStore, StoredLogLine } from "./serverlog";
@@ -154,6 +155,8 @@ export interface ContactStore {
   saveTranscript?(callId: string, lines: TranscriptLine[]): Promise<void>;
   /** Uploads the call's recording (an MP3 on this server's disk) to Storage and links it (calls.recording_path). */
   saveRecording?(callId: string, file: string): Promise<void>;
+  /** ADDS the bot's summary line to the contact's Gold notes (notes.ts); nothing is deleted. */
+  appendBotSummary?(goldRecordId: string, text: string): Promise<void>;
   /** Stores the call's Gemini tokens and their cost (calls.ai_usage / ai_cost_usd). */
   saveUsage?(callId: string, usage: AiUsage, costUsd: number | null): Promise<void>;
   /** A test call without a contact (a typed number, "שיחה אליי", an incoming call): a calls row of its own. */
@@ -551,6 +554,10 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     return text ? (JSON.parse(text) as unknown) : null;
   }
 
+  async appendBotSummary(goldRecordId: string, text: string) {
+    await this.req("POST", "/rpc/bot_append_summary", { p_id: goldRecordId, p_text: text });
+  }
+
   async saveRecording(callId: string, file: string) {
     const { readFile, unlink } = await import("node:fs/promises");
     const ext = file.endsWith(".mp3") ? "mp3" : "wav"; // MP3; WAV only if encoding failed
@@ -847,6 +854,8 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
  */
 export class ContactEvents {
   private readonly chains = new Map<string, Promise<unknown>>();
+  /** sums up the bot's notes when they pile up (notes.ts; main.ts: Gemini). None: no summaries */
+  summarizeNotes?: NotesSummarizer;
   constructor(
     readonly store: ContactStore,
     private readonly onError: (callId: string, what: string, err: Error) => void,
