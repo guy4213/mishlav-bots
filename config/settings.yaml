@@ -62,7 +62,7 @@ dialing:
 # TEXTER_API_TOKEN (+ TEXTER_FROM) in Render; without them a customer is told a rep will send the link. The approved template: body "היי {{1}}, ... יום העיון בנושא {{2}}. 📅 {{3}} ..." and a URL button
 # url_prefix + {{1}}. {{1}} first name, {{2}} the day's topic, {{3}} dates · Zoom/place · hours · price.
 whatsapp:
-  template: mishlav_purchase_link
+  template: bulk_utility_448     # Texter's id for the approved template ("mishlav_purchase_link", approved 26.11)
   language: he
   url_prefix: "https://mishlav-shop.sylla-lxp.com/product/"
 
