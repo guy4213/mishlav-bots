@@ -119,7 +119,7 @@ function othersHe(days: StudyDay[]): string {
   return days.map((d) => `${topicName(d)} (${IN_FORMAT_HE[d.format]}, ${datesHe(d)})`).join(", ");
 }
 
-export function buildCustomerContext(kb: KnowledgeBase, interestedDayId: string | undefined, now: Date): string {
+export function buildCustomerContext(kb: KnowledgeBase, interestedDayId: string | undefined, now: Date, hasNotes = false): string {
   const today = todayIso(now);
   const offered = [...kb.days.values()]
     .filter((d) => d.open_for_registration && d.date >= today)
@@ -128,7 +128,12 @@ export function buildCustomerContext(kb: KnowledgeBase, interestedDayId: string 
 
   if (!day) {
     const items = offered.map((d) => `${topicName(d)} – ${dayFormatHe(d).replace("יום ", "")}, ${datesHe(d)}`);
-    return `לא ידוע באיזה יום עיון הלקוח התעניין. בקטלוג ${countHe(offered.length)}: ${items.join("; ")}.`;
+    // with notes it is not "unknown": the bot believed this sentence over the notes after it, and asked a customer
+    // whose notes said "Zoom, November 2027" whether she prefers Zoom or the hotel (26.11, 17:52)
+    const known = hasNotes
+      ? "במערכת לא נבחר יום עיון מסוים – מה שהלקוח התעניין בו כתוב בהערות למעלה."
+      : "לא ידוע באיזה יום עיון הלקוח התעניין.";
+    return `${known} בקטלוג ${countHe(offered.length)}: ${items.join("; ")}.`;
   }
 
   const sentences = [`הלקוח התעניין ביום העיון "${topicName(day)}" – ${dayFormatHe(day)}, ${datesHe(day)}.`];
@@ -165,14 +170,18 @@ export function buildCallVariables(
   const dayId = input.interested_day_id && kb.days.has(input.interested_day_id) ? input.interested_day_id : "";
   const firstName = input.first_name || DEFAULT_FIRST_NAME;
   const gender = input.gender ?? "unknown";
-  // the contact's notes in Gold: what a rep wrote (interest, preferences, requests) and the bot's lines from earlier calls
-  const notes = input.notes?.trim() ? ` הערות על הלקוח (מגולד – של הנציגים ומהשיחות הקודמות, האחרונה בסוף): ${input.notes.trim()}` : "";
+  // the contact's notes in Gold: what a rep wrote (interest, preferences, requests) and the bot's lines from earlier
+  // calls. FIRST, right after the name: at the end, after the whole catalog, the bot didn't build on them.
+  const notes = input.notes?.trim()
+    ? ` מה ידוע על הלקוח – ההערות בגולד (של הנציגים ומהשיחות הקודמות, האחרונה בסוף), לבנות עליהן את השיחה: ${input.notes.trim()}`
+    : "";
   return {
     first_name: firstName,
     bot_name: input.bot_name || DEFAULT_BOT_NAME,
-    interested_day_id: dayId || "לא ידוע", // display value, as the worker rendered it before
+    // display value, as the worker rendered it before; with notes, they say what the customer wants
+    interested_day_id: dayId || (notes ? "לא נבחר במערכת – ראו את ההערות ב\"הקשר השיחה\"" : "לא ידוע"),
     current_datetime: currentDatetimeHe(now),
-    customer_context: `${genderFactHe(firstName, gender)} ${buildCustomerContext(kb, dayId || undefined, now)}${notes}`,
+    customer_context: `${genderFactHe(firstName, gender)}${notes} ${buildCustomerContext(kb, dayId || undefined, now, !!notes)}`,
     day_catalog: buildDayCatalog(kb, now),
     customer_gender: gender,
   };

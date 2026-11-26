@@ -67,10 +67,16 @@ describe("GET /test/context", () => {
 });
 
 describe("a follow-up call: the contact's notes reach the bot", () => {
-  it("they end customer_context; without notes nothing is added", () => {
+  it("they come first in customer_context, right after the name, and nothing says the interest is unknown", () => {
     const kb = loadKnowledge(join(findRepoRoot(__dirname), "config", "knowledge"), join(findRepoRoot(__dirname), "tests", "fixtures", "days"));
     const v = buildCallVariables(kb, { first_name: "גיא", gender: "male", notes: "ביקש הנחה · מוכן לשלם 590" }, FIXED_NOW);
-    expect(v.customer_context.endsWith("הערות על הלקוח (מגולד – של הנציגים ומהשיחות הקודמות, האחרונה בסוף): ביקש הנחה · מוכן לשלם 590")).toBe(true);
-    expect(buildCallVariables(kb, { first_name: "גיא" }, FIXED_NOW).customer_context).not.toContain("הערות");
+    // at the end, after the whole catalog and "לא ידוע באיזה יום", the bot asked "זום או מלון?" despite them (26.11)
+    expect(v.customer_context).toMatch(/^הלקוח גיא – גבר\. מה ידוע על הלקוח – ההערות בגולד .*: ביקש הנחה · מוכן לשלם 590 /);
+    expect(v.customer_context).not.toContain("לא ידוע באיזה יום");
+    expect(v.interested_day_id).toContain("ההערות");
+    const none = buildCallVariables(kb, { first_name: "גיא" }, FIXED_NOW);
+    expect(none.customer_context).not.toContain("הערות");
+    expect(none.customer_context).toContain("לא ידוע באיזה יום");
+    expect(none.interested_day_id).toBe("לא ידוע");
   });
 });
