@@ -9,8 +9,8 @@ import { addDays, dateKey, toLocalParts, type EndCallReason } from "@mishlav/sha
 // a period, not "!": with "!" the bot said "להתראות" rising, like a question (Guy, 24.11)
 export const GOODBYE = "יום נעים, להתראות.";
 
-// the link goes only by WhatsApp (Mishlav: never by SMS). Said only once Texter confirmed it (or failed): while it
-// goes out the bot says SAY_LINK_SENDING and waits for the server's update (routes/tools.ts -> line.notify)
+// the link goes only by WhatsApp (Mishlav: never by SMS). The bot says SAY_LINK_SENDING before calling the tool (prompt);
+// the tool answers once Texter confirmed it (SAY_LINK_SENT) or failed (SAY_LINK_FAILED)
 export const SAY_LINK_SENDING = "אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.";
 export const SAY_LINK_SENT = `הקישור נשלח אליך בוואטסאפ. ${GOODBYE}`;
 export const SAY_LINK_FAILED = `הייתה תקלה בשליחת הקישור, נציג יחזור אליך איתו בהקדם. ${GOODBYE}`;
