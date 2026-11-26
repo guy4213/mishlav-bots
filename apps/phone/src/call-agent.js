@@ -42,6 +42,7 @@ const SILENCE_CHECK_MS = 6000; // quiet line this long -> the bot checks the lin
 const OPEN_AFTER_CALLER_MS = 800; // + the bot starting to speak: about 1.5 s after the "הלו" (was 2.4 s)
 // The opening is made while the phone rings (the warm-up turn) and played the moment the callee answers, instead of
 // Gemini making it after the "הלו" (2-3 s of silence, and a "הלו" said just as it started cut it). See _playOpening.
+const OPENING_PLAY_LATEST_MS = 4000; // the callee answered: the opening plays by then at the latest
 const PLAY_AFTER_HELLO_MS = 300; // the callee's "הלו" ended this long ago: the opening plays
 const LONG_HELLO_MS = 1500; // the callee talked this long before the opening: not a "הלו" (a voicemail greeting...)
 const OPENING_WAIT_MS = 3000; // no opening audio yet this long after the answer: the opening cue, as before
@@ -76,6 +77,9 @@ export const CUES = {
   // exact Hebrew word to say, and that the call starts from the opening when the callee answers.
   // The warm-up makes the opening itself: it is played to the callee the moment they answer (_playOpening).
   warmUp: '(הודעת מערכת: הטלפון מצלצל והלקוח עוד לא ענה. השיחה כולה בעברית. לומר עכשיו רק את משפט הפתיחה מהשלב הראשון בזרימת השיחה, עד "מה נשמע?", ולעצור שם. לא להפעיל כלים. המשפט יושמע ללקוח ברגע שיענה.)',
+  // the opening made while ringing was dropped (the callee talked first): Gemini thinks it said it - it didn't
+  openingNotHeard:
+    '(הודעת מערכת: משפט הפתיחה שהכנת לא הושמע ללקוח – הוא עוד לא שמע ממך כלום. אם זה משיבון – end_call עם voicemail, בלי לומר כלום. אחרת – לפתוח עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה, כולל ההצגה העצמית, ולהגיב למה שאמר.)',
   open: '(הודעת מערכת: השיחה התחברה והלקוח על הקו, ועוד לא שמע ממך כלום. לפתוח את השיחה עכשיו במשפט הפתיחה מהשלב הראשון בזרימת השיחה.)',
   silence: '(הודעת מערכת: שקט על הקו כבר כמה שניות. הלקוח לא עונה.)',
   hangup: '(הודעת מערכת: אין מענה על הקו. לומר רק את המשפט: "נראה שלא שומעים, נדבר בהזדמנות אחרת. יום נעים, להתראות.")',
@@ -130,6 +134,7 @@ export class CallAgent extends EventEmitter {
     // updates from the server for the bot (notify): sent when it isn't mid-answer (the WhatsApp link's result)
     this.pendingNotes = [];
     this.callerLevels = []; // the caller's speech levels while the bot is silent (callerLevel)
+    this.preTalkAt = 0; // the callee's own voice before the opening made while ringing played
     this.toolAnsweredAt = 0;
     this.turnCompletedAt = 0;
     this.genderReminder = genderReminder; // added to every tool answer the bot gets (not logged by the server)
@@ -543,7 +548,12 @@ export class CallAgent extends EventEmitter {
       // Before the opening made while ringing plays, Gemini hears silence: it already "said" the opening, so it must
       // not answer the "הלו" by itself. Talking at length isn't a "הלו" (a voicemail greeting, a question): Gemini
       // gets it all, as before this opening existed.
-      if (voiced) this.preVoicedMs += 20;
+      // Only a voice as loud as the callee's own counts as them talking: Bluetooth earbuds' echo and voices around
+      // made a "Hello" count as 1.5 s of talk (26.11, 17:52) and the opening was dropped.
+      if (voiced && level >= this._bargeLevel()) {
+        this.preVoicedMs += 20;
+        this.preTalkAt = now;
+      }
       this.preHeld.push(frame);
       if (this.preHeld.length > HOLD_MS / 20) this.preHeld.shift();
       if (this.preVoicedMs < LONG_HELLO_MS) {
@@ -554,6 +564,9 @@ export class CallAgent extends EventEmitter {
       this.held = this.preHeld;
       this.preHeld = [];
       this._releaseHeld();
+      // Gemini made the opening while ringing, so it "said" it - but nobody heard it. Without this it went straight
+      // on to "אני מתקשרת בהמשך…" without introducing itself (26.11, 17:52).
+      this._cue(CUES.openingNotHeard);
       return;
     }
 
@@ -777,7 +790,11 @@ export class CallAgent extends EventEmitter {
     if (!this.opened && this._openingUsable()) {
       // the opening made while ringing: right after the "הלו", or after the short silence if the callee says nothing
       const o = this.opening;
-      if (o.frames.length && (this.callerSpoke ? now - this.lastVoice >= PLAY_AFTER_HELLO_MS : now >= this.openAt)) {
+      // after the callee's "הלו" (their own voice, not echo or voices around), or after the short silence; voices
+      // around that never stop don't hold it back more than OPENING_PLAY_LATEST_MS
+      const talkAt = this.preTalkAt || this.lastVoice;
+      const afterHello = now - talkAt >= PLAY_AFTER_HELLO_MS || now - this.startedAt >= OPENING_PLAY_LATEST_MS;
+      if (o.frames.length && (this.callerSpoke ? afterHello : now >= this.openAt)) {
         this._playOpening(now);
       } else if (!o.frames.length && now - this.startedAt >= OPENING_WAIT_MS) this._dropOpening('not ready in time');
     }

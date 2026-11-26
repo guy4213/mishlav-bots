@@ -435,7 +435,7 @@ describe("call agent", () => {
     });
 
     it("the callee talks at length first (a voicemail greeting): Gemini hears it all, the opening isn't played", async () => {
-      const { agent, rtp, lines, callerHeard } = await setup();
+      const { agent, rtp, lines, callerHeard, live } = await setup();
       for (let i = 0; i < 85; i++) {
         rtp.emit("audio", voice); // 1.7 s of talk (85 frames of 20 ms), with no pause the opening would wait for
         await wait(5);
@@ -443,6 +443,19 @@ describe("call agent", () => {
       expect(callerHeard()).toBe(true);
       expect(agent.queued).toBe(0);
       expect(lines.some((l) => l.includes("opening made while ringing not played"))).toBe(true);
+      // it "said" the opening while ringing, but nobody heard it: told so, it opens with the introduction (26.11)
+      expect(live.sent.at(-1)).toBe(CUES.openingNotHeard);
+      agent.end();
+    });
+
+    it("earbuds: a quiet voice before the opening (echo, people around) doesn't count as the callee talking", async () => {
+      const { agent, rtp, lines } = await setup();
+      const quiet = new Int16Array(160).fill(Math.round(0.03 * 32768)); // over the plain level, under 0.04
+      for (let i = 0; i < 85; i++) {
+        rtp.emit("audio", quiet);
+        await wait(5);
+      }
+      expect(lines.some((l) => l.includes("opening made while ringing not played"))).toBe(false);
       agent.end();
     });
 
