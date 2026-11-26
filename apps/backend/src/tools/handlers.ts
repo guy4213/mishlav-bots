@@ -11,7 +11,7 @@ import {
 import type { z } from "zod";
 import { datesHe, FORMAT_HE, type KnowledgeBase, type StudyDay, timeRangeHe } from "../knowledge";
 import { linkTemplateValues, type WhatsAppSender } from "../whatsapp";
-import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
+import { SAY_END_CALL, SAY_HANDED_TO_REP, SAY_LINK_SENDING, SAY_LINK_SENT, sayCallback, sayHandedToRepAt, whenHe } from "./closings";
 
 export interface ToolContext {
   knowledge: KnowledgeBase;
@@ -23,7 +23,9 @@ export interface ToolContext {
   recipientName?: string | null;
   /** the study days whose link already went out on this call (the route keeps one set per call) */
   sentDays?: Set<string>;
-  /** the WhatsApp failed after the bot was answered (it is sent in the background): a rep sends the link */
+  /** the WhatsApp went out (it is sent in the background): the bot is told, and says the goodbye */
+  onLinkSent?: (dayHe: string) => void;
+  /** the WhatsApp failed (in the background): the bot is told, and a rep sends the link */
   onLinkFailed?: (error: string, dayHe: string) => void;
   /**
    * Who is on this call (+972...), resolved by the server from x-call-id - never from the bot: a contact's call ->
@@ -118,7 +120,7 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
     return { ok: true, day: publicDay(day), ...otherDates(day, knowledge, now()), general: knowledge.general };
   },
 
-  async send_purchase_link(input, { knowledge, settings, whatsapp, recipient, recipientName, sentDays, onLinkFailed }) {
+  async send_purchase_link(input, { knowledge, settings, whatsapp, recipient, recipientName, sentDays, onLinkSent, onLinkFailed }) {
     const day = knowledge.days.get(input.day_id);
     if (!day) return unknownDay(knowledge);
     if (!day.open_for_registration) {
@@ -156,24 +158,26 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
         message_he: `הקישור ליום הזה כבר נשלח בשיחה הזו - לא לשלוח שוב ולא לשאול שוב אם לשלוח. ${CLOSE_NEXT}`,
       };
     }
-    // The bot answers at once and the WhatsApp goes in the background: while a tool runs the bot can't speak, and
-    // waiting for Texter left the customer in silence ("את איתי? הלו", 26.11). A failure goes to a rep (onLinkFailed).
     sentDays?.add(day.id);
-    if (recipient) {
-      void whatsapp.sendLink(recipient, values).then(
-        (r) => {
-          if (!r.ok) onLinkFailed?.(r.error, dayHe);
-        },
-        (err: Error) => onLinkFailed?.(err.message, dayHe),
-      );
+    if (!recipient) {
+      // a text run / browser test (no number, log only): nothing to wait for
+      return { ok: true, status: "sent", day_id: day.id, day_he: dayHe, whatsapp: { sent: false, provider: whatsapp.provider }, ...closing(SAY_LINK_SENT) };
     }
+    // While a tool runs the bot can't speak, and waiting for Texter left the customer in silence ("את איתי? הלו",
+    // 26.11). So the bot says at once that it's sending, the WhatsApp goes in the background, and only Texter's answer
+    // makes it say "נשלח" (onLinkSent) or "תקלה, נציג יחזור" (onLinkFailed) - and only then the line drops.
+    void whatsapp.sendLink(recipient, values).then(
+      (r) => (r.ok ? onLinkSent?.(dayHe) : onLinkFailed?.(r.error, dayHe)),
+      (err: Error) => onLinkFailed?.(err.message, dayHe),
+    );
     return {
       ok: true,
-      status: "sent",
+      status: "sending",
       day_id: day.id,
       day_he: dayHe,
-      whatsapp: { sent: !!recipient, provider: whatsapp.provider },
-      ...closing(SAY_LINK_SENT),
+      message_he:
+        `הקישור נשלח עכשיו ברקע. לומר ללקוח עכשיו רק: "${SAY_LINK_SENDING}" ולחכות בשקט. ` +
+        "לא להיפרד, לא לקרוא ל-end_call ולא לשאול שוב על הקישור: תוך רגע תגיע הודעת מערכת עם התוצאה ומה לומר.",
     };
   },
 

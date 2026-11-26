@@ -86,10 +86,15 @@ describe("send_purchase_link on WhatsApp", () => {
     return { knowledge: kb, settings, now: () => new Date("2026-11-26T10:00:00Z"), whatsapp: wa, recipient: "+972534271418", recipientName: "גיא", ...extra };
   };
 
-  it("sends the template with the day's details and link, and the bot says it went on WhatsApp", async () => {
+  it("the bot says at once it is sending (no silence), and 'sent' comes only once Texter confirmed it", async () => {
     const wa = new FakeWa();
-    const r = await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa));
-    expect(r).toMatchObject({ ok: true, status: "sent", whatsapp: { provider: "fake-wa" }, say_he: "הקישור נשלח עכשיו בוואטסאפ. יום נעים, להתראות." });
+    const sent: string[] = [];
+    const r = await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa, { onLinkSent: (d) => sent.push(d) }));
+    expect(r).toMatchObject({ ok: true, status: "sending" });
+    expect(r).not.toHaveProperty("say_he"); // no goodbye, no hang-up yet
+    expect(r.ok && (r.message_he as string)).toContain("אני שולחת לך עכשיו את הקישור בוואטסאפ");
+    await new Promise((res) => setTimeout(res, 0));
+    expect(sent).toEqual(["דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום"]);
     expect(wa.sent[0]![0]).toBe("+972534271418");
     expect(wa.sent[0]![1]).toMatchObject({ body: ["גיא", "דיני עבודה ומס הכנסה", expect.stringContaining("בזום")], buttonPayload: "2027-02-21-zoom" });
   });
@@ -107,7 +112,7 @@ describe("send_purchase_link on WhatsApp", () => {
     wa.fail = true;
     const failed: [string, string][] = [];
     const r = await toolHandlers.send_purchase_link({ day_id: "2027-02-21-zoom" }, ctx(wa, { onLinkFailed: (e, d) => failed.push([e, d]) }));
-    expect(r).toMatchObject({ ok: true, status: "sent" });
+    expect(r).toMatchObject({ ok: true, status: "sending" });
     await new Promise((res) => setTimeout(res, 0));
     expect(failed).toEqual([["down", "דיני עבודה ומס הכנסה – 21–22.2.2027 · בזום"]]);
   });

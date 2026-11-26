@@ -329,6 +329,23 @@ describe("call agent", () => {
     agent.end();
   });
 
+  it("a server update (the WhatsApp link went out) waits until the bot finished answering the tool, then reaches it", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sending" }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "d" } }]);
+    await wait(10);
+    live.emit("outputTranscript", "אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.");
+    live.emit("audio", Buffer.alloc(4800, 1)); // the bot is saying it
+    agent.notify("(הודעת מערכת: הקישור נשלח)");
+    await wait(80);
+    expect(live.sent).toEqual([]); // not mid-sentence: that would cut it off
+    live.emit("turnComplete");
+    await wait(80);
+    expect(live.sent).toEqual(["(הודעת מערכת: הקישור נשלח)"]);
+    agent.end();
+  });
+
   it("every tool answer reminds the bot of the customer's gender", async () => {
     const live = new FakeLive();
     const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0, genderReminder: "הלקוח גבר" });
