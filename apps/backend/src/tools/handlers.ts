@@ -175,8 +175,9 @@ export const toolHandlers: { [T in ToolName]: (input: Input<T>, ctx: ToolContext
       status: "sending",
       day_id: day.id,
       day_he: dayHe,
+      // the bot says the sentence before the tool (prompt), so there is no second wait for its words; if it didn't, now
       message_he:
-        `הקישור נשלח עכשיו ברקע. לומר ללקוח עכשיו רק: "${SAY_LINK_SENDING}" ולחכות בשקט. ` +
+        `הקישור נשלח עכשיו ברקע. אם כבר אמרת ללקוח שאת שולחת – לא לומר כלום עכשיו. אם עוד לא – לומר רק: "${SAY_LINK_SENDING}". ` +
         "לא להיפרד, לא לקרוא ל-end_call ולא לשאול שוב על הקישור: תוך רגע תגיע הודעת מערכת עם התוצאה ומה לומר.",
     };
   },
