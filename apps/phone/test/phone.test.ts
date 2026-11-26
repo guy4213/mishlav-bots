@@ -611,7 +611,23 @@ describe("call agent", () => {
       const note = live.sent.at(-1)!;
       expect(note).toContain("הוא שמע רק עד: «היום עיון במלון");
       expect(note).not.toContain("לשלוח לך קישור");
+      expect(note).toContain("לא לחזור על מה שאמרת – לענות למה שהלקוח אומר");
       expect(lines.some((l) => l.who === "note" && l.text.startsWith("the caller heard only: «היום עיון במלון"))).toBe(true); // the log too
+      agent.end();
+    });
+
+    it("cut with nothing known or nothing heard (the opening made while ringing): no note - the bot answers the caller", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.sent.length = 0;
+      live.emit("audio", longAnswer()); // no transcript for it (as the opening): what was heard is unknown
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await talk(rtp, 700);
+      expect(agent.queued).toBe(0); // cut
+      expect(live.sent).toEqual([]); // no "he heard nothing" - that restarted the opening again and again
       agent.end();
     });
 
