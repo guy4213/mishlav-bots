@@ -10,6 +10,14 @@ const VOICE_RMS = 0.02; // above this level on the line, the caller is talking (
 // wind: vad ~0.01, so they no longer cut the bot. The level stays: the bot's own voice comes back faint on the line
 // (echo), and it IS a voice - with a lower level (0.005, v1.10) the bot cut itself off mid-sentence (24.11).
 const SPEECH_VAD = 0.5;
+// Cutting the bot off: the caller talks straight into the phone, people around them are quieter (Guy, 26.11,
+// outdoors: voices in the street stopped the bot again and again). The caller's own level is measured while they
+// talk and the bot is silent; to cut in, speech must reach half of it (-6 dB). Before it is known (the opening),
+// a fixed level, twice the plain "talking" one.
+const BARGE_REL = 0.5;
+const BARGE_DEFAULT_RMS = 0.04;
+const CALLER_LEVEL_MIN_FRAMES = 25; // 0.5 s of the caller's speech before their level counts
+const CALLER_LEVEL_FRAMES = 150; // the last 3 s of it
 // Silence on a real phone line is very faint noise (samples of ±8, about -72 dB) and Gemini's end-of-speech
 // detection thinks the caller is still talking: on a real call it detected the end only after 14 s and the bot
 // never answered. Such a frame is sent as clean silence, and the end of speech is detected at once.
@@ -121,6 +129,7 @@ export class CallAgent extends EventEmitter {
     this.answerDone = true;
     // updates from the server for the bot (notify): sent when it isn't mid-answer (the WhatsApp link's result)
     this.pendingNotes = [];
+    this.callerLevels = []; // the caller's speech levels while the bot is silent (callerLevel)
     this.toolAnsweredAt = 0;
     this.turnCompletedAt = 0;
     this.genderReminder = genderReminder; // added to every tool answer the bot gets (not logged by the server)
@@ -507,6 +516,11 @@ export class CallAgent extends EventEmitter {
     const clean = this.denoiser?.process(samples);
     const voiced = level > VOICE_RMS && (!clean || clean.vad >= SPEECH_VAD);
     const heard = clean ? clean.samples : samples;
+    // the caller's own level: their speech while the bot is silent (cutting in is measured against it)
+    if (voiced && !(this.queued > 0 || now < this.audibleUntil)) {
+      this.callerLevels.push(level);
+      if (this.callerLevels.length > CALLER_LEVEL_FRAMES) this.callerLevels.shift();
+    }
     if (voiced) {
       this.lastVoice = now;
       this.leadVoicedFrames++;
@@ -548,9 +562,10 @@ export class CallAgent extends EventEmitter {
       if (!this.holding) Object.assign(this, { holding: true, held: [], seg: null });
       this.held.push(frame);
       if (this.held.length > HOLD_MS / 20) this.held.shift();
-      if (this._leadTalking(now, voiced, level)) {
+      // only speech about as loud as the caller's own cuts in: quieter voices around them don't
+      if (this._leadTalking(now, voiced && level >= this._bargeLevel(), level)) {
         this.bargedIn = true;
-        this.emit('line', { who: 'note', text: `caller talked ${this._segMs()}ms over the bot: bot stopped` });
+        this.emit('line', { who: 'note', text: `caller talked ${this._segMs()}ms over the bot (${this._levels()}): bot stopped` });
         this._cutIn();
         this._releaseHeld();
         return;
@@ -596,12 +611,31 @@ export class CallAgent extends EventEmitter {
     const s = this.seg;
     if (s && !s.noted && now - s.last >= ANSWER_MS) {
       s.noted = true;
-      this.emit('line', { who: 'note', text: `caller said something short (${this._segMs()}ms) over the bot; bot went on` });
+      this.emit('line', { who: 'note', text: `caller said something short (${this._segMs()}ms, ${this._levels()}) over the bot; bot went on` });
     }
     if (!voiced) return false;
     if (!s || now - s.last > WORD_GAP_MS) this.seg = { start: now, last: now, peak: level, noted: false };
     else Object.assign(s, { last: now, peak: Math.max(s.peak, level) });
     return now - this.seg.start + 20 >= BARGE_MS;
+  }
+
+  /** The caller's own level (the typical one of their speech while the bot is silent); null until 0.5 s of it. */
+  callerLevel() {
+    const l = this.callerLevels;
+    if (l.length < CALLER_LEVEL_MIN_FRAMES) return null;
+    return [...l].sort((a, b) => a - b)[Math.floor(l.length * 0.6)];
+  }
+
+  /** How loud speech over the bot must be to cut it off. */
+  _bargeLevel() {
+    const c = this.callerLevel();
+    return c ? Math.max(VOICE_RMS, c * BARGE_REL) : BARGE_DEFAULT_RMS;
+  }
+
+  /** For the log: the segment's peak against the level needed, and the caller's own level. */
+  _levels() {
+    const c = this.callerLevel();
+    return `peak ${(this.seg?.peak ?? 0).toFixed(3)}, needs ${this._bargeLevel().toFixed(3)}, caller ${c ? c.toFixed(3) : '?'}`;
   }
 
   _segMs() {
