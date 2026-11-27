@@ -4,6 +4,7 @@
  * call so the contact's record is linked now and closed when the line says the call ended (with its transcript
  * stored in calls.transcript, so the dashboard's history survives a deploy).
  */
+import { notesForBot, summarizeIfLong } from "./notes";
 import { noAnswerRetryTimes, type Settings } from "@mishlav/shared";
 import type { CallEnded, CallOptions, PhoneLine } from "../../phone/src/line.js";
 import { aiCostUsd } from "./ai-cost";
@@ -32,22 +33,6 @@ export interface DialDeps {
   line: PhoneLine;
   /** where the line writes each call's transcript (logs/transcripts); none: not stored in the database */
   transcriptsDir?: string;
-}
-
-/**
- * The end of the contact's Gold notes (the latest lines: the bot's from earlier calls, the reps' own), whole lines,
- * at most ~600 characters - what the bot is told on a follow-up call.
- */
-export function recentNotes(notes: string | null | undefined, max = 600): string | undefined {
-  const lines = (notes ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const kept: string[] = [];
-  let size = 0;
-  for (const line of lines.reverse()) {
-    if (kept.length && size + line.length > max) break;
-    kept.unshift(line.length > max ? line.slice(-max) : line);
-    size += line.length + 3;
-  }
-  return kept.length ? kept.join(" | ") : undefined;
 }
 
 export interface DialOptions extends Omit<CallOptions, "gender" | "ringTimeoutMs" | "notes"> {
@@ -97,7 +82,7 @@ export async function dialContact(deps: DialDeps, goldRecordId: string, opts: Di
       name: callOpts.name ?? firstName(contact.full_name) ?? undefined,
       day: callOpts.day ?? contact.bot_state?.interested_day_id ?? undefined,
       gender: contact.bot_state?.customer_gender ?? undefined,
-      notes: recentNotes(contact.notes), // what earlier calls (the bot, the reps) wrote: the bot picks up from there
+      notes: notesForBot(contact.notes), // the reps' notes + the bot's summary and lines since (notes.ts)
       ringTimeoutMs: ringTimeoutMs(deps.settings),
     }));
   } catch (err) {
@@ -193,6 +178,11 @@ function trackCall(
       if (usage) void events.run(callId, "ai usage", async (s) => s.saveUsage?.(callId, usage, aiCostUsd(usage, deps.settings)));
       // the recording outlives the server's disk in Supabase Storage (the dashboard plays it from there)
       if (recording) void events.run(callId, "recording", async (s) => s.saveRecording?.(callId, recording));
+      // the bot's lines piled up: a summary line is ADDED to the notes (notes.ts), after the call's own updates
+      const summarize = events.summarizeNotes;
+      if (goldRecordId && summarize) {
+        void closed.then(() => events.run(callId, "notes summary", async (s) => summarizeIfLong(s, goldRecordId, summarize)));
+      }
       void closed.then(resolve);
     };
     const waitEnd = (e: CallEnded) => {

@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JS module (apps/phone is not type-checked)
 import { decodeG711, Downsampler, encodeG711, FRAME_SAMPLES } from "../src/audio.js";
 // @ts-expect-error plain JS module
-import { CallAgent, CUES, heardPart, isHebrewOpening } from "../src/call-agent.js";
+import { asksToSendLink, CallAgent, CUES, heardPart, isHebrewOpening, saysLinkSent } from "../src/call-agent.js";
 // @ts-expect-error plain JS module
 import { createDenoiser } from "../src/denoise.js";
+// @ts-expect-error plain JS module
+import { FixedLines, SAY_LINK_SENDING, saidTheSentence } from "../src/fixed-lines.js";
 // @ts-expect-error plain JS module
 import { buildSetup, DEFAULT_PHONE_MODEL } from "../src/gemini-live.js";
 // @ts-expect-error plain JS module
@@ -266,7 +268,7 @@ describe("call agent", () => {
     agent.start(rtp);
     live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "x" } }]);
     await wait(10);
-    live.emit("audio", Buffer.alloc(4800, 1)); // "הקישור נשלח עכשיו במסרון. יום נעים, להתראות!"
+    live.emit("audio", Buffer.alloc(4800, 1)); // "הקישור נשלח עכשיו בוואטסאפ. יום נעים, להתראות."
     live.emit("turnComplete");
     while (rtp.nextFrame()); // played out
     await wait(1000);
@@ -293,6 +295,43 @@ describe("call agent", () => {
     for (let i = 0; i < 100; i++) rtp.emit("audio", voice); // 2 s: "רגע, עוד שאלה..."
     await wait(2300);
     expect(reasons).toEqual([]);
+    agent.end();
+  });
+
+  it("after the goodbye, its reply to a short word isn't played (it asked 'יש משהו נוסף?', 26.11 18:02)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sent", closing: true }) }, openAfterSilenceMs: 0 });
+    const reasons: string[] = [];
+    agent.on("hangup", (r: string) => reasons.push(r));
+    const rtp = new FakeRtp();
+    agent.start(rtp);
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "x" } }]);
+    await wait(10);
+    live.emit("audio", Buffer.alloc(4800, 1)); // "הקישור נשלח אליך בוואטסאפ. יום נעים, להתראות."
+    live.emit("turnComplete");
+    while (rtp.nextFrame());
+    await wait(100); // the goodbye is over
+    const voice = new Int16Array(160).fill(3000);
+    for (let i = 0; i < 20; i++) rtp.emit("audio", voice); // "תודה" (0.4 s)
+    live.emit("outputTranscript", "יש משהו נוסף שאוכל לעזור בו?");
+    live.emit("audio", Buffer.alloc(4800, 1));
+    expect(agent.queued).toBe(0); // not played
+    live.emit("turnComplete");
+    await wait(2300);
+    expect(reasons).toEqual(["closing"]); // and the line drops
+    agent.end();
+  });
+
+  it("the bot explains the link and asks 'אפשר לשלוח?': no nudge - it waits for the answer (26.11 18:01)", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    live.emit("outputTranscript", "בדיוק, התשלום נעשה בקישור מאובטח שאני שולחת בוואטסאפ, אין צורך להקריא לי פרטים. אפשר לשלוח לך את הקישור?");
+    live.emit("audio", Buffer.alloc(4800, 1));
+    live.emit("turnComplete");
+    await wait(80);
+    expect(live.sent).toEqual([]);
+    expect(asksToSendLink("מעולה, שולחת לך קישור עכשיו. משהו נוסף שאוכל לעזור בו?")).toBe(false); // that one IS nudged
     agent.end();
   });
 
@@ -327,6 +366,181 @@ describe("call agent", () => {
     expect(reasons).toEqual(["closing"]);
     expect(live.sent).toEqual([CUES.open]); // no silence check that makes it say goodbye again
     agent.end();
+  });
+
+  it("a server update (the WhatsApp link went out) waits until the bot finished answering the tool, then reaches it", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sending" }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "d" } }]);
+    await wait(10);
+    live.emit("outputTranscript", "אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.");
+    live.emit("audio", Buffer.alloc(4800, 1)); // the bot is saying it
+    agent.notify("(הודעת מערכת: הקישור נשלח)");
+    await wait(80);
+    expect(live.sent).toEqual([]); // not mid-sentence: that would cut it off
+    live.emit("turnComplete");
+    await wait(80);
+    expect(live.sent).toEqual(["(הודעת מערכת: הקישור נשלח)"]);
+    agent.end();
+  });
+
+  it("it says it sends the link but calls no tool (26.11): it is told nothing went, once", async () => {
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    const say = (text: string) => {
+      live.emit("outputTranscript", text);
+      live.emit("audio", Buffer.alloc(4800, 1));
+      live.emit("turnComplete");
+    };
+    say("מעולה, שולחת לך קישור עכשיו. משהו נוסף שאוכל לעזור בו?");
+    await wait(80);
+    expect(live.sent).toEqual([CUES.linkNotSent]);
+    say("שולחת לך קישור עכשיו."); // once is enough
+    await wait(80);
+    expect(live.sent).toHaveLength(1);
+    agent.end();
+  });
+
+  it("no nudge when the tool was called, or for the question 'לשלוח לך קישור?'", async () => {
+    expect(saysLinkSent("לשלוח לך קישור להרשמה?")).toBe(false);
+    expect(saysLinkSent("רוצה שאשלח לך קישור?")).toBe(false);
+    expect(saysLinkSent("הקישור נשלח אליך בוואטסאפ.")).toBe(true);
+    expect(saysLinkSent("אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.")).toBe(true);
+    // explaining how paying works is no claim (it sent a link nobody agreed to, 26.11 18:49)
+    expect(saysLinkSent("התשלום נעשה בקישור מאובטח שאני שולחת, לא ישירות דרכי. מתי נוח שנציג יחזור אליך?")).toBe(false);
+    expect(saysLinkSent("בדיוק, התשלום נעשה בקישור מאובטח שאני שולחת בוואטסאפ.")).toBe(false);
+    const live = new FakeLive();
+    const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sending" }) }, openAfterSilenceMs: 60_000 });
+    agent.start(new FakeRtp());
+    live.emit("toolCall", [{ id: "1", name: "send_purchase_link", args: { day_id: "d" } }]);
+    await wait(10);
+    live.emit("outputTranscript", "אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.");
+    live.emit("audio", Buffer.alloc(4800, 1));
+    live.emit("turnComplete");
+    await wait(80);
+    expect(live.sent).toEqual([]);
+    agent.end();
+  });
+
+  describe("the fixed 'sending' sentence (the bot said it twice and didn't send, 26.11 16:34)", () => {
+    const clip = new Int16Array(8000 * 3).fill(2000); // 3 s in the bot's voice (fixed-lines.js)
+    const linkCall = [{ id: "1", name: "send_purchase_link", args: { day_id: "d" } }];
+
+    it("the tool is called: the line plays the sentence at once, while the link is sent, and writes it once", async () => {
+      const live = new FakeLive();
+      let release = () => {};
+      const sending = new Promise<void>((r) => (release = r)); // Texter takes its time
+      const tools = { callTool: async () => (await sending, { ok: true, status: "sent", closing: true, say_he: "הקישור נשלח אליך בוואטסאפ. יום נעים, להתראות." }) };
+      const agent = new CallAgent({ live, tools, openAfterSilenceMs: 60_000, linkSending: () => clip });
+      agent.start(new FakeRtp());
+      const lines: { who: string; text: string }[] = [];
+      agent.on("line", (l: { who: string; text: string }) => lines.push(l));
+      live.emit("toolCall", linkCall);
+      await wait(10);
+      expect(agent.queued).toBe(clip.length); // playing while the tool runs
+      expect(live.toolResponses).toEqual([]);
+      expect(lines.filter((l) => l.who === "agent").map((l) => l.text)).toEqual(["אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע."]);
+      release();
+      await wait(10);
+      expect(live.toolResponses).toHaveLength(1); // then the result: the bot says "נשלח" after the sentence
+      expect(live.sent).toEqual([]); // no nudge: the tool was called
+      agent.end();
+    });
+
+    it("the bot already said it is sending (then was told to call the tool): not said again", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sent" }) }, openAfterSilenceMs: 60_000, linkSending: () => clip });
+      agent.start(new FakeRtp());
+      live.emit("outputTranscript", "אני שולחת לך עכשיו את הקישור בוואטסאפ, רק רגע.");
+      live.emit("audio", Buffer.alloc(4800, 1));
+      live.emit("turnComplete");
+      const before = agent.queued;
+      live.emit("toolCall", linkCall);
+      await wait(10);
+      expect(agent.queued).toBe(before);
+      agent.end();
+    });
+
+    it("its words before the tool that aren't 'sending' (\"מעולה.\"): the sentence still plays", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sent" }) }, openAfterSilenceMs: 60_000, linkSending: () => clip });
+      agent.start(new FakeRtp());
+      live.emit("outputTranscript", "מעולה.");
+      live.emit("audio", Buffer.alloc(4800, 1));
+      const before = agent.queued;
+      live.emit("toolCall", linkCall);
+      await wait(10);
+      expect(agent.queued).toBe(before + clip.length);
+      agent.end();
+    });
+
+    it("not ready (a new voice, the first call after a restart): the tool still runs, the log says so", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true, status: "sent" }) }, openAfterSilenceMs: 60_000 });
+      agent.start(new FakeRtp());
+      const lines: { who: string; text: string }[] = [];
+      agent.on("line", (l: { who: string; text: string }) => lines.push(l));
+      live.emit("toolCall", linkCall);
+      await wait(10);
+      expect(live.toolResponses).toHaveLength(1);
+      expect(lines.some((l) => l.who === "note" && l.text.includes("not ready"))).toBe(true);
+      agent.end();
+    });
+
+    it("other tools play nothing", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000, linkSending: () => clip });
+      agent.start(new FakeRtp());
+      live.emit("toolCall", [{ id: "1", name: "request_human", args: {} }]);
+      await wait(10);
+      expect(agent.queued).toBe(0);
+      agent.end();
+    });
+  });
+
+  describe("FixedLines: the sentence made once per voice, in that voice", () => {
+    /** A Live session that says `said` (its transcript) with 2 s of audio. */
+    const fakeSession = (said: string, made: string[]) => () => {
+      const s = new FakeLive();
+      s.sendText = (t: string) => {
+        made.push(t);
+        setTimeout(() => {
+          s.emit("outputTranscript", said);
+          s.emit("audio", Buffer.alloc(24000 * 2 * 2, 1));
+          s.emit("turnComplete");
+        }, 5);
+        return 0;
+      };
+      return s;
+    };
+
+    it("made once, kept for every later call; a call asking meanwhile shares it", async () => {
+      const made: string[] = [];
+      const lines = new FixedLines({ apiKey: "k", model: "m", connect: fakeSession(SAY_LINK_SENDING, made) });
+      expect(lines.linkSending("Kore")).toBeNull();
+      const [a, b] = await Promise.all([lines.prepare("Kore"), lines.prepare("Kore")]);
+      expect(a).toBe(b);
+      expect(a.length).toBe(16000); // 2 s at 8 kHz
+      expect(lines.linkSending("Kore")).toBe(a);
+      await lines.prepare("Kore");
+      expect(made).toEqual([SAY_LINK_SENDING]);
+    });
+
+    it("it said something else: not used (tried again, then nothing - the call goes on without it)", async () => {
+      const made: string[] = [];
+      const lines = new FixedLines({ apiKey: "k", model: "m", connect: fakeSession("בטח! אני שולחת לך את הקישור ועוד הרבה מילים נוספות שלא ביקשנו בכלל, רק רגע אחד קטן", made) });
+      expect(await lines.prepare("Puck")).toBeNull();
+      expect(made).toHaveLength(3);
+      expect(lines.linkSending("Puck")).toBeNull();
+    });
+
+    it("the transcript may spell it differently: still the sentence", () => {
+      expect(saidTheSentence("אני שולחת לך עכשיו את הקישור ב-WhatsApp, רק רגע.")).toBe(true);
+      expect(saidTheSentence("אני שולחת לך עכשיו את הקישור בווטסאפ רק רגע")).toBe(true);
+      expect(saidTheSentence("בסדר.")).toBe(false);
+    });
   });
 
   it("every tool answer reminds the bot of the customer's gender", async () => {
@@ -383,7 +597,7 @@ describe("call agent", () => {
     });
 
     it("the callee talks at length first (a voicemail greeting): Gemini hears it all, the opening isn't played", async () => {
-      const { agent, rtp, lines, callerHeard } = await setup();
+      const { agent, rtp, lines, callerHeard, live } = await setup();
       for (let i = 0; i < 85; i++) {
         rtp.emit("audio", voice); // 1.7 s of talk (85 frames of 20 ms), with no pause the opening would wait for
         await wait(5);
@@ -391,6 +605,19 @@ describe("call agent", () => {
       expect(callerHeard()).toBe(true);
       expect(agent.queued).toBe(0);
       expect(lines.some((l) => l.includes("opening made while ringing not played"))).toBe(true);
+      // it "said" the opening while ringing, but nobody heard it: told so, it opens with the introduction (26.11)
+      expect(live.sent.at(-1)).toBe(CUES.openingNotHeard);
+      agent.end();
+    });
+
+    it("earbuds: a quiet voice before the opening (echo, people around) doesn't count as the callee talking", async () => {
+      const { agent, rtp, lines } = await setup();
+      const quiet = new Int16Array(160).fill(Math.round(0.03 * 32768)); // over the plain level, under 0.04
+      for (let i = 0; i < 85; i++) {
+        rtp.emit("audio", quiet);
+        await wait(5);
+      }
+      expect(lines.some((l) => l.includes("opening made while ringing not played"))).toBe(false);
       agent.end();
     });
 
@@ -542,7 +769,7 @@ describe("call agent", () => {
       agent.end();
     });
 
-    it("Gemini is told what the caller heard of the cut answer (the link went out after a question never heard)", async () => {
+    it("a cut-in sends Gemini nothing (it read the note out loud, 26.11); the log shows what the caller heard", async () => {
       const live = new FakeLive();
       const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
       const rtp = new FakeRtp();
@@ -556,10 +783,60 @@ describe("call agent", () => {
       for (let i = 0; i < 100; i++) rtp.nextFrame(); // 2 s of it played
       await talk(rtp, 700);
       expect(agent.queued).toBe(0);
-      const note = live.sent.at(-1)!;
-      expect(note).toContain("הוא שמע רק עד: «היום עיון במלון");
-      expect(note).not.toContain("לשלוח לך קישור");
+      expect(live.sent.filter((t) => t.includes("קטע"))).toEqual([]); // no cut-in note: the bot just answers the caller
       expect(lines.some((l) => l.who === "note" && l.text.startsWith("the caller heard only: «היום עיון במלון"))).toBe(true); // the log too
+      agent.end();
+    });
+
+    it("cut with nothing known or nothing heard (the opening made while ringing): no note - the bot answers the caller", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 0 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      live.sent.length = 0;
+      live.emit("audio", longAnswer()); // no transcript for it (as the opening): what was heard is unknown
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await talk(rtp, 700);
+      expect(agent.queued).toBe(0); // cut
+      expect(live.sent).toEqual([]); // no "he heard nothing" - that restarted the opening again and again
+      agent.end();
+    });
+
+    it("only a voice about as loud as the caller's own cuts in (Bluetooth echo, people around: 26.11)", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      const lines: string[] = [];
+      agent.on("line", (l: { text: string }) => lines.push(l.text));
+      const at = (rms: number) => new Int16Array(160).fill(Math.round(rms * 32768));
+      await frames(rtp, at(0.1), 800); // the caller answers, the bot silent: their level is 0.1
+      expect(agent.callerLevel()).toBeCloseTo(0.1, 2);
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await frames(rtp, at(0.035), 900); // a quieter voice (echo / someone near): over 0.02, under half of 0.1
+      expect(agent.queued).toBeGreaterThan(0); // the bot goes on
+      await frames(rtp, at(0.09), 700); // the caller themself
+      expect(agent.queued).toBe(0);
+      expect(lines.some((t) => /bot stopped/.test(t) && /caller 0\.10/.test(t))).toBe(true); // the levels are in the log
+      agent.end();
+    });
+
+    it("before the caller's level is known (the opening): a voice must be twice the plain talking level", async () => {
+      const live = new FakeLive();
+      const agent = new CallAgent({ live, tools: { callTool: async () => ({ ok: true }) }, openAfterSilenceMs: 60_000 });
+      const rtp = new FakeRtp();
+      agent.start(rtp);
+      const at = (rms: number) => new Int16Array(160).fill(Math.round(rms * 32768));
+      live.emit("audio", longAnswer());
+      live.emit("turnComplete");
+      rtp.nextFrame();
+      await frames(rtp, at(0.03), 900);
+      expect(agent.queued).toBeGreaterThan(0);
+      await frames(rtp, at(0.06), 700);
+      expect(agent.queued).toBe(0);
       agent.end();
     });
 

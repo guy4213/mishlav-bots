@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { mixToMono, mp3, wav } from './audio.js';
 import { createDenoiser } from './denoise.js';
 import { CallAgent } from './call-agent.js';
+import { FixedLines } from './fixed-lines.js';
 import { buildSetup, DEFAULT_PHONE_MODEL, DEFAULT_VOICE, GeminiLive, PHONE_VOICES } from './gemini-live.js';
 import { buildInstructions, loadToolDefinitions, ToolsClient } from './mishlav.js';
 import { dialable, maskNumber } from './numbers.js';
@@ -85,6 +86,8 @@ export class PhoneLine extends EventEmitter {
     this.usage = new Map(); // call_id -> Gemini tokens, until the call's 'ended'
     this.seq = 0;
     this.toolDefs = loadToolDefinitions(root);
+    // the fixed "אני שולחת לך עכשיו את הקישור…" in each voice, made once (fixed-lines.js)
+    this.fixed = new FixedLines({ apiKey: env.apiKey, model: env.model, log: (text) => this.log(text, null) });
     mkdirSync(env.logDir, { recursive: true });
     this.logFile = join(env.logDir, 'phone.jsonl');
   }
@@ -131,6 +134,7 @@ export class PhoneLine extends EventEmitter {
       this.ua = null;
       throw new Error(this.error);
     }
+    this.fixed.prepare(e.voice); // ready before the first call needs it
     if (this.answer) {
       this.ua.on('incoming', (call) => this._incoming(call).catch((err) => this.log(`❌ ${err.message}`)));
       this.log(`waiting for calls${e.number ? ` to ${e.number}` : ''}`, null);
@@ -143,9 +147,21 @@ export class PhoneLine extends EventEmitter {
     this.registered = false;
   }
 
-  /** The number of the call on the line now, if it is `callId` (the purchase-link SMS of a scenario call). */
+  /** The number of the call on the line now, if it is `callId` (the purchase-link WhatsApp of a scenario call). */
   numberFor(callId) {
     return this.call && this.call.id === callId ? this.call.number : null;
+  }
+
+  /** An update for the bot on this call (e.g. the WhatsApp link went out); false: not this line's call any more. */
+  notify(callId, text) {
+    const agent = this.call && this.call.id === callId ? this.call.agent : null;
+    agent?.notify(text);
+    return !!agent;
+  }
+
+  /** The first name the bot was given for this call (the WhatsApp link's greeting); null: not this line's call. */
+  nameFor(callId) {
+    return this.call && this.call.id === callId ? (this.call.firstName ?? null) : null;
   }
 
   /** Hang up the running call (from the dashboard). */
@@ -318,6 +334,7 @@ export class PhoneLine extends EventEmitter {
       tools: this.toolDefs,
       temperature: e.temperature,
     });
+    this.fixed.prepare(callVoice); // made while the phone rings, if this voice has none yet
     const customerGender = ctx.variables.customer_gender ?? 'unknown'; // as decided for this call
     const denoiser = e.denoise ? await createDenoiser() : null;
     if (e.denoise && !denoiser) this.log('noise filter (RNNoise) did not load: this call works by volume', callId);
@@ -327,7 +344,9 @@ export class PhoneLine extends EventEmitter {
       openAfterSilenceMs: e.openAfterSilenceMs,
       genderReminder: GENDER_REMINDER[customerGender],
       denoiser,
+      linkSending: () => this.fixed.linkSending(callVoice),
     });
+    if (this.call?.id === callId) this.call.firstName = ctx.variables.first_name;
     this.log(`call ${callId}: scenario ${ctx.scenario ?? '-'}, first_name ${ctx.variables.first_name} (${GENDER_HE[customerGender] ?? customerGender}), day ${ctx.variables.interested_day_id}, voice ${callVoice}, noise filter ${denoiser ? 'on' : 'off'}`, callId);
     return { callId, tools, session, agent, scenario: ctx.scenario };
   }
@@ -335,6 +354,7 @@ export class PhoneLine extends EventEmitter {
   /** Runs a call that is already up on the line (SIP + RTP) to its end. Resolves with the end reason. */
   _run({ call, rtp, prep }) {
     const { callId, tools, session, agent } = prep;
+    if (this.call?.id === callId) this.call.agent = agent; // the server's updates for this call's bot (notify)
     const logDir = this.env.logDir;
     return new Promise((resolveCall) => {
       const transcript = join(logDir, 'transcripts', `${callId}.jsonl`);

@@ -1,3 +1,4 @@
+import type { NotesSummarizer } from "../src/notes";
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -98,6 +99,12 @@ class FakeStore implements ContactStore {
   async saveRecording(callId: string, file: string) {
     this.recordings.push([callId, file]);
   }
+  /** summary lines ADDED to a contact's notes (notes.ts) */
+  summaries: [string, string][] = [];
+  async appendBotSummary(id: string, text: string) {
+    this.log.push(["summary", id]);
+    this.summaries.push([id, text]);
+  }
   /** test calls without a contact (calls rows of their own), and each call's own details */
   testCalls: [string, CallInfo][] = [];
   callInfo: [string, CallInfo][] = [];
@@ -133,7 +140,7 @@ class FakeLine extends EventEmitter {
   recent = [];
 }
 
-async function setup(env: NodeJS.ProcessEnv = {}) {
+async function setup(env: NodeJS.ProcessEnv = {}, summarizeNotes?: NotesSummarizer) {
   const store = new FakeStore();
   const line = new FakeLine();
   const config = testConfig();
@@ -141,6 +148,7 @@ async function setup(env: NodeJS.ProcessEnv = {}) {
     now: () => FIXED_NOW,
     logger: false,
     env,
+    summarizeNotes,
     contacts: store,
     phone: { line: line as never, reason: null },
   });
@@ -190,6 +198,27 @@ describe("Supabase contacts: which record, when", () => {
     expect(nextCallAt).toHaveLength(3);
     expect(nextCallAt.every((t) => t.getTime() > Date.now())).toBe(true);
     expect(limits).toEqual({ noAnswerStreakMax: 4, maxTotalCalls: 8 });
+  });
+
+  it("the bot's notes piled up: at the call's end a summary line is ADDED (after the call's own updates)", async () => {
+    const asked: string[][] = [];
+    const { store, line, post } = await setup({}, async ({ lines }) => (asked.push(lines), ["רוצה מרץ בזום", "נשלח קישור"]));
+    const many = Array.from({ length: 10 }, (_, i) => `[הערת הבוט] ${i}.11.2026 10:00 – ביקש שנחזור אליו מחר, התעניין במרץ בזום`);
+    store.contacts.set(ID, { ...CONTACT, notes: ["ביקש שיחזרו אחרי 16:00", ...many].join("\n") });
+    await post("/test/phone/call", { contact_id: ID });
+    line.emit("ended", { call_id: "call-1", reason: "local" });
+    await settle();
+    expect(store.log.map((l) => l[0])).toEqual(["started", "ended", "summary"]);
+    expect(store.summaries).toEqual([[ID, "✓ רוצה מרץ בזום · ✓ נשלח קישור"]]);
+    expect(asked[0]).toEqual(many); // only the bot's lines - never the rep's note
+  });
+
+  it("short notes: no summary", async () => {
+    const { store, line, post } = await setup({}, async () => ["x"]);
+    await post("/test/phone/call", { contact_id: ID });
+    line.emit("ended", { call_id: "call-1", reason: "local" });
+    await settle();
+    expect(store.summaries).toEqual([]);
   });
 
   it("a contact's call keeps the number it was on (and its scenario) in calls", async () => {

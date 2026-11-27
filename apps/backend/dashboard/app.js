@@ -13,16 +13,17 @@ import reps from "./views/reps.js";
 import studyDays from "./views/study-days.js";
 import results from "./views/results.js";
 import selfTest from "./views/self-test.js";
+import testDialer from "./views/test-dialer.js";
 import testing from "./views/testing.js";
 import users from "./views/users.js";
 
 const VIEWS = [
   { group: "עבודה", items: [overview, contacts, calls, reps, studyDays] },
-  { group: "בדיקות", items: [selfTest, testing, results] },
+  { group: "בדיקות", items: [selfTest, testing, testDialer, results] },
   { group: "מערכת", items: [users, logs, gold] },
 ];
 // who sees a screen (default: everyone)
-const ONLY = { testing: "admin", results: "admin", users: "admin", logs: "admin", gold: "admin", "self-test": "mishlav" };
+const ONLY = { testing: "admin", "test-dialer": "admin", results: "admin", users: "admin", logs: "admin", gold: "admin", "self-test": "mishlav" };
 const allowed = (v) => !ONLY[v.id] || ONLY[v.id] === session.role;
 let ALL = VIEWS.flatMap((g) => g.items);
 // old bookmarks (#tab=phone) from the previous dashboard
@@ -107,7 +108,7 @@ function renderTop() {
     if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
     el.hidden = !html;
   }
-  const foot = env ? `${env.env === "production" ? "שרת פרודקשן (Render)" : "שרת מקומי"} · Supabase ${env.supabase ? "מחובר" : "לא מחובר"} · SMS: ${env.sms_provider === "zadarma" ? "Zadarma" : "לוג בלבד"}` : "";
+  const foot = env ? `${env.env === "production" ? "שרת פרודקשן (Render)" : "שרת מקומי"} · Supabase ${env.supabase ? "מחובר" : "לא מחובר"} · וואטסאפ: ${env.whatsapp_provider === "texter" ? "Texter" : "לא מוגדר"}` : "";
   $("sidebarFoot").textContent = foot;
 }
 

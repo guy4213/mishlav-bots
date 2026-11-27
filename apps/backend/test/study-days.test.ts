@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SupabaseContacts } from "../src/contacts";
 import { buildServer } from "../src/server";
-import { LogOnlySms } from "../src/sms";
+import { LogOnlyWhatsApp } from "../src/whatsapp";
 import { LiveKnowledge, StudyDayExists, type StudyDayRow, type StudyDayStore, type StudyDayWrite } from "../src/study-days";
 import { AUTH, FIXED_NOW, testConfig } from "./helpers";
 
@@ -80,7 +80,7 @@ const FORM = {
 };
 
 async function setup(store?: FakeDays) {
-  const app = await buildServer(testConfig(), { now: () => FIXED_NOW, logger: false, sms: new LogOnlySms(() => {}), studyDays: store });
+  const app = await buildServer(testConfig(), { now: () => FIXED_NOW, logger: false, whatsapp: new LogOnlyWhatsApp(() => {}), studyDays: store });
   const get = (url: string) => app.inject({ method: "GET", url, headers: AUTH });
   const post = (url: string, body?: unknown) => app.inject({ method: "POST", url, headers: AUTH, payload: body ?? {} });
   return { app, get, post };

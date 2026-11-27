@@ -22,7 +22,7 @@ import { parseArgs } from "node:util";
 import { loadAppConfig, loadDotEnv } from "../apps/backend/src/config";
 import { geminiGenderClassifier } from "../apps/backend/src/gender";
 import { buildServer } from "../apps/backend/src/server";
-import { LogOnlySms } from "../apps/backend/src/sms";
+import { LogOnlyWhatsApp } from "../apps/backend/src/whatsapp";
 import { agentPrompt } from "./lib/elevenlabs";
 import { api, scriptEnv, type ScriptEnv } from "./lib/env";
 import { loadScenarios, type Scenario } from "./lib/scenarios";
@@ -305,7 +305,7 @@ async function main() {
   const googleKey = process.env.GOOGLE_API_KEY;
   const app = await buildServer(config, {
     logger: false,
-    sms: new LogOnlySms(() => {}), // a text run never sends an SMS, even with Zadarma keys in .env
+    whatsapp: new LogOnlyWhatsApp(() => {}), // a text run never sends a WhatsApp, even with Texter keys in .env
     classifyGender: googleKey ? geminiGenderClassifier({ apiKey: googleKey }) : undefined,
   });
   await app.listen({ host: "127.0.0.1", port: 0 });

@@ -13,6 +13,7 @@
  * that is not a contact's (a scenario test) has no calls row, so it changes nothing.
  * Gold pulls what the bot changed with goldChanges() (GET /api/gold/changes).
  */
+import type { NotesSummarizer } from "./notes";
 import type { AiUsage, Settings } from "@mishlav/shared";
 import type { Gender } from "./gender";
 import type { LogStore, StoredLogLine } from "./serverlog";
@@ -154,6 +155,8 @@ export interface ContactStore {
   saveTranscript?(callId: string, lines: TranscriptLine[]): Promise<void>;
   /** Uploads the call's recording (an MP3 on this server's disk) to Storage and links it (calls.recording_path). */
   saveRecording?(callId: string, file: string): Promise<void>;
+  /** ADDS the bot's summary line to the contact's Gold notes (notes.ts); nothing is deleted. */
+  appendBotSummary?(goldRecordId: string, text: string): Promise<void>;
   /** Stores the call's Gemini tokens and their cost (calls.ai_usage / ai_cost_usd). */
   saveUsage?(callId: string, usage: AiUsage, costUsd: number | null): Promise<void>;
   /** A test call without a contact (a typed number, "שיחה אליי", an incoming call): a calls row of its own. */
@@ -342,6 +345,9 @@ const FIELDS = `${GOLD_FIELDS},bot_state(*),rep_tasks(reason,callback_at,done,cr
  * every open dashboard on each change (Supabase's free plan counts the traffic). A contact opens with all of it.
  */
 const LIST_GOLD = "gold_record_id,full_name,phone,status,requested_course";
+/** The automatic-dialing test's contacts (TEST-..): kept out of every real list, queue and feed. */
+export const TEST_PREFIX = "TEST-";
+const NOT_TEST = `gold_record_id=not.like.${TEST_PREFIX}*`;
 const LIST_STATE = "bot_status,attempts,no_answer_streak,last_call_at,last_outcome,next_call_at,callback_at,phone_index";
 const LIST_FIELDS = `${LIST_GOLD},bot_state(${LIST_STATE}),rep_tasks(done)`;
 
@@ -432,7 +438,7 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
   }
 
   async list() {
-    const rows = await this.req<ContactRecord[]>("GET", `/contacts?select=${FIELDS}&order=gold_record_id.asc&limit=500`);
+    const rows = await this.req<ContactRecord[]>("GET", `/contacts?select=${FIELDS}&${NOT_TEST}&order=gold_record_id.asc&limit=500`);
     return rows.map(normalise);
   }
 
@@ -440,6 +446,7 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
 
   async contactsPage({ q, status, page, size }: ContactsQuery) {
     const filters = [
+      NOT_TEST, // the automatic-dialing test's contacts are not Gold's leads
       ...(status ? [`bot_state.bot_status=eq.${encodeURIComponent(status)}`] : []),
       ...(q ? [`or=${encodeURIComponent(searchFilter(q))}`] : []),
     ];
@@ -455,7 +462,7 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
       ["last_call_at", "gold_changed_at"].map((col) =>
         this.req<{ gold_record_id: string; bot_status: string; last_call_at: string | null; gold_changed_at: string | null }[]>(
           "GET",
-          `/bot_state?select=gold_record_id,bot_status,last_call_at,gold_changed_at&${col}=not.is.null&order=${col}.desc&limit=${limit}`,
+          `/bot_state?select=gold_record_id,bot_status,last_call_at,gold_changed_at&${col}=not.is.null&${NOT_TEST}&order=${col}.desc&limit=${limit}`,
         ),
       ),
     );
@@ -545,6 +552,10 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     const text = await res.text();
     if (!res.ok) throw new Error(`Supabase Storage ${method} ${path.split("?")[0]}: HTTP ${res.status} ${text.slice(0, 200)}`);
     return text ? (JSON.parse(text) as unknown) : null;
+  }
+
+  async appendBotSummary(goldRecordId: string, text: string) {
+    await this.req("POST", "/rpc/bot_append_summary", { p_id: goldRecordId, p_text: text });
   }
 
   async saveRecording(callId: string, file: string) {
@@ -770,7 +781,7 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
       : "";
     const rows = await this.req<(QueuedContact & { contacts?: unknown })[]>(
       "GET",
-      `/bot_state?select=gold_record_id,bot_status,next_call_at${byCourse}&bot_status=in.(new,queued,callback)` +
+      `/bot_state?select=gold_record_id,bot_status,next_call_at${byCourse}&bot_status=in.(new,queued,callback)&${NOT_TEST}` +
         `&next_call_at=gt.${encodeURIComponent(now.toISOString())}&order=next_call_at.asc,gold_record_id.asc&limit=1`,
     );
     const row = rows[0];
@@ -789,6 +800,45 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
     return this.req<string | null>("POST", "/rpc/bot_mark_duplicate", { p_gold_record_id: goldRecordId, p_number: number });
   }
 
+  // ---- the automatic-dialing test (admins): only the TEST- contacts (supabase/migrations/20261201000000_test_contacts.sql)
+
+  async nextDueTests(now: Date, skip: string[]) {
+    const rows = await this.req<QueuedContact[]>("POST", "/rpc/bot_next_due_tests", { p_now: now.toISOString(), p_skip: skip });
+    return rows[0] ?? null;
+  }
+
+  async nextScheduledTests(now: Date) {
+    const rows = await this.req<QueuedContact[]>(
+      "GET",
+      `/bot_state?select=gold_record_id,bot_status,next_call_at&bot_status=in.(new,queued,callback)&gold_record_id=like.${TEST_PREFIX}*` +
+        `&next_call_at=gt.${encodeURIComponent(now.toISOString())}&order=next_call_at.asc,gold_record_id.asc&limit=1`,
+    );
+    return rows[0] ?? null;
+  }
+
+  /** The test contacts with their state, rep tasks and whole notes (what the bot wrote shows at the end). */
+  async testContacts(): Promise<ContactRecord[]> {
+    const rows = await this.req<ContactRecord[]>(
+      "GET",
+      `/contacts?select=${GOLD_FIELDS},bot_state(*),rep_tasks(reason,callback_at,done,created_at,note)&gold_record_id=like.${TEST_PREFIX}*&order=gold_record_id.asc`,
+    );
+    return rows.map(normalise);
+  }
+
+  /** The 10 test contacts as they start, all on `phone`; returns how many. */
+  resetTests(phone: string) {
+    return this.req<number>("POST", "/rpc/bot_tests_reset", { p_phone: phone });
+  }
+
+  /** The test dialer's calls since `since` (its calls are "manual", on TEST- contacts). */
+  async testCallsSince(since: Date) {
+    const rows = await this.req<unknown[]>(
+      "GET",
+      `/calls?select=call_id&gold_record_id=like.${TEST_PREFIX}*&started_at=gte.${encodeURIComponent(since.toISOString())}`,
+    );
+    return rows.length;
+  }
+
   async callsSince(since: Date, origin: CallOrigin) {
     const rows = await this.req<unknown[]>(
       "GET",
@@ -804,6 +854,8 @@ export class SupabaseContacts implements ContactStore, DialerStore, AdminStore, 
  */
 export class ContactEvents {
   private readonly chains = new Map<string, Promise<unknown>>();
+  /** sums up the bot's notes when they pile up (notes.ts; main.ts: Gemini). None: no summaries */
+  summarizeNotes?: NotesSummarizer;
   constructor(
     readonly store: ContactStore,
     private readonly onError: (callId: string, what: string, err: Error) => void,

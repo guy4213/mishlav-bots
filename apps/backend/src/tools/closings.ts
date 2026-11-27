@@ -9,7 +9,11 @@ import { addDays, dateKey, toLocalParts, type EndCallReason } from "@mishlav/sha
 // a period, not "!": with "!" the bot said "להתראות" rising, like a question (Guy, 24.11)
 export const GOODBYE = "יום נעים, להתראות.";
 
-export const SAY_LINK_SENT = `הקישור נשלח עכשיו במסרון. ${GOODBYE}`;
+// the link goes only by WhatsApp (Mishlav: never by SMS). While it is sent, the phone line itself plays "אני שולחת לך
+// עכשיו את הקישור…" in the bot's voice (apps/phone/src/fixed-lines.js) - the model says nothing before the tool;
+// the tool answers once Texter confirmed it (SAY_LINK_SENT) or failed (SAY_LINK_FAILED)
+export const SAY_LINK_SENT = `הקישור נשלח אליך בוואטסאפ. ${GOODBYE}`;
+export const SAY_LINK_FAILED = `הייתה תקלה בשליחת הקישור, נציג יחזור אליך איתו בהקדם. ${GOODBYE}`;
 export const SAY_HANDED_TO_REP = `העברתי את הבקשה, נציג יחזור בהקדם. ${GOODBYE}`;
 
 export const SAY_END_CALL: Record<Exclude<EndCallReason, "voicemail">, string> = {

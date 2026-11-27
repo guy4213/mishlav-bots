@@ -83,5 +83,7 @@ export class PhoneLine extends EventEmitter {
   hangup(): Promise<boolean>;
   /** The number of the running call, if it is `callId` (else null). */
   numberFor(callId: string): string | null;
+  nameFor(callId: string): string | null;
+  notify(callId: string, text: string): boolean;
   dial(number: string, opts?: CallOptions): Promise<{ call_id: string }>;
 }

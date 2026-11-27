@@ -13,7 +13,7 @@
  * start a call) waits a minute; three in a row turn the dialer off in the database, with the reason.
  */
 import { fromLocal, isWithinBusinessHours, type Settings, toLocalParts } from "@mishlav/shared";
-import { type ContactEvents, type DialerControl, type DialerStore, pickPhone, type QueuedContact, toE164 } from "./contacts";
+import { type CallOrigin, type ContactEvents, type DialerControl, type DialerStore, pickPhone, type QueuedContact, toE164 } from "./contacts";
 import { dialContact } from "./dial";
 import type { PhoneHolder } from "./routes/phone";
 
@@ -57,6 +57,10 @@ export interface DialerDeps {
   transcriptsDir?: string;
   /** it changed a contact without a call (no phone, another phone, a duplicate): the dashboard's push channel */
   onChange?: () => void;
+  /** the calls' origin: "dialer" (default); the test dialer's are "manual" (not counted as the real dialer's) */
+  origin?: CallOrigin;
+  /** the test dialer: works at any hour (the real one only in business hours) */
+  ignoreHours?: boolean;
 }
 
 export const FAILURE_WAIT_MS = 60_000;
@@ -187,7 +191,7 @@ export class Dialer {
       this.failures = 0;
       return idle;
     }
-    if (!isWithinBusinessHours(now, settings.business_hours)) {
+    if (!this.deps.ignoreHours && !isWithinBusinessHours(now, settings.business_hours)) {
       this.state = "outside_hours";
       await this.peekNext(now);
       return idle;
@@ -226,7 +230,7 @@ export class Dialer {
     this.next = due;
 
     // Which phone, and was it called already: the phone at phone_index or the next valid one (a placeholder like
-    // 050-0000000 or an empty phone 1 moves on to phone 2/3, kept in bot_state so the SMS and the reps follow it);
+    // 050-0000000 or an empty phone 1 moves on to phone 2/3, kept in bot_state so the WhatsApp link and the reps follow it);
     // a number already called on another contact (the same person twice in Gold) is not called again.
     try {
       const c = await store.get(due.gold_record_id);
@@ -252,7 +256,7 @@ export class Dialer {
 
     const only = this.deps.onlyNumbers;
     const r = await dialContact({ contacts: this.deps.events, settings, line, transcriptsDir: this.deps.transcriptsDir }, due.gold_record_id, {
-      origin: "dialer",
+      origin: this.deps.origin ?? "dialer",
       allowNumber: only ? (n) => only.has(toE164(n) ?? n) : undefined,
     });
     if (!r.ok) {
@@ -334,7 +338,7 @@ export class Dialer {
     const day = `${p.year}-${p.month}-${p.day}`;
     if (this.countedDay === day) return;
     try {
-      this.callsToday = await this.deps.store.callsSince(fromLocal(p.year, p.month, p.day, 0, 0, tz), "dialer");
+      this.callsToday = await this.deps.store.callsSince(fromLocal(p.year, p.month, p.day, 0, 0, tz), this.deps.origin ?? "dialer");
       this.countedDay = day;
     } catch {
       // keep the last count

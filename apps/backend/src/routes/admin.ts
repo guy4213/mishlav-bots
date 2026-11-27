@@ -1,7 +1,7 @@
 /**
  * The management API behind TOOLS_SECRET (the dashboard, apps/backend/dashboard).
  *
- *   GET  /api/admin/env                 -> which server this is (production / local), line, Supabase, SMS, Gold key
+ *   GET  /api/admin/env                 -> which server this is (production / local), line, Supabase, WhatsApp, Gold key
  *   GET  /api/admin/dialer              -> { ok, available, dialer: DialerStatus | null }
  *   POST /api/admin/dialer/start|stop   {reason?} -> { ok, dialer }   (stop: a call in progress goes on to its end)
  *   GET  /api/admin/summary             -> today's dialer calls, the contacts' funnel, the queue (dashboard_summary)
@@ -16,7 +16,7 @@
  *   GET  /api/admin/rep-tasks?open=1&page= -> rep tasks by callback time, with the contact's name and phone, 50 a page
  * Every paged list answers { total, page, page_size, pages } next to its rows.
  *   POST /api/admin/rep-tasks/:id/done  -> { ok, task }
- *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / SMS / server)
+ *   GET  /api/admin/logs?since=<seq>    -> this server's live log (the phone line + dialer / tools / errors / WhatsApp / server)
  *   GET  /api/admin/logs/history?call_id=&limit= -> the log of earlier server starts (Supabase server_logs, 14 days)
  * Without Supabase the data routes answer 409 no_supabase; a Supabase failure is 502 supabase_error.
  */
@@ -27,9 +27,11 @@ import type { ServerResponse } from "node:http";
 import type { Changes } from "../changes";
 import { type AdminStore, type CallOrigin, type ContactStore, toE164 } from "../contacts";
 import type { Dialer } from "../dialer";
+import type { TestDialer } from "../test-dialer";
 import type { JsonlFile } from "../jsonl";
+import type { KnowledgeBase } from "../knowledge";
 import type { ServerLog } from "../serverlog";
-import type { SmsSender } from "../sms";
+import { linkTemplateValues, type WhatsAppSender } from "../whatsapp";
 import { DEFAULT_VOICE, PHONE_VOICES, VOICE_HE } from "../../../phone/src/voices.js";
 import { CALL_ID, readTranscript } from "../transcripts";
 import type { PhoneHolder } from "./phone";
@@ -38,6 +40,8 @@ import { toolCallsWhere } from "./test";
 export interface AdminRouteDeps {
   /** none without Supabase (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY) */
   dialer?: Dialer;
+  /** the automatic-dialing test on the TEST- contacts (admins only: access.ts doesn't open it to Mishlav) */
+  testDialer?: TestDialer;
   contacts?: ContactStore;
   admin?: AdminStore;
   phone?: PhoneHolder;
@@ -47,7 +51,9 @@ export interface AdminRouteDeps {
   transcriptsDir?: string;
   settings?: Settings;
   env?: NodeJS.ProcessEnv;
-  sms?: SmsSender;
+  whatsapp?: WhatsAppSender;
+  /** the study days (the WhatsApp test sends a real day's link) */
+  knowledge?: () => KnowledgeBase | undefined;
   now?: () => Date;
   /** the push channel: contact updates on this server */
   changes?: Changes;
@@ -91,29 +97,66 @@ export async function registerAdminRoutes(app: FastifyInstance, deps: AdminRoute
       commit: env.RENDER_GIT_COMMIT?.trim().slice(0, 7) || null,
       phone_line: { available: !!line, registered: line?.status().registered ?? false, reason: line ? null : (deps.phone?.reason ?? null) },
       supabase: !!deps.contacts,
-      sms_provider: deps.sms?.provider ?? "log",
+      whatsapp_provider: deps.whatsapp?.provider ?? "log",
       gold_api_key_set: !!env.GOLD_API_KEY?.trim(),
       dialer_only_numbers: !!env.DIALER_ONLY_NUMBERS?.trim(),
       timezone: deps.settings?.business_hours.timezone ?? "Asia/Jerusalem",
     };
   });
 
-  // ---- a test SMS, without a call: checks the provider (Zadarma keys, sender, balance) end to end
-  app.post("/api/admin/sms/test", async (req, reply) => {
-    const body = (req.body ?? {}) as { number?: unknown };
+  // the purchase-link WhatsApp (Texter): the approved template with a real study day, to a number we type
+  app.post("/api/admin/whatsapp/test", async (req, reply) => {
+    const body = (req.body ?? {}) as { number?: unknown; day_id?: unknown; name?: unknown };
     const to = typeof body.number === "string" ? toE164(body.number) : null;
     if (!to) return reply.code(400).send({ ok: false, error: "invalid_number", message_he: "מספר טלפון לא תקין" });
-    if (!deps.sms) return reply.code(409).send({ ok: false, error: "no_sms", message_he: "אין שליחת SMS בשרת הזה" });
-    const r = await deps.sms.send(to, "משלב: הודעת בדיקה מהבוט. אין צורך להשיב.");
+    if (!deps.whatsapp?.live || !deps.settings?.whatsapp) {
+      return reply.code(409).send({ ok: false, error: "no_whatsapp", message_he: "וואטסאפ לא מוגדר בשרת (TEXTER_PROJECT + TEXTER_API_TOKEN ב-Render)" });
+    }
+    const days = [...(deps.knowledge?.()?.days.values() ?? [])].filter((d) => d.purchase_url).sort((a, b) => a.date.localeCompare(b.date));
+    const day = typeof body.day_id === "string" ? days.find((d) => d.id === body.day_id) : days[0];
+    if (!day) return reply.code(409).send({ ok: false, error: "no_day", message_he: "אין יום עיון עם קישור רכישה" });
+    const values = linkTemplateValues(day, typeof body.name === "string" ? body.name : "גיא", deps.settings.whatsapp.url_prefix);
+    if (!values) return reply.code(409).send({ ok: false, error: "link_not_in_template", message_he: "הקישור של היום לא מתחיל בכתובת של הכפתור" });
+    const r = await deps.whatsapp.sendLink(to, values);
     return r.ok
-      ? { ok: true, provider: r.provider, sent: r.sent }
-      : reply.code(502).send({ ok: false, provider: r.provider, error: "sms_failed", message_he: r.error });
+      ? { ok: true, provider: r.provider, day_id: day.id, values }
+      : reply.code(502).send({ ok: false, provider: r.provider, error: "whatsapp_failed", message_he: r.error });
   });
 
   // ---- the automatic dialer
   app.get("/api/admin/dialer", async () =>
     deps.dialer ? { ok: true, available: true, dialer: deps.dialer.status() } : { ok: true, available: false, dialer: null },
   );
+
+  // ---- the automatic-dialing test (admins): the real Dialer on the 10 TEST- contacts, dialing only the admin's phone
+  const noTest = { ok: false, error: "no_test_dialer", message_he: "בדיקת החיוג לא זמינה: Supabase לא מחובר" };
+  const myPhone = (req: { principal: { user: { phone: string } | null } | null }) => req.principal?.user?.phone ?? null;
+  const needPhone = { ok: false, error: "not_a_user", message_he: "צריך להיכנס עם מספר טלפון וסיסמה: הבדיקה מחייגת רק למספר שלך" };
+  app.get("/api/admin/test-dialer", async (_req, reply) => {
+    if (!deps.testDialer) return reply.code(409).send(noTest);
+    try {
+      return { ok: true, status: deps.testDialer.status(), contacts: await deps.testDialer.contacts() };
+    } catch (err) {
+      return supabaseError(reply, err);
+    }
+  });
+  for (const action of ["start", "reset"] as const) {
+    app.post(`/api/admin/test-dialer/${action}`, async (req, reply) => {
+      if (!deps.testDialer) return reply.code(409).send(noTest);
+      const phone = myPhone(req);
+      if (!phone) return reply.code(409).send(needPhone);
+      try {
+        if (action === "start") return { ok: true, status: await deps.testDialer.start(phone) };
+        return { ok: true, reset: await deps.testDialer.reset(phone) };
+      } catch (err) {
+        return reply.code(409).send({ ok: false, error: action, message_he: (err as Error).message });
+      }
+    });
+  }
+  app.post("/api/admin/test-dialer/stop", async (_req, reply) => {
+    if (!deps.testDialer) return reply.code(409).send(noTest);
+    return { ok: true, status: await deps.testDialer.stop() };
+  });
 
   // the pilot's daily limit: admins only (access.ts doesn't open it to Mishlav's users)
   const DailyLimit = z.strictObject({ daily_limit: z.number().int().min(1).max(1000).nullable() });

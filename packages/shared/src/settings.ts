@@ -51,16 +51,14 @@ export const Settings = z.object({
       message: "no_answer_retry needs an entry for every streak below no_answer_streak_max",
       path: ["no_answer_retry"],
     }),
-  /** The purchase-link SMS (send_purchase_link, apps/backend/src/sms.ts). */
-  sms: z.object({
-    /** {day} = the study day in Hebrew (title + dates), {url} = its purchase_url (Supabase study_days). */
-    link_template: z.string().refine((t) => t.includes("{url}"), { message: "link_template needs {url}" }),
-    /**
-     * TEMPORARY, for tests only: when set, sent instead of link_template, without the link ({day} optional). Zadarma
-     * refuses links in SMS to Israel and commercial-looking texts with no approved template; remove it once
-     * Mishlav's own SMS provider is connected.
-     */
-    test_without_link: z.string().optional(),
+  /**
+   * The purchase link - only by WhatsApp, never by SMS (apps/backend/src/whatsapp.ts, Texter; the server needs
+   * TEXTER_PROJECT + TEXTER_API_TOKEN). The template's URL button is url_prefix + {{1}}; {{1}} = the rest of the link.
+   */
+  whatsapp: z.object({
+    template: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+    language: z.string().default("he"),
+    url_prefix: z.url({ protocol: /^https$/ }),
   }),
   outcome_mapping: z.object({
     request_human: z.record(z.enum(REQUEST_HUMAN_REASONS), Outcome),

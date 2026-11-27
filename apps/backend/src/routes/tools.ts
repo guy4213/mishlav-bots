@@ -10,13 +10,15 @@ import type { SessionStore } from "../sessions";
 import { toolHandlers, type ToolContext, type ToolResponse } from "../tools/handlers";
 import type { PhoneHolder } from "./phone";
 
-export interface ToolRouteDeps extends Omit<ToolContext, "recipient"> {
+export interface ToolRouteDeps extends Omit<ToolContext, "recipient" | "recipientName" | "sentDays" | "onLinkFailed"> {
   toolLog: JsonlFile;
   sessions: SessionStore;
   /** Supabase contacts: every tool of a contact's call updates that contact (by call_id) */
   contacts?: ContactEvents;
   /** the phone line: who a scenario call is on (send_purchase_link's recipient) */
   phone?: PhoneHolder;
+  /** the automatic-dialing test's call: callbacks and rep times at any hour (the test runs in the evening too) */
+  anyHourCall?: (callId: string | null) => boolean;
   /** after each tool call (the dashboard's live log) */
   onToolCall?: (callId: string | null, tool: ToolName, ok: boolean, error?: string) => void;
 }
@@ -34,6 +36,34 @@ function callMeta(req: FastifyRequest) {
 export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDeps): Promise<void> {
   const schemas = buildToolInputSchemas({ captureDictatedDetails: deps.settings.testing.capture_dictated_details });
 
+  // the links sent on each call (no second WhatsApp for the same day on the same call); the last 500 calls
+  const sentByCall = new Map<string, Set<string>>();
+  const sentDaysFor = (callId: string | null) => {
+    if (!callId) return undefined;
+    let set = sentByCall.get(callId);
+    if (!set) {
+      set = new Set();
+      sentByCall.set(callId, set);
+      if (sentByCall.size > 500) sentByCall.delete(sentByCall.keys().next().value!);
+    }
+    return set;
+  };
+  // the WhatsApp failed: a rep task with a note, so a person sends the link (the bot says it from the tool's answer)
+  const linkFailed = (callId: string | null) => (error: string, dayHe: string) => {
+    if (!callId || !deps.contacts) return;
+    const note = `הקישור בוואטסאפ לא נשלח (${error}) – לשלוח ללקוח את הקישור`;
+    void deps.contacts.run(callId, "link failed", (s) =>
+      s.toolEvent(callId, "request_human", { reason: "other", note }, { ok: true, status: "handed_to_rep", day_he: dayHe }),
+    );
+  };
+
+  // the test's calls: every hour of every day is "business hours" (only for the callback / rep time)
+  const bh = deps.settings.business_hours;
+  const anyHour = {
+    ...deps.settings,
+    business_hours: { ...bh, days: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as typeof bh.days, open: "00:00", close: "23:59", holidays: [], half_days: [] },
+  };
+
   for (const tool of TOOL_NAMES) {
     app.post(`/tools/${tool}`, async (req) => {
       const started = performance.now();
@@ -42,6 +72,7 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
 
       let response: ToolResponse;
       let recipient: string | null = null;
+      let recipientName: string | null = null;
       if (!parsed.success) {
         response = {
           ok: false,
@@ -51,10 +82,22 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
         };
       } else {
         try {
-          // the SMS recipient comes from the call, never from the bot (the schema has no phone)
-          if (tool === "send_purchase_link") recipient = await recipientFor(deps, callMeta(req).call_id, req);
+          // the WhatsApp recipient comes from the call, never from the bot (the schema has no phone)
+          if (tool === "send_purchase_link") {
+            const callId = callMeta(req).call_id;
+            recipient = await recipientFor(deps, callId, req);
+            recipientName = callId ? (deps.phone?.line?.nameFor?.(callId) ?? null) : null; // the WhatsApp greeting (a line without it: none)
+          }
           const handler = toolHandlers[tool] as (i: unknown, c: ToolContext) => ToolResponse | Promise<ToolResponse>;
-          response = await handler(parsed.data, { ...deps, recipient });
+          const callId = callMeta(req).call_id;
+          response = await handler(parsed.data, {
+            ...deps,
+            ...(deps.anyHourCall?.(callId) ? { settings: anyHour } : {}),
+            recipient,
+            recipientName,
+            sentDays: sentDaysFor(callId),
+            onLinkFailed: linkFailed(callId),
+          });
         } catch (err) {
           req.log.error({ err, tool }, "tool handler failed");
           response = { ok: false, error: "internal_error", message_he: "תקלה זמנית. להציע שנציג יחזור." };
@@ -64,8 +107,10 @@ export async function registerToolRoutes(app: FastifyInstance, deps: ToolRouteDe
       const params = logToolCall(deps, req, tool, body, response, performance.now() - started, recipient);
       const callId = callMeta(req).call_id;
       deps.onToolCall?.(callId, tool, response.ok, response.ok ? undefined : String(response.error));
-      // after the answer is ready, not before: the bot never waits for Supabase
-      if (callId && deps.contacts) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
+      // after the answer is ready, not before: the bot never waits for Supabase. A link already sent on this call isn't
+      // written again
+      const again = response.ok && response.status === "already_sent";
+      if (callId && deps.contacts && !again) void deps.contacts.run(callId, tool, (s) => s.toolEvent(callId, tool, params, response));
       return response;
     });
   }

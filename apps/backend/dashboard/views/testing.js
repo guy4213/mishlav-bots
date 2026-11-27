@@ -48,14 +48,14 @@ export default {
           </div>
           <div class="card" id="phExpect" hidden></div>
           <div class="card">
-            <div class="card-head"><h2>✉️ בדיקת SMS</h2></div>
+            <div class="card-head"><h2>💬 בדיקת וואטסאפ (קישור רכישה)</h2></div>
             <div class="card-body stack">
               <div class="row">
-                <input type="text" id="smsNumber" class="ltr" inputmode="tel" placeholder="0501234567" style="max-width:200px">
-                <button class="btn" id="smsSend">שלח SMS בדיקה</button>
+                <input type="text" id="waNumber" class="ltr" inputmode="tel" placeholder="0501234567" style="max-width:200px">
+                <button class="btn" id="waSend">שלח וואטסאפ בדיקה</button>
               </div>
-              <span class="small" id="smsNote"></span>
-              <p class="small muted" style="margin:0">שולח "משלב: הודעת בדיקה מהבוט" דרך הספק שמוגדר בשרת – בלי שיחה. בודק שהמפתחות של Zadarma, שם השולח והיתרה תקינים.</p>
+              <span class="small" id="waNote"></span>
+              <p class="small muted" style="margin:0">שולח את התבנית המאושרת של Texter עם יום העיון הקרוב שיש לו קישור – בדיוק מה שלקוח יקבל. הקישור נשלח רק בוואטסאפ (לא ב-SMS). צריך TEXTER_PROJECT, TEXTER_API_TOKEN ו-TEXTER_FROM ב-Render.</p>
             </div>
           </div>
         </div>
@@ -70,21 +70,19 @@ export default {
       .then((r) => $("phVoice")?.insertAdjacentHTML("beforeend", r.voices.map((v) => `<option value="${esc(v)}">${esc(v)} – ${esc(r.labels?.[v] ?? "")}</option>`).join("")))
       .catch(() => {}); // no Supabase: the server's voice only
     const reloadGold = mountGoldCard($("phGold"));
-    // a test SMS, without a call
-    $("smsNumber").value = $("smsNumber").value || (() => { try { return localStorage.getItem("mishlav_phone") ?? ""; } catch { return ""; } })();
-    $("smsSend").onclick = async () => {
-      const number = $("smsNumber").value.trim();
-      if (!number) { $("smsNote").textContent = "הכנס מספר"; return; }
-      $("smsSend").disabled = true;
-      $("smsNote").textContent = "שולח…";
+    // a test WhatsApp: the approved template with a real study day and its link, without a call
+    $("waNumber").value = (() => { try { return localStorage.getItem("mishlav_phone") ?? ""; } catch { return ""; } })();
+    $("waSend").onclick = async () => {
+      const number = $("waNumber").value.trim();
+      if (!number) { $("waNote").textContent = "הכנס מספר"; return; }
+      $("waSend").disabled = true;
+      $("waNote").textContent = "שולח…";
       try {
-        const r = await post("/api/admin/sms/test", { number });
-        $("smsNote").innerHTML = r.sent
-          ? `<span style="color:var(--success)">✓ נשלח דרך ${esc(r.provider)} – בדוק את הטלפון</span>`
-          : `<span class="muted">לא נשלח באמת: אין מפתחות Zadarma בשרת (לוג בלבד)</span>`;
+        const r = await post("/api/admin/whatsapp/test", { number });
+        $("waNote").innerHTML = `<span style="color:var(--success)">✓ נשלח (${esc(r.day_id)}) – בדוק את הוואטסאפ</span>`;
       } catch (e) {
-        $("smsNote").innerHTML = `<span style="color:var(--danger)">לא נשלח: ${esc(e.message)}</span>`;
-      } finally { $("smsSend").disabled = false; }
+        $("waNote").innerHTML = `<span style="color:var(--danger)">לא נשלח: ${esc(e.message)}</span>`;
+      } finally { $("waSend").disabled = false; }
     };
 
     // ---- contacts: 5,000+, so the server searches (the first 50 that match, by name); the chosen one is read in full

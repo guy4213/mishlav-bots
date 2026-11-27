@@ -1,3 +1,4 @@
+import type { NotesSummarizer } from "./notes";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LOG_FILES } from "@mishlav/shared";
@@ -21,7 +22,8 @@ import { registerTestRoutes } from "./routes/test";
 import { registerToolRoutes } from "./routes/tools";
 import { type LogStore, pinoText, ServerLog, tapConsole } from "./serverlog";
 import { SessionStore } from "./sessions";
-import { type SmsSender, smsSenderFromEnv } from "./sms";
+import { TestDialer, type TestDialerStore } from "./test-dialer";
+import { type WhatsAppSender, whatsappSenderFromEnv } from "./whatsapp";
 import { LiveKnowledge, type StudyDayStore } from "./study-days";
 import { publicUser, type UserStore, Users } from "./users";
 
@@ -40,13 +42,17 @@ export interface BuildOptions {
   admin?: AdminStore;
   /** Customer gender from the first name before a call (main.ts: Gemini). None: "unknown" (neutral wording). */
   classifyGender?: GenderClassifier;
+  /** Sums up the bot's own Gold notes when they pile up (notes.ts; main.ts: Gemini). None: no summaries. */
+  summarizeNotes?: NotesSummarizer;
   /**
    * The automatic dialer (dialer.ts), with `contacts`: its switch and queue in Supabase (main.ts: the same store).
    * run: start its loop when the server is ready (main.ts only; tests drive it through the routes).
    */
   dialer?: { store: DialerStore; run?: boolean };
-  /** The purchase-link SMS. Default: from the env (ZADARMA_API_KEY + ZADARMA_API_SECRET), else log only. */
-  sms?: SmsSender;
+  /** the automatic-dialing test on the TEST- contacts (test-dialer.ts); off until an admin starts it */
+  testDialer?: { store: TestDialerStore; run?: boolean };
+  /** the purchase link - only by WhatsApp (tests pass a fake). Default: Texter from the environment, else log only */
+  whatsapp?: WhatsAppSender;
   /** Where the dashboard's log is kept, so a deploy doesn't wipe it (main.ts: Supabase server_logs). */
   logStore?: LogStore;
   /**
@@ -224,6 +230,7 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
         },
       )
     : undefined;
+  if (contacts) contacts.summarizeNotes = opts.summarizeNotes;
   const dialer =
     contacts && opts.dialer
       ? new Dialer({
@@ -241,15 +248,37 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
           onChange: () => changes.notify(),
         })
       : undefined;
+  // the automatic-dialing test: the same Dialer, on the TEST- contacts only, dialing only the admin who started it
+  const testDialer =
+    contacts && opts.testDialer
+      ? new TestDialer({
+          store: opts.testDialer.store,
+          events: contacts,
+          phone,
+          settings: config.settings,
+          now,
+          log: (text, kind) => {
+            serverLog.push(kind ?? "dialer", `[test-dialer] ${text}`);
+            app.log.info(`[test-dialer] ${text}`);
+          },
+          transcriptsDir,
+          onChange: () => changes.notify(),
+        })
+      : undefined;
+  if (testDialer && opts.testDialer?.run) {
+    app.addHook("onReady", async () => testDialer.run());
+    app.addHook("onClose", async () => testDialer.shutdown());
+  }
   if (dialer && opts.dialer?.run) {
     app.addHook("onReady", async () => dialer.run());
     app.addHook("onClose", async () => dialer.shutdown()); // the loop only: the switch in the database stays
   }
-  const sms =
-    opts.sms ??
-    smsSenderFromEnv(env, (text) => {
-      serverLog.push("sms", `[sms] ${text}`); // numbers are masked by the sender
-      app.log.info(`[sms] ${text}`);
+  // the purchase link: only by WhatsApp (Texter, with TEXTER_PROJECT + TEXTER_API_TOKEN); never by SMS (Mishlav)
+  const whatsapp =
+    opts.whatsapp ??
+    whatsappSenderFromEnv(env, config.settings.whatsapp, (text) => {
+      serverLog.push("whatsapp", `[whatsapp] ${text}`); // numbers are masked by the sender
+      app.log.info(`[whatsapp] ${text}`);
     });
   await registerToolRoutes(app, {
     knowledge,
@@ -259,8 +288,10 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     sessions,
     contacts,
     phone,
-    sms,
+    whatsapp,
     onToolCall: (callId, tool, ok, error) => serverLog.push(ok ? "tool" : "error", `🔧 ${tool} ${ok ? "✓" : `✗ ${error ?? ""}`}`, callId),
+    // the automatic-dialing test can be run at any hour: its callbacks too
+    anyHourCall: (callId) => testDialer?.isCurrentCall(callId) ?? false,
   });
   await registerTestRoutes(app, {
     sessions,
@@ -286,7 +317,9 @@ export async function buildServer(config: AppConfig, opts: BuildOptions = {}): P
     transcriptsDir,
     settings: config.settings,
     env,
-    sms,
+    testDialer,
+    whatsapp,
+    knowledge: () => knowledge,
     now,
     changes,
   });

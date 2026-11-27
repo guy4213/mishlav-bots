@@ -189,7 +189,7 @@ async function setup(env: NodeJS.ProcessEnv = {}, withStore = true) {
   const store = new FakeStore();
   const line = new FakeLine();
   const config = testConfig();
-  // no `sms`: the sender comes from `env` ({} = log only, nothing is sent) and its lines reach the live log
+  // no `whatsapp`: the sender comes from `env` ({} = log only, nothing is sent) and its lines reach the live log
   const app = await buildServer(config, {
     now: () => FIXED_NOW,
     logger: false,
@@ -224,7 +224,7 @@ describe("management API (/api/admin)", () => {
       commit: "abcdef1",
       phone_line: { available: true, registered: true, reason: null },
       supabase: true,
-      sms_provider: "log",
+      whatsapp_provider: "log",
       gold_api_key_set: true,
       dialer_only_numbers: false,
       timezone: "Asia/Jerusalem",
@@ -381,7 +381,7 @@ describe("management API (/api/admin)", () => {
   it("logs: the line's lines and the server's events in one stream, one sequence, since=", async () => {
     const { get, post, line, store } = await setup();
     line.say("📞 calling +97253***1418…", "call-a");
-    await post("/tools/send_purchase_link", { day_id: DAY }, { "x-call-id": "call-a" }); // SMS (log only) + tool
+    await post("/tools/send_purchase_link", { day_id: DAY }, { "x-call-id": "call-a" }); // WhatsApp (log only: not sent) + tool
     store.failTools = true;
     await post("/tools/get_day_info", { day_id: DAY }, { "x-call-id": "call-a" }); // its Supabase update fails
     await settle();
@@ -391,13 +391,14 @@ describe("management API (/api/admin)", () => {
     expect(all.env).toBe("local");
     const kinds = all.lines.map((l: { kind: string }) => l.kind);
     expect(kinds[0]).toBe("line");
-    expect(kinds).toEqual(expect.arrayContaining(["sms", "tool", "error"]));
+    expect(kinds).toEqual(expect.arrayContaining(["whatsapp", "tool", "error"]));
     expect(kinds.at(-1)).toBe("line");
     expect(all.lines.map((l: { seq: number }) => l.seq)).toEqual(all.lines.map((_: unknown, i: number) => i + 1));
-    const sms = all.lines.find((l: { kind: string }) => l.kind === "sms");
-    expect(sms.text).toContain("+97253***1418"); // masked, never the full number
+    const wa = all.lines.find((l: { kind: string }) => l.kind === "whatsapp");
+    expect(wa.text).toContain("+97253***1418"); // masked, never the full number
     expect(JSON.stringify(all)).not.toContain("534271418");
-    expect(all.lines.find((l: { kind: string }) => l.kind === "error")).toMatchObject({ call_id: "call-a", text: expect.stringContaining("supabase down") });
+    // (the link itself was not sent - no Texter keys - which is an error line too)
+    expect(all.lines.find((l: { kind: string; text: string }) => l.kind === "error" && l.text.includes("supabase down"))).toMatchObject({ call_id: "call-a" });
 
     const later = (await get(`/api/admin/logs?since=${all.seq}`)).json();
     expect(later.lines).toEqual([]);
