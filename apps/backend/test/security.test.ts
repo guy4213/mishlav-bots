@@ -19,7 +19,7 @@ import { mayCall } from "../src/access";
 import { type AdminStore, type ContactStore, searchFilter, SupabaseContacts } from "../src/contacts";
 import { isDashboardFile, NEW_DASHBOARD_DIR, newDashboardHeaders } from "../src/routes/dashboard";
 import { buildServer } from "../src/server";
-import { LogOnlySms } from "../src/sms";
+import { LogOnlyWhatsApp } from "../src/whatsapp";
 import { type DashboardUser, hashPassword, type UserStore, UserExists } from "../src/users";
 import { AUTH, FIXED_NOW, SECRET, testConfig } from "./helpers";
 
@@ -144,7 +144,7 @@ async function setup(opts: { logger?: FastifyServerOptions["logger"] } = {}) {
     now: () => FIXED_NOW,
     logger: opts.logger ?? false,
     env: {},
-    sms: new LogOnlySms(() => {}),
+    whatsapp: new LogOnlyWhatsApp(() => {}),
     users,
     contacts: store as unknown as ContactStore,
     admin: store as unknown as AdminStore,
@@ -210,7 +210,8 @@ const ADMIN = new Set([
   "GET /test/transcript", "POST /test/transcript", "POST /test/livekit/token",
   "POST /test/phone/call", "POST /test/phone/hangup", "GET /test/gold/changes",
   "GET /api/admin/users", "POST /api/admin/users", "POST /api/admin/users/:id", "POST /api/admin/users/:id/password",
-  "GET /api/admin/env", "POST /api/admin/sms/test",
+  "GET /api/admin/env", "POST /api/admin/whatsapp/test",
+  "GET /api/admin/test-dialer", "POST /api/admin/test-dialer/start", "POST /api/admin/test-dialer/reset", "POST /api/admin/test-dialer/stop",
   "POST /api/admin/dialer/limit", "POST /api/admin/dialer/start", "POST /api/admin/dialer/stop",
   "GET /api/admin/voice", "POST /api/admin/voice",
   "GET /api/admin/logs", "GET /api/admin/logs/history",
@@ -245,7 +246,7 @@ const urlFor = (path: string) =>
 
 /**
  * The same server, with every handler replaced by "reached" (299): a request that passes the login and the role
- * check gets 299 and nothing else happens (no dialing, no SMS, no files written), so every route can be tried.
+ * check gets 299 and nothing else happens (no dialing, no WhatsApp, no files written), so every route can be tried.
  */
 async function matrix() {
   const s = await setup();
@@ -349,7 +350,7 @@ describe("who may call what", () => {
   });
 
   it("the Gold API has its own key: refused without it, and TOOLS_SECRET is not that key", async () => {
-    const app = await buildServer(testConfig(), { logger: false, env: { GOLD_API_KEY: "gold-key-0123456789abcdef" }, sms: new LogOnlySms(() => {}) });
+    const app = await buildServer(testConfig(), { logger: false, env: { GOLD_API_KEY: "gold-key-0123456789abcdef" }, whatsapp: new LogOnlyWhatsApp(() => {}) });
     const get = (headers: Record<string, string>) => app.inject({ method: "GET", url: "/api/gold/changes", headers });
     expect((await get({})).statusCode).toBe(401);
     expect((await get({ "x-api-key": "wrong" })).statusCode).toBe(401);
@@ -357,7 +358,7 @@ describe("who may call what", () => {
     expect((await get(AUTH)).statusCode).toBe(401);
     expect((await get({ "x-api-key": "gold-key-0123456789abcdef" })).statusCode).toBe(503); // the key is right; no Supabase here
     // no key set on the server: closed to everyone
-    const closed = await buildServer(testConfig(), { logger: false, env: {}, sms: new LogOnlySms(() => {}) });
+    const closed = await buildServer(testConfig(), { logger: false, env: {}, whatsapp: new LogOnlyWhatsApp(() => {}) });
     expect((await closed.inject({ method: "GET", url: "/api/gold/changes", headers: { "x-api-key": "" } })).statusCode).toBe(503);
   });
 });
@@ -451,7 +452,8 @@ describe("PostgREST injection: text from a request stays text", () => {
       const { store, urls } = recordingStore();
       await store.contactsPage({ q, status: "new", page: 2, size: 50 });
       const p = new URL(urls[0]!).searchParams;
-      expect([...p.keys()].sort(), q.slice(0, 40)).toEqual(["bot_state.bot_status", "limit", "offset", "or", "order", "select"]);
+      expect([...p.keys()].sort(), q.slice(0, 40)).toEqual(["bot_state.bot_status", "gold_record_id", "limit", "offset", "or", "order", "select"]);
+      expect(p.get("gold_record_id")).toBe("not.like.TEST-*"); // fixed in the code: the test-dialer contacts left out
       expect(p.get("or")).toBe(searchFilter(q));
       expect(p.get("bot_state.bot_status")).toBe("eq.new");
       expect(p.get("limit")).toBe("50");
@@ -653,7 +655,7 @@ describe("the dashboard's static files", () => {
   });
 
   it.runIf(existsSync(join(NEW_DASHBOARD_DIR, "index.html")))("the built React dashboard is sent with those headers, and holds no secret", async () => {
-    const app = await buildServer(testConfig(), { logger: false, env: { SUPABASE_URL: "https://abc.supabase.co" }, sms: new LogOnlySms(() => {}) });
+    const app = await buildServer(testConfig(), { logger: false, env: { SUPABASE_URL: "https://abc.supabase.co" }, whatsapp: new LogOnlyWhatsApp(() => {}) });
     const page = await app.inject({ method: "GET", url: "/dashboard-new" });
     expect(page.statusCode).toBe(200);
     expect(page.headers["content-security-policy"]).toContain("script-src 'self'");

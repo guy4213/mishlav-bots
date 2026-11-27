@@ -31,7 +31,7 @@ const BASE = values.base!;
 const OUT = values.out!;
 const SECRET = values.secret!;
 
-const ADMIN_SCREENS = ["overview", "contacts", "calls", "reps", "study-days", "testing", "results", "users", "logs", "gold"];
+const ADMIN_SCREENS = ["overview", "contacts", "calls", "reps", "study-days", "testing", "test-dialer", "results", "users", "logs", "gold"];
 const MISHLAV_SCREENS = ["overview", "contacts", "calls", "reps", "study-days", "self-test"];
 const pickScreens = (all: string[]) => (values.screens ? all.filter((s) => values.screens!.split(",").includes(s)) : all);
 

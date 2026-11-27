@@ -250,7 +250,7 @@ function SidebarFoot() {
   return (
     <>
       {env
-        ? `${env.env === "production" ? "שרת פרודקשן (Render)" : "שרת מקומי"} · Supabase ${env.supabase ? "מחובר" : "לא מחובר"} · SMS: ${env.sms_provider === "zadarma" ? "Zadarma" : "לוג בלבד"}`
+        ? `${env.env === "production" ? "שרת פרודקשן (Render)" : "שרת מקומי"} · Supabase ${env.supabase ? "מחובר" : "לא מחובר"} · וואטסאפ: ${env.whatsapp_provider === "texter" ? "Texter" : "לא מוגדר"}`
         : ""}
     </>
   );

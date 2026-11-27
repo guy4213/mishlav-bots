@@ -1,7 +1,7 @@
 /**
  * בדיקות (admins only; port of views/testing.js): pick a contact (searched by the server: 5,000+) or a number, a
  * scenario, a voice; dial, hang up, follow the transcript and the bot's actions live (every 1.5 s), a "what to expect"
- * card for the chosen scenario, a test SMS, and "what Gold will receive".
+ * card for the chosen scenario, a test WhatsApp (the purchase link), and "what Gold will receive".
  */
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ToolItem } from "../components/Conversation";
@@ -193,10 +193,10 @@ export default function Testing() {
   const [lines, setLines] = useState<TranscriptLine[] | "waiting" | null>(null);
   const [note, setNote] = useState<{ text: string; bad?: boolean }>({ text: "" });
   const [dialing, setDialing] = useState(false);
-  const [sms, setSms] = useState<{ text: string; tone?: "ok" | "bad" | "muted" }>({ text: "" });
-  const [smsBusy, setSmsBusy] = useState(false);
+  const [wa, setWa] = useState<{ text: string; tone?: "ok" | "bad" }>({ text: "" });
+  const [waBusy, setWaBusy] = useState(false);
   const [goldReload, setGoldReload] = useState(0);
-  const smsNumber = useRef<HTMLInputElement>(null);
+  const waNumber = useRef<HTMLInputElement>(null);
   const transcript = useRef<HTMLDivElement>(null);
   // the old closure variables: the manual number kept while a contact is chosen, the latest search
   const st = useRef({ contactWasChosen: false, manualNumber: "", searchSeq: 0, selected: "", chosen: null as Contact | null, callId: null as string | null });
@@ -266,7 +266,7 @@ export default function Testing() {
     get("/test/overview")
       .then((ov) => setScenarios(ov.scenarios))
       .catch(() => {});
-    if (smsNumber.current && !smsNumber.current.value) smsNumber.current.value = savedNumber();
+    if (waNumber.current) waNumber.current.value = savedNumber(); // a test WhatsApp: the number last typed
     void loadRef.current();
     // a call just ended: show the contacts' new statuses
     let wasBusy = false;
@@ -468,49 +468,47 @@ export default function Testing() {
           </div>
           <div className="card">
             <div className="card-head">
-              <h2>✉️ בדיקת SMS</h2>
+              <h2>💬 בדיקת וואטסאפ (קישור רכישה)</h2>
             </div>
             <div className="card-body stack">
               <div className="row">
-                <input type="text" id="smsNumber" className="ltr" inputMode="tel" placeholder="0501234567" style={{ maxWidth: 200 }} ref={smsNumber} />
+                <input type="text" id="waNumber" className="ltr" inputMode="tel" placeholder="0501234567" style={{ maxWidth: 200 }} ref={waNumber} />
                 <button
                   className="btn"
-                  id="smsSend"
-                  disabled={smsBusy}
+                  id="waSend"
+                  disabled={waBusy}
                   onClick={async () => {
-                    const n = smsNumber.current?.value.trim() ?? "";
+                    const n = waNumber.current?.value.trim() ?? "";
                     if (!n) {
-                      setSms({ text: "הכנס מספר" });
+                      setWa({ text: "הכנס מספר" });
                       return;
                     }
-                    setSmsBusy(true);
-                    setSms({ text: "שולח…" });
+                    setWaBusy(true);
+                    setWa({ text: "שולח…" });
                     try {
-                      const r = await post("/api/admin/sms/test", { number: n });
-                      setSms(r.sent ? { text: `✓ נשלח דרך ${r.provider} – בדוק את הטלפון`, tone: "ok" } : { text: "לא נשלח באמת: אין מפתחות Zadarma בשרת (לוג בלבד)", tone: "muted" });
+                      const r = await post("/api/admin/whatsapp/test", { number: n });
+                      setWa({ text: `✓ נשלח (${r.day_id}) – בדוק את הוואטסאפ`, tone: "ok" });
                     } catch (e) {
-                      setSms({ text: `לא נשלח: ${(e as Error).message}`, tone: "bad" });
+                      setWa({ text: `לא נשלח: ${(e as Error).message}`, tone: "bad" });
                     } finally {
-                      setSmsBusy(false);
+                      setWaBusy(false);
                     }
                   }}
                 >
-                  שלח SMS בדיקה
+                  שלח וואטסאפ בדיקה
                 </button>
               </div>
-              <span className="small" id="smsNote">
-                {sms.tone === "ok" ? (
-                  <span style={{ color: "var(--success)" }}>{sms.text}</span>
-                ) : sms.tone === "bad" ? (
-                  <span style={{ color: "var(--danger)" }}>{sms.text}</span>
-                ) : sms.tone === "muted" ? (
-                  <span className="muted">{sms.text}</span>
+              <span className="small" id="waNote">
+                {wa.tone === "ok" ? (
+                  <span style={{ color: "var(--success)" }}>{wa.text}</span>
+                ) : wa.tone === "bad" ? (
+                  <span style={{ color: "var(--danger)" }}>{wa.text}</span>
                 ) : (
-                  sms.text
+                  wa.text
                 )}
               </span>
               <p className="small muted" style={{ margin: 0 }}>
-                שולח "משלב: הודעת בדיקה מהבוט" דרך הספק שמוגדר בשרת – בלי שיחה. בודק שהמפתחות של Zadarma, שם השולח והיתרה תקינים.
+                שולח את התבנית המאושרת של Texter עם יום העיון הקרוב שיש לו קישור – בדיוק מה שלקוח יקבל. הקישור נשלח רק בוואטסאפ (לא ב-SMS). צריך TEXTER_PROJECT, TEXTER_API_TOKEN ו-TEXTER_FROM ב-Render.
               </p>
             </div>
           </div>

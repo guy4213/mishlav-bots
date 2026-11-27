@@ -1,6 +1,6 @@
 /**
  * לוגים (admins only; port of views/logs.js): the live log of the server this page is connected to (the phone line +
- * dialer, tools, errors, SMS), every 1.5 s, and the lines of earlier server starts from the database (faint).
+ * dialer, tools, errors, WhatsApp), every 1.5 s, and the lines of earlier server starts from the database (faint).
  * What was read is kept across screens (coming back shows it) and forgotten at a 401 or a logout (resetLogs).
  * As the old screen, it keeps asking while the tab is in the background (listed to change after the move).
  */
@@ -16,7 +16,7 @@ const KINDS: [string, string][] = [
   ["dialer", "חיוג"],
   ["tool", "כלים"],
   ["error", "שגיאות"],
-  ["sms", "SMS"],
+  ["whatsapp", "וואטסאפ"],
   ["server", "שרת"],
 ];
 const KEEP = 3000;

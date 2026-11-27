@@ -41,7 +41,7 @@ export interface Env {
   commit: string | null;
   phone_line: { available: boolean; registered: boolean; reason: string | null };
   supabase: boolean;
-  sms_provider: string;
+  whatsapp_provider: string;
   gold_api_key_set: boolean;
   dialer_only_numbers: boolean;
   timezone: string;

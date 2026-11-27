@@ -175,16 +175,21 @@ export class DemoStore implements ContactStore, AdminStore, DialerStore, StudyDa
     return s;
   }
 
+  /** the real ones and the test ones (a call or a tool on a TEST- contact updates it) */
+  private all() {
+    return [...this.contacts, ...this.tests];
+  }
+
   // ---- ContactStore
   async list() {
     return this.contacts.slice(0, 500);
   }
   async get(id: string) {
-    const c = this.contacts.find((x) => x.gold_record_id === id);
+    const c = this.all().find((x) => x.gold_record_id === id);
     return c ? { ...c, rep_tasks: this.tasks.filter((t) => t.gold_record_id === id) } : null;
   }
   async callStarted(callId: string, goldRecordId: string, origin: CallOrigin = "manual") {
-    const c = this.contacts.find((x) => x.gold_record_id === goldRecordId);
+    const c = this.all().find((x) => x.gold_record_id === goldRecordId);
     this.calls_.unshift({
       call_id: callId, gold_record_id: goldRecordId, started_at: iso(Date.now()), duration_sec: null, outcome: null, reason: null, summary: null,
       answered: false, origin, ai_cost_usd: null, recording_path: null, number: c?.phone ? e164(c.phone) : null, contact_name: null, direction: "out",
@@ -206,7 +211,7 @@ export class DemoStore implements ContactStore, AdminStore, DialerStore, StudyDa
   async toolEvent(callId: string, tool: string, params: unknown) {
     const call = this.calls_.find((x) => x.call_id === callId);
     if (!call?.gold_record_id) return null;
-    const c = this.contacts.find((x) => x.gold_record_id === call.gold_record_id);
+    const c = this.all().find((x) => x.gold_record_id === call.gold_record_id);
     if (tool === "request_human" && c) {
       const p = params as { reason?: string; note?: string };
       this.tasks.unshift({
@@ -223,7 +228,7 @@ export class DemoStore implements ContactStore, AdminStore, DialerStore, StudyDa
     if (!call) return null;
     call.duration_sec = Math.round(durationSec);
     call.answered = !!call.transcript?.some((l) => l.role === "user") || call.answered;
-    const c = this.contacts.find((x) => x.gold_record_id === call.gold_record_id);
+    const c = this.all().find((x) => x.gold_record_id === call.gold_record_id);
     if (c?.bot_state) {
       const b = c.bot_state;
       b.attempts++;
@@ -346,7 +351,7 @@ export class DemoStore implements ContactStore, AdminStore, DialerStore, StudyDa
       .filter((t) => !openOnly || !t.done)
       .sort((a, b) => Number(a.done) - Number(b.done) || (a.callback_at ?? "").localeCompare(b.callback_at ?? ""));
     const withWho = rows.map((t) => {
-      const c = this.contacts.find((x) => x.gold_record_id === t.gold_record_id);
+      const c = this.all().find((x) => x.gold_record_id === t.gold_record_id);
       return { ...t, full_name: c?.full_name ?? null, phone: c?.phone ?? null };
     });
     return { tasks: withWho.slice((page - 1) * size, page * size), total: rows.length };
@@ -380,12 +385,12 @@ export class DemoStore implements ContactStore, AdminStore, DialerStore, StudyDa
     return c ? { gold_record_id: c.gold_record_id, bot_status: c.bot_state!.bot_status, next_call_at: c.bot_state!.next_call_at } : null;
   }
   async markNoPhone(id: string) {
-    const c = this.contacts.find((x) => x.gold_record_id === id);
+    const c = this.all().find((x) => x.gold_record_id === id);
     if (c?.bot_state) c.bot_state.bot_status = "wrong_number";
     return c?.bot_state?.bot_status ?? null;
   }
   async usePhone(id: string, index: number) {
-    const c = this.contacts.find((x) => x.gold_record_id === id);
+    const c = this.all().find((x) => x.gold_record_id === id);
     if (c?.bot_state) c.bot_state.phone_index = index;
   }
   async markDuplicate() {
@@ -393,6 +398,34 @@ export class DemoStore implements ContactStore, AdminStore, DialerStore, StudyDa
   }
   async callsSince(since: Date, origin: CallOrigin) {
     return this.calls_.filter((c) => c.origin === origin && c.started_at >= since.toISOString()).length;
+  }
+
+
+  // ---- the automatic-dialing test (TestDialerStore): 10 made-up TEST- contacts, as the migration makes them
+  tests: ContactRecord[] = [];
+  async resetTests(phone: string) {
+    const p = phone.replace(/^\+972/, "0");
+    this.tests = Array.from({ length: 10 }, (_, i) => ({
+      gold_record_id: `TEST-${String(i + 1).padStart(2, "0")}`, national_id: null, company: null, full_name: `לקוח דמה ${i + 1}`, email: null,
+      phone: p, phone2: null, phone3: null, notes: i % 3 === 0 ? "[הערת הבוט] ביקש שנחזור אחרי החגים (נתון מומצא)" : null, city: null, address: null,
+      address2: null, department: null, requested_course: DEMO_COURSE, source: "בדיקה", status: null,
+      bot_state: { bot_status: "new", attempts: 0, no_answer_streak: 0, ever_answered: false, next_call_at: null, callback_at: null, last_call_at: null,
+        last_outcome: null, interested_day_id: null, customer_gender: null, phone_index: 1, gold_changed_at: null },
+    }));
+    return this.tests.length;
+  }
+  async testContacts() {
+    return this.tests.map((c) => ({ ...c, rep_tasks: this.tasks.filter((t) => t.gold_record_id === c.gold_record_id) }));
+  }
+  async nextDueTests(now: Date, skip: string[]): Promise<QueuedContact | null> {
+    const c = this.tests.find((x) => ["new", "queued", "callback"].includes(x.bot_state!.bot_status) && !skip.includes(x.gold_record_id) && (!x.bot_state!.next_call_at || x.bot_state!.next_call_at <= now.toISOString()));
+    return c ? { gold_record_id: c.gold_record_id, bot_status: c.bot_state!.bot_status, next_call_at: c.bot_state!.next_call_at } : null;
+  }
+  async nextScheduledTests(_now: Date): Promise<QueuedContact | null> {
+    return null;
+  }
+  async testCallsSince(since: Date) {
+    return this.calls_.filter((c) => c.gold_record_id?.startsWith("TEST-") && c.started_at >= since.toISOString()).length;
   }
 
   // ---- StudyDayStore
@@ -441,7 +474,7 @@ export class DemoStore implements ContactStore, AdminStore, DialerStore, StudyDa
   async appendLogs(_lines: StoredLogLine[]) {}
   async logHistory({ limit }: { excludeBoot: string; callId?: string; limit: number }) {
     const t = Date.now() - 2 * 3600_000;
-    const kinds = ["server", "dialer", "line", "tool", "sms", "error"] as const;
+    const kinds = ["server", "dialer", "line", "tool", "whatsapp", "error"] as const;
     return Array.from({ length: Math.min(limit, 30) }, (_, i) => ({
       boot: "demo-earlier-boot",
       seq: i + 1,

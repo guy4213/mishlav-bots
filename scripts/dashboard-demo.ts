@@ -2,7 +2,7 @@
  * The dashboard on invented data:  npm run dashboard:demo
  *
  * The real server code (buildServer) with in-memory stores (scripts/lib/demo-store.ts) instead of Supabase, a phone
- * line that only pretends, and SMS to the log only - no .env is read, nothing leaves this machine (except the browser
+ * line that only pretends, and WhatsApp to the log only - no .env is read, nothing leaves this machine (except the browser
  * fetching the Rubik font from Google Fonts). Listens on 127.0.0.1 only. Both dashboards run on it:
  *   old: http://127.0.0.1:8799/dashboard        new: http://127.0.0.1:8799/dashboard-new
  * Log in with the key printed below (#k=...), or as a user: admin 0500000001 / demo-admin-pass, Mishlav 0500000002 /
@@ -18,7 +18,7 @@ import { parseArgs } from "node:util";
 import { findRepoRoot, loadSettings } from "@mishlav/shared";
 import type { AppConfig } from "../apps/backend/src/config";
 import { buildServer } from "../apps/backend/src/server";
-import { LogOnlySms } from "../apps/backend/src/sms";
+import { LogOnlyWhatsApp } from "../apps/backend/src/whatsapp";
 import { DemoLine, DemoStore } from "./lib/demo-store";
 import { DEMO_PASSWORDS, DEMO_PHONES } from "./lib/demo-users";
 
@@ -44,11 +44,12 @@ export async function startDemo(port: number) {
   const app = await buildServer(config, {
     logger: { level: "warn" },
     env: { SUPABASE_URL: "https://demo.invalid" }, // nothing from the real environment
-    sms: new LogOnlySms(() => {}),
+    whatsapp: new LogOnlyWhatsApp(() => {}), // nothing is ever sent
     phone,
     contacts: store,
     admin: store,
     dialer: { store, run: true },
+    testDialer: { store, run: true },
     logStore: store,
     studyDays: store,
     users: store,

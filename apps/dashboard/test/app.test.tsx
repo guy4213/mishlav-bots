@@ -79,7 +79,7 @@ describe("what a Mishlav user sees and asks for", () => {
     installServer(standardServer(ADMIN_ME));
     await boot();
     expect([...document.querySelectorAll<HTMLAnchorElement>("#nav a")].map((a) => a.dataset.id)).toEqual([
-      "overview", "contacts", "calls", "reps", "study-days", "testing", "results", "users", "logs", "gold",
+      "overview", "contacts", "calls", "reps", "study-days", "testing", "test-dialer", "results", "users", "logs", "gold",
     ]);
     await waitFor(() => expect(document.querySelector("#dialerStart")).not.toBeNull());
     await waitFor(() => expect(document.querySelector("#ovVoice .card-body")).not.toBeNull());

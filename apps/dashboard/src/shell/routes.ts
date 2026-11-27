@@ -14,6 +14,7 @@ import Reps from "../views/Reps";
 import Results from "../views/Results";
 import SelfTest from "../views/SelfTest";
 import StudyDays from "../views/StudyDays";
+import TestDialer from "../views/TestDialer";
 import Testing from "../views/Testing";
 import Users from "../views/Users";
 
@@ -40,6 +41,7 @@ export const VIEWS: { group: string; items: View[] }[] = [
     items: [
       { id: "self-test", title: "שיחת בדיקה אליי", icon: "phone", Component: SelfTest },
       { id: "testing", title: "בדיקות", icon: "flask", Component: Testing },
+      { id: "test-dialer", title: "בדיקות חיוג אוטומטי", icon: "flask", Component: TestDialer },
       { id: "results", title: "התקדמות ותוצאות", icon: "chart", Component: Results },
     ],
   },
@@ -54,7 +56,7 @@ export const VIEWS: { group: string; items: View[] }[] = [
 ];
 
 /** who sees a screen (default: everyone) */
-export const ONLY: Record<string, Role> = { testing: "admin", results: "admin", users: "admin", logs: "admin", gold: "admin", "self-test": "mishlav" };
+export const ONLY: Record<string, Role> = { testing: "admin", "test-dialer": "admin", results: "admin", users: "admin", logs: "admin", gold: "admin", "self-test": "mishlav" };
 export const allowed = (id: string, role: Role | null) => !ONLY[id] || ONLY[id] === role;
 
 /** old bookmarks (#tab=phone) from the previous dashboard */
